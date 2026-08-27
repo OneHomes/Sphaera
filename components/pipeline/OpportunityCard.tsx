@@ -1,18 +1,24 @@
 "use client";
 
-import { UserCog } from "lucide-react";
+import { UserCog, UserPlus } from "lucide-react";
 import type { Opportunity } from "@/lib/pipelineData";
 import { formatMoney } from "@/lib/pipelineData";
 
 export function OpportunityCard({
   opportunity,
+  currentUserId,
   onDragStart,
   onRequestApproval,
+  onAssignToMe,
 }: {
   opportunity: Opportunity;
+  currentUserId: string;
   onDragStart: (e: React.DragEvent<HTMLDivElement>, id: string) => void;
   onRequestApproval: (opportunity: Opportunity) => void;
+  onAssignToMe: (opportunity: Opportunity) => void;
 }) {
+  const isAssignedToMe = opportunity.assignedUserId === currentUserId;
+
   return (
     <div
       draggable
@@ -55,13 +61,35 @@ export function OpportunityCard({
         <span className="text-[11px] text-ink-300">
           Next: {opportunity.nextAction}
         </span>
-        <button
-          onClick={() => onRequestApproval(opportunity)}
-          title="Request manager approval"
-          className="text-ink-500 hover:text-ink-300"
-        >
-          <UserCog className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onRequestApproval(opportunity)}
+            title="Request manager approval"
+            className="text-ink-500 hover:text-ink-300"
+          >
+            <UserCog className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-1.5 text-[11px]">
+        {opportunity.assignedUserName ? (
+          <span
+            className={
+              isAssignedToMe ? "text-status-active" : "text-ink-500"
+            }
+          >
+            Assigned: {opportunity.assignedUserName}
+          </span>
+        ) : (
+          <button
+            onClick={() => onAssignToMe(opportunity)}
+            className="flex items-center gap-1 text-ink-500 hover:text-ink-300"
+          >
+            <UserPlus className="h-3 w-3" />
+            Assign to me
+          </button>
+        )}
       </div>
     </div>
   );

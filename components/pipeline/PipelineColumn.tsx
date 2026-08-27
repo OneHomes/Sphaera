@@ -14,15 +14,19 @@ const stageAccent: Partial<Record<OpportunityStage, string>> = {
 export function PipelineColumn({
   stage,
   opportunities,
+  currentUserId,
   onDrop,
   onDragStart,
   onRequestApproval,
+  onAssignToMe,
 }: {
   stage: OpportunityStage;
   opportunities: Opportunity[];
+  currentUserId: string;
   onDrop: (stage: OpportunityStage, id: string) => void;
   onDragStart: (e: React.DragEvent<HTMLDivElement>, id: string) => void;
   onRequestApproval: (opportunity: Opportunity) => void;
+  onAssignToMe: (opportunity: Opportunity) => void;
 }) {
   const [isOver, setIsOver] = useState(false);
   const totalValue = opportunities.reduce((sum, o) => sum + o.value, 0);
@@ -61,8 +65,10 @@ export function PipelineColumn({
           <OpportunityCard
             key={opp.id}
             opportunity={opp}
+            currentUserId={currentUserId}
             onDragStart={onDragStart}
             onRequestApproval={onRequestApproval}
+            onAssignToMe={onAssignToMe}
           />
         ))}
         {opportunities.length === 0 && (

@@ -40,6 +40,8 @@ export type Opportunity = {
   nextAction: string;
   stage: OpportunityStage;
   lossReason?: string;
+  assignedUserId?: string;
+  assignedUserName?: string;
 };
 
 export const initialOpportunities: Opportunity[] = [

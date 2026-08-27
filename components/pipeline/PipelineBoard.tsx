@@ -2,20 +2,26 @@
 
 import { useState } from "react";
 import {
-  initialOpportunities,
   pipelineStages,
   type Opportunity,
   type OpportunityStage,
 } from "@/lib/pipelineData";
 import { PipelineColumn } from "./PipelineColumn";
 import { LossReasonModal } from "./LossReasonModal";
+import { PipelineInsight } from "./PipelineInsight";
 
 type PendingLossMove = {
   opportunityId: string;
   leadName: string;
 };
 
-export function PipelineBoard() {
+export function PipelineBoard({
+  initialOpportunities,
+  currentUserId,
+}: {
+  initialOpportunities: Opportunity[];
+  currentUserId: string;
+}) {
   const [opportunities, setOpportunities] = useState<Opportunity[]>(
     initialOpportunities
   );
@@ -29,7 +35,15 @@ export function PipelineBoard() {
     e.dataTransfer.setData("text/plain", id);
   }
 
-  function moveOpportunity(
+  async function refetchFromServer() {
+    const res = await fetch(`/api/opportunities`);
+    if (res.ok) {
+      const fresh: Opportunity[] = await res.json();
+      setOpportunities(fresh);
+    }
+  }
+
+  async function moveOpportunity(
     id: string,
     stage: OpportunityStage,
     lossReason?: string
@@ -45,9 +59,52 @@ export function PipelineBoard() {
           : o
       )
     );
-    // TODO: on real move, call the stage-update API (PRD Section 4.3
-    // "Closed Revenue Loop" — this should also update AEX event stream
-    // and trigger any downstream Janus/notification hooks.
+
+    try {
+      const res = await fetch(`/api/opportunities/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage,
+          ...(stage === "Closed Lost" ? { lossReason } : {}),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to update stage");
+    } catch (err) {
+      console.error(err);
+      refetchFromServer();
+    }
+  }
+
+  async function handleAssignToMe(opportunity: Opportunity) {
+    setOpportunities((prev) =>
+      prev.map((o) =>
+        o.id === opportunity.id
+          ? { ...o, assignedUserId: currentUserId, assignedUserName: "You" }
+          : o
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/opportunities/${opportunity.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedUserId: currentUserId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to assign opportunity");
+      }
+      refetchFromServer(); // pick up the real assignedUserName from the server
+    } catch (err) {
+      // PRD R08 (fair allocation): capacity caps and "already claimed"
+      // races surface a real, actionable reason here rather than
+      // failing silently.
+      window.alert(
+        err instanceof Error ? err.message : "Failed to assign opportunity"
+      );
+      refetchFromServer();
+    }
   }
 
   function handleDrop(targetStage: OpportunityStage, id: string) {
@@ -84,15 +141,18 @@ export function PipelineBoard() {
       </div>
 
       <div className="flex-1 overflow-x-auto p-6">
+        <PipelineInsight />
         <div className="flex gap-3">
           {pipelineStages.map((stage) => (
             <PipelineColumn
               key={stage}
               stage={stage}
               opportunities={opportunities.filter((o) => o.stage === stage)}
+              currentUserId={currentUserId}
               onDrop={handleDrop}
               onDragStart={handleDragStart}
               onRequestApproval={handleRequestApproval}
+              onAssignToMe={handleAssignToMe}
             />
           ))}
         </div>

@@ -1,26 +1,56 @@
-import { Trophy, Flame, Award, Target, History } from "lucide-react";
+import { Trophy, Flame, Award, History } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ChallengePicker } from "./ChallengePicker";
 import type { Tier } from "@/lib/businessActivityData";
-import {
-  pointsHistory,
-  badges,
-  streaks,
-  challenges,
-  leaderboard,
-  currentUserProgress,
-} from "@/lib/aexData";
-
+import { JanusCoachingCard } from "./JanusCoachingCard";
 const tierStyles: Record<Tier, string> = {
   Gold: "bg-tier-gold/15 text-tier-gold",
   Silver: "bg-tier-silver/15 text-tier-silver",
   Bronze: "bg-tier-bronze/15 text-tier-bronze",
 };
 
-function TierProgressCard() {
-  const { tier, points, pointsToNextTier, nextTier } = currentUserProgress;
+export type AexBadge = {
+  id: string;
+  name: string;
+  description: string;
+  earned: boolean;
+};
+
+export type AexStreak = {
+  id: string;
+  label: string;
+  currentCount: number;
+  resetRule: string;
+};
+
+export type AexPointEvent = {
+  id: string;
+  label: string;
+  points: number;
+  timestamp: string;
+};
+
+export type AexLeaderboardRow = {
+  rank: number;
+  id: string;
+  name: string;
+  tier: Tier;
+  points: number;
+};
+
+function TierProgressCard({
+  tier,
+  points,
+  nextTier,
+  pointsToNextTier,
+}: {
+  tier: Tier;
+  points: number;
+  nextTier: Tier | null;
+  pointsToNextTier: number;
+}) {
   const total = points + pointsToNextTier;
-  const percent = Math.round((points / total) * 100);
+  const percent = total > 0 ? Math.round((points / total) * 100) : 100;
 
   return (
     <WidgetCard title="Your tier progress" icon={Trophy}>
@@ -30,9 +60,11 @@ function TierProgressCard() {
         >
           {tier}
         </span>
-        <span className="text-xs text-ink-500">
-          {pointsToNextTier} pts to {nextTier}
-        </span>
+        {nextTier && (
+          <span className="text-xs text-ink-500">
+            {pointsToNextTier} pts to {nextTier}
+          </span>
+        )}
       </div>
       <div className="mt-3 h-2 w-full rounded-full bg-base-700">
         <div
@@ -41,14 +73,13 @@ function TierProgressCard() {
         />
       </div>
       <p className="mt-2 text-xs text-ink-500">
-        {points.toLocaleString()} / {total.toLocaleString()} points this
-        period
+        {points.toLocaleString()} points total
       </p>
     </WidgetCard>
   );
 }
 
-function BadgesGrid() {
+function BadgesGrid({ badges }: { badges: AexBadge[] }) {
   return (
     <WidgetCard title="Badges" icon={Award}>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -56,26 +87,23 @@ function BadgesGrid() {
           <div
             key={badge.id}
             title={badge.description}
-            className={`rounded-lg border p-2.5 text-center ${
-              badge.earned
-                ? "border-status-active/30 bg-status-active/10"
-                : "border-base-700 bg-base-800 opacity-50"
-            }`}
+            className="rounded-lg border border-status-active/30 bg-status-active/10 p-2.5 text-center"
           >
-            <Award
-              className={`mx-auto h-5 w-5 ${
-                badge.earned ? "text-status-active" : "text-ink-500"
-              }`}
-            />
+            <Award className="mx-auto h-5 w-5 text-status-active" />
             <p className="mt-1.5 text-[11px] text-ink-300">{badge.name}</p>
           </div>
         ))}
+        {badges.length === 0 && (
+          <p className="col-span-full py-3 text-center text-xs text-ink-500">
+            No badges earned yet
+          </p>
+        )}
       </div>
     </WidgetCard>
   );
 }
 
-function StreaksCard() {
+function StreaksCard({ streaks }: { streaks: AexStreak[] }) {
   return (
     <WidgetCard title="Streaks" icon={Flame}>
       <div className="space-y-3">
@@ -92,47 +120,21 @@ function StreaksCard() {
             </p>
           </div>
         ))}
+        {streaks.length === 0 && (
+          <p className="py-3 text-center text-xs text-ink-500">
+            No active streaks yet
+          </p>
+        )}
       </div>
     </WidgetCard>
   );
 }
 
-function ChallengesList() {
-  return (
-    <WidgetCard title="Challenges" icon={Target}>
-      <div className="space-y-4">
-        {challenges.map((challenge) => {
-          const percent = Math.round(
-            (challenge.progress / challenge.target) * 100
-          );
-          return (
-            <div key={challenge.id}>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-ink-50">{challenge.title}</span>
-                <span className="text-ink-500">Ends in {challenge.endsIn}</span>
-              </div>
-              <div className="mt-1.5 h-1.5 w-full rounded-full bg-base-700">
-                <div
-                  className="h-1.5 rounded-full bg-status-active"
-                  style={{ width: `${percent}%` }}
-                />
-              </div>
-              <p className="mt-1 text-[11px] text-ink-500">
-                {challenge.progress} / {challenge.target} {challenge.metric}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-    </WidgetCard>
-  );
-}
-
-function PointsHistoryTable() {
+function PointsHistoryTable({ pointEvents }: { pointEvents: AexPointEvent[] }) {
   return (
     <WidgetCard title="Recent points" icon={History}>
       <div className="space-y-2">
-        {pointsHistory.map((event) => (
+        {pointEvents.map((event) => (
           <div
             key={event.id}
             className="flex items-center justify-between text-xs"
@@ -146,12 +148,21 @@ function PointsHistoryTable() {
             </span>
           </div>
         ))}
+        {pointEvents.length === 0 && (
+          <p className="py-3 text-center text-xs text-ink-500">
+            No point events yet
+          </p>
+        )}
       </div>
     </WidgetCard>
   );
 }
 
-function LeaderboardTable() {
+function LeaderboardTable({
+  leaderboard,
+}: {
+  leaderboard: AexLeaderboardRow[];
+}) {
   return (
     <WidgetCard title="Team leaderboard" icon={Trophy}>
       <table className="w-full text-left text-xs">
@@ -161,12 +172,11 @@ function LeaderboardTable() {
             <th className="pb-2 font-normal">Agent</th>
             <th className="pb-2 font-normal">Tier</th>
             <th className="pb-2 font-normal text-right">Points</th>
-            <th className="pb-2 font-normal text-right">PI</th>
           </tr>
         </thead>
         <tbody>
           {leaderboard.map((row) => (
-            <tr key={row.rank} className="border-t border-base-700 text-ink-300">
+            <tr key={row.id} className="border-t border-base-700 text-ink-300">
               <td className="py-2 text-ink-500">{row.rank}</td>
               <td className="py-2 font-medium text-ink-50">{row.name}</td>
               <td className="py-2">
@@ -177,16 +187,39 @@ function LeaderboardTable() {
                 </span>
               </td>
               <td className="py-2 text-right">{row.points.toLocaleString()}</td>
-              <td className="py-2 text-right">{row.pi}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {leaderboard.length <= 1 && (
+        <p className="mt-2 text-[10px] text-ink-500">
+          Leaderboard fills in as more team members sign in — this reflects
+          real signed-in users, not mock agents.
+        </p>
+      )}
     </WidgetCard>
   );
 }
 
-export function AexDashboard() {
+export function AexDashboard({
+  tier,
+  points,
+  nextTier,
+  pointsToNextTier,
+  badges,
+  streaks,
+  pointEvents,
+  leaderboard,
+}: {
+  tier: Tier;
+  points: number;
+  nextTier: Tier | null;
+  pointsToNextTier: number;
+  badges: AexBadge[];
+  streaks: AexStreak[];
+  pointEvents: AexPointEvent[];
+  leaderboard: AexLeaderboardRow[];
+}) {
   return (
     <div className="p-6">
       <h1 className="mb-1 text-xl font-semibold text-ink-50">AEX</h1>
@@ -195,13 +228,18 @@ export function AexDashboard() {
       </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <TierProgressCard />
-        <StreaksCard />
-        <ChallengesList />
-        <ChallengePicker />
-        <BadgesGrid />
-        <PointsHistoryTable />
-        <LeaderboardTable />
+        <TierProgressCard
+          tier={tier}
+          points={points}
+          nextTier={nextTier}
+          pointsToNextTier={pointsToNextTier}
+        />
+        <StreaksCard streaks={streaks} />
+        <ChallengePicker leaderboard={leaderboard} />
+        <JanusCoachingCard />
+        <BadgesGrid badges={badges} />
+        <PointsHistoryTable pointEvents={pointEvents} />
+        <LeaderboardTable leaderboard={leaderboard} />
       </div>
     </div>
   );

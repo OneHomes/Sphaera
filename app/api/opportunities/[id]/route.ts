@@ -1,0 +1,110 @@
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { toUiOpportunity } from "@/lib/opportunityTransform";
+import { getAuthUser, canAccessRecord } from "@/lib/authz";
+import {
+  MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS,
+  CLOSED_OPPORTUNITY_STAGES,
+} from "@/lib/allocationRules";
+
+const patchableFields = [
+  "stage",
+  "lossReason",
+  "nextAction",
+  "probability",
+] as const;
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const authUser = getAuthUser(session);
+
+  const body = await request.json();
+  const existing = await prisma.opportunity.findUnique({
+    where: { id: params.id },
+    include: { assignedUser: true },
+  });
+  if (!existing) {
+    return NextResponse.json(
+      { error: "Opportunity not found" },
+      { status: 404 }
+    );
+  }
+
+  if (
+    !canAccessRecord(
+      authUser,
+      existing.assignedUserId,
+      existing.assignedUser?.teamId ?? null
+    )
+  ) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Assignment claims go through a separate, capacity-checked, atomic
+  // path (PRD R08 — Unfair Lead Allocation) — same pattern as
+  // app/api/leads/[id]/route.ts.
+  if ("assignedUserId" in body && body.assignedUserId) {
+    const newAssigneeId: string = body.assignedUserId;
+
+    if (newAssigneeId !== existing.assignedUserId) {
+      const activeCount = await prisma.opportunity.count({
+        where: {
+          assignedUserId: newAssigneeId,
+          stage: { notIn: CLOSED_OPPORTUNITY_STAGES },
+        },
+      });
+
+      if (activeCount >= MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS) {
+        return NextResponse.json(
+          {
+            error: `Capacity reached — you already have ${MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS} active opportunities. Ask your manager to help redistribute before taking more.`,
+          },
+          { status: 409 }
+        );
+      }
+
+      const claim = await prisma.opportunity.updateMany({
+        where: { id: params.id, assignedUserId: null },
+        data: { assignedUserId: newAssigneeId },
+      });
+
+      if (claim.count === 0) {
+        return NextResponse.json(
+          { error: "This opportunity was already claimed by someone else." },
+          { status: 409 }
+        );
+      }
+    }
+
+    const claimed = await prisma.opportunity.findUnique({
+      where: { id: params.id },
+      include: { assignedUser: true },
+    });
+    return NextResponse.json(toUiOpportunity(claimed!));
+  }
+
+  const data: Record<string, unknown> = {};
+  for (const field of patchableFields) {
+    if (field in body) data[field] = body[field];
+  }
+
+  if (body.stage && body.stage !== "Closed Lost" && !("lossReason" in body)) {
+    data.lossReason = null;
+  }
+
+  const updated = await prisma.opportunity.update({
+    where: { id: params.id },
+    data,
+    include: { assignedUser: true },
+  });
+
+  return NextResponse.json(toUiOpportunity(updated));
+}

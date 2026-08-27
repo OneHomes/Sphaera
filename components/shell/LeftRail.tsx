@@ -4,8 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navItems } from "@/lib/nav";
 
-export function LeftRail() {
+type Role = "AGENT" | "MANAGER" | "ADMIN";
+
+export function LeftRail({ role }: { role?: Role }) {
   const pathname = usePathname();
+
+  const visibleItems = navItems.filter((item) => {
+    if (item.adminOnly && role !== "ADMIN") return false;
+    if (item.managerAndAbove && role === "AGENT") return false;
+    return true;
+  });
 
   return (
     <nav
@@ -13,7 +21,7 @@ export function LeftRail() {
       className="flex h-full w-14 flex-col items-center justify-between border-r border-base-700 bg-base-950 py-4"
     >
       <div className="flex flex-col items-center gap-1">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = pathname?.startsWith(item.href);
           const Icon = item.icon;
           return (

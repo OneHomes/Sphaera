@@ -5,19 +5,35 @@ import { AlertTriangle } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
 
 export function JanusSummaryCard({ lead }: { lead: Lead }) {
+  const [summary, setSummary] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
-
-  // Placeholder summary composed from fields already on the lead — this is
-  // NOT a real Janus call. Once the Janus Ask/Explain endpoint (Azure AI
-  // Foundry + Azure AI Search RAG, per the build spec Section 7) exists,
-  // replace this with a real grounded summary and cite its data period.
-  const placeholderSummary = `${lead.name} is currently at the ${lead.stage} stage with a ${lead.priority.toLowerCase()} priority score of ${lead.score}. ${lead.prioritizationReason}.`;
+  const [error, setError] = useState<string | null>(null);
 
   async function handleAskJanus() {
     setIsAsking(true);
+    setError(null);
     try {
-      // TODO: POST to /api/janus/ask with { leadId: lead.id, question: "Summarise this lead" }
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      const res = await fetch("/api/janus/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: lead.id,
+          question:
+            "Summarise this lead in 3-4 sentences, including its current stage, engagement level, and any risks or overdue actions I should know about.",
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Janus request failed");
+      }
+
+      const data = await res.json();
+      setSummary(data.answer);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Couldn't reach Janus right now."
+      );
     } finally {
       setIsAsking(false);
     }
@@ -30,9 +46,18 @@ export function JanusSummaryCard({ lead }: { lead: Lead }) {
         <h3 className="text-sm font-medium text-ink-50">Janus summary</h3>
       </div>
 
-      <p className="text-xs leading-relaxed text-ink-300">
-        {placeholderSummary}
-      </p>
+      {summary ? (
+        <p className="text-xs leading-relaxed text-ink-300">{summary}</p>
+      ) : (
+        <p className="text-xs leading-relaxed text-ink-500">
+          Click below to have Janus summarise this lead using its real
+          record — notes, timeline, and current stage.
+        </p>
+      )}
+
+      {error && (
+        <p className="mt-2 text-[11px] text-status-inactive">{error}</p>
+      )}
 
       {lead.nextActionDue === "Overdue" && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-status-inactive/30 bg-status-inactive/10 p-2.5">
@@ -49,12 +74,8 @@ export function JanusSummaryCard({ lead }: { lead: Lead }) {
         disabled={isAsking}
         className="mt-3 w-full rounded-lg border border-base-600 bg-base-800 py-2 text-xs font-medium text-ink-50 transition hover:bg-base-700 disabled:opacity-60"
       >
-        {isAsking ? "Asking Janus…" : "Ask Janus about this lead"}
+        {isAsking ? "Asking Janus…" : summary ? "Ask again" : "Ask Janus about this lead"}
       </button>
-
-      <p className="mt-2 text-[10px] text-ink-500">
-        Placeholder summary — not yet grounded in live data.
-      </p>
     </div>
   );
 }

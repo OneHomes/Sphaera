@@ -2,15 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
-import { leads as allLeads } from "@/lib/leadData";
+import { Info, Plus, UserPlus } from "lucide-react";
+import type { Lead } from "@/lib/leadData";
 import { LeadFilterBar, type LeadFilters } from "./LeadFilterBar";
+import { AddLeadModal } from "./AddLeadModal";
 import {
   PriorityBadge,
   StageBadge,
   ScoreBadge,
   EngagementIndicator,
-  AssignmentBadge,
 } from "./LeadBadges";
 
 const initialFilters: LeadFilters = {
@@ -20,12 +20,20 @@ const initialFilters: LeadFilters = {
   source: "All",
 };
 
-export function LeadInbox() {
+export function LeadInbox({
+  initialLeads,
+  currentUserId,
+}: {
+  initialLeads: Lead[];
+  currentUserId: string;
+}) {
   const router = useRouter();
+  const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [filters, setFilters] = useState<LeadFilters>(initialFilters);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const filteredLeads = useMemo(() => {
-    return allLeads.filter((lead) => {
+    return leads.filter((lead) => {
       if (
         filters.search &&
         !lead.name.toLowerCase().includes(filters.search.toLowerCase())
@@ -43,15 +51,54 @@ export function LeadInbox() {
       }
       return true;
     });
-  }, [filters]);
+  }, [filters, leads]);
+
+  async function handleAssignToMe(e: React.MouseEvent, leadId: string) {
+    e.stopPropagation(); // don't trigger the row's navigate-to-profile click
+    setLeads((prev) =>
+      prev.map((l) =>
+        l.id === leadId
+          ? { ...l, assignedUserId: currentUserId, assignedUserName: "You" }
+          : l
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/leads/${leadId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedUserId: currentUserId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to assign lead");
+      }
+      router.refresh();
+    } catch (err) {
+      // PRD R08 (fair allocation): capacity caps and "already claimed"
+      // races surface a real, actionable reason here rather than
+      // silently reverting.
+      window.alert(err instanceof Error ? err.message : "Failed to assign lead");
+      router.refresh();
+    }
+  }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-base-700 px-6 py-4">
-        <h1 className="text-xl font-semibold text-ink-50">Lead Inbox</h1>
-        <p className="mt-1 text-sm text-ink-500">
-          {filteredLeads.length} of {allLeads.length} leads
-        </p>
+      <div className="flex items-center justify-between border-b border-base-700 px-6 py-4">
+        <div>
+          <h1 className="text-xl font-semibold text-ink-50">Lead Inbox</h1>
+          <p className="mt-1 text-sm text-ink-500">
+            {filteredLeads.length} of {leads.length} leads
+          </p>
+        </div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-semibold text-base-950 hover:bg-white"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add lead
+        </button>
       </div>
 
       <LeadFilterBar filters={filters} onChange={setFilters} />
@@ -126,7 +173,19 @@ export function LeadInbox() {
                   </div>
                 </td>
                 <td className="py-2.5">
-                  <AssignmentBadge status={lead.assignment} />
+                  {lead.assignedUserName ? (
+                    <span className="text-[11px] text-ink-300">
+                      {lead.assignedUserName}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={(e) => handleAssignToMe(e, lead.id)}
+                      className="flex items-center gap-1 text-[11px] text-ink-500 hover:text-ink-300"
+                    >
+                      <UserPlus className="h-3 w-3" />
+                      Assign to me
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -140,6 +199,10 @@ export function LeadInbox() {
           </div>
         )}
       </div>
+
+      {showAddModal && (
+        <AddLeadModal onClose={() => setShowAddModal(false)} />
+      )}
     </div>
   );
 }

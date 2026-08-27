@@ -1,0 +1,8 @@
+{
+  "/(app)/calendar/page": "app/(app)/calendar/page.js",
+  "/(app)/command/page": "app/(app)/command/page.js",
+  "/(app)/mail/page": "app/(app)/mail/page.js",
+  "/(app)/messages/page": "app/(app)/messages/page.js",
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/(onboarding)/onboarding/page": "app/(onboarding)/onboarding/page.js"
+}

@@ -1,0 +1,196 @@
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// NOTE on stage/priority/engagement/assignment: these are stored as plain
+// strings, NOT Prisma enums, on purpose. The Fabric data audit (Aug 2026,
+// Section 16 "Open Items") explicitly flags that Salesforce and Lexatel
+// status domain lists are not yet confirmed. Locking these into a strict
+// enum before that confirmation would force a schema migration the moment
+// real values arrive. Once the status list is confirmed, add validation at
+// the API layer (or a CHECK constraint) rather than a hard Prisma enum.
+
+model Lead {
+  id                   String              @id @default(cuid())
+  name                 String
+  contact              String
+  source               String
+  market               String
+  projectInterest      String
+  stage                String              @default("New")
+  score                Int                 @default(0)
+  engagement           String              @default("Medium")
+  priority             String              @default("Medium")
+  lastInteractionAt    DateTime?
+  nextAction           String?
+  nextActionDueAt      DateTime?
+  assignment           String              @default("Unassigned")
+  prioritizationReason String?
+  assignedUserId       String?
+  assignedUser         User?               @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  notes                LeadNote[]
+  timelineEvents       LeadTimelineEvent[]
+  opportunities        Opportunity[]
+
+  @@map("leads")
+  @@index([assignedUserId])
+}
+
+model LeadNote {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  author    String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@map("lead_notes")
+  @@index([leadId])
+}
+
+model LeadTimelineEvent {
+  id         String   @id @default(cuid())
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type       String   // call | email | meeting | note | stage_change | task
+  summary    String
+  occurredAt DateTime @default(now())
+
+  @@map("lead_timeline_events")
+  @@index([leadId])
+}
+
+// Stage set here consolidates PRD AE15's full 10-stage list into 8
+// columns for MVP board readability (see components/pipeline/README-level
+// comment in lib/pipelineData.ts for the exact mapping). Stored as a plain
+// string for the same reason as Lead.stage — status domains aren't
+// confirmed yet per the Fabric audit.
+model Opportunity {
+  id                String    @id @default(cuid())
+  leadName          String
+  contact           String
+  value             Int
+  probability       Int
+  expectedCloseAt   DateTime?
+  projectInterest   String
+  nextAction        String
+  stage             String    @default("New")
+  lossReason        String?
+  leadId            String?
+  lead              Lead?     @relation(fields: [leadId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  assignedUserId    String?
+  assignedUser      User?     @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("opportunities")
+  @@index([leadId])
+  @@index([assignedUserId])
+}
+
+// AEX (gamification) entities. Tier thresholds live in
+// lib/aexTransform.ts as a single configurable constant, explicitly
+// flagged as placeholder pending business sign-off (PRD Section 14.3 —
+// weights/thresholds/caps must be approved by the One Homes business
+// owner before UAT).
+
+// Role is a plain string (not a Prisma enum) because Azure SQL Server
+// does not support native enum types (Prisma error P1012 confirmed this
+// during setup). The TypeScript-level union type
+// ("AGENT" | "MANAGER" | "ADMIN") lives in lib/roles.ts and is enforced
+// at the application layer instead. PF02 (Role Based Access Control)
+// defines these three tiers for MVP; more granular PRD roles (Booker,
+// Commercial Director, Executive) can be added as new string values later
+// without a schema migration.
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  managerId String?
+  manager   User?    @relation("TeamManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  members   User[]   @relation("TeamMembers")
+  createdAt DateTime @default(now())
+
+  @@map("teams")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  entraId   String?  @unique
+  name      String
+  email     String   @unique
+  role      String   @default("AGENT")
+  teamId    String?
+  team      Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  managedTeams Team[] @relation("TeamManager")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pointEvents AexPointEvent[]
+  badges      UserBadge[]
+  streaks     UserStreak[]
+  assignedOpportunities Opportunity[]
+  assignedLeads Lead[]
+
+  @@map("users")
+  @@index([teamId])
+}
+
+model AexPointEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  points    Int
+  createdAt DateTime @default(now())
+
+  @@map("aex_point_events")
+  @@index([userId])
+}
+
+model UserBadge {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String
+  earnedAt    DateTime @default(now())
+
+  @@map("aex_user_badges")
+  @@index([userId])
+}
+
+model UserStreak {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label        String
+  currentCount Int      @default(0)
+  resetRule    String
+  updatedAt    DateTime @updatedAt
+
+  @@map("aex_user_streaks")
+  @@index([userId])
+}
+
+// PF07 (Audit Trail) requirement: permission and role changes must be
+// logged with actor, timestamp, and before/after context.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorEmail String
+  action     String
+  targetId   String?
+  details    String
+  createdAt  DateTime @default(now())
+
+  @@map("audit_logs")
+}

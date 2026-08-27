@@ -4,19 +4,46 @@ import { useState } from "react";
 import { StickyNote, Send } from "lucide-react";
 import type { Note } from "@/lib/leadProfileData";
 
-export function NotesSection({ initialNotes }: { initialNotes: Note[] }) {
+export function NotesSection({
+  leadId,
+  initialNotes,
+}: {
+  leadId: string;
+  initialNotes: Note[];
+}) {
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const [draft, setDraft] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleAddNote(e: React.FormEvent) {
+  async function handleAddNote(e: React.FormEvent) {
     e.preventDefault();
-    if (!draft.trim()) return;
-    // TODO: persist to the Note/Activity entity once a backend exists.
-    setNotes((prev) => [
-      { id: `n-${Date.now()}`, author: "You", timestamp: "Just now", text: draft },
-      ...prev,
-    ]);
-    setDraft("");
+    if (!draft.trim() || isSubmitting) return;
+    setError(null);
+
+    const text = draft.trim();
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch(`/api/leads/${leadId}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to save note");
+      }
+
+      const savedNote: Note = await res.json();
+      setNotes((prev) => [savedNote, ...prev]);
+      setDraft("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save note");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -26,7 +53,7 @@ export function NotesSection({ initialNotes }: { initialNotes: Note[] }) {
         Notes
       </h2>
 
-      <form onSubmit={handleAddNote} className="mb-4 flex gap-2">
+      <form onSubmit={handleAddNote} className="mb-2 flex gap-2">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -35,12 +62,15 @@ export function NotesSection({ initialNotes }: { initialNotes: Note[] }) {
         />
         <button
           type="submit"
-          className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 transition hover:bg-white"
+          disabled={isSubmitting}
+          className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 transition hover:bg-white disabled:opacity-60"
         >
           <Send className="h-3 w-3" />
-          Add
+          {isSubmitting ? "Adding…" : "Add"}
         </button>
       </form>
+
+      {error && <p className="mb-3 text-xs text-status-inactive">{error}</p>}
 
       <div className="space-y-3">
         {notes.map((note) => (
@@ -54,6 +84,11 @@ export function NotesSection({ initialNotes }: { initialNotes: Note[] }) {
             </p>
           </div>
         ))}
+        {notes.length === 0 && (
+          <p className="text-center text-xs text-ink-500">
+            No notes yet — add the first one above.
+          </p>
+        )}
       </div>
     </div>
   );

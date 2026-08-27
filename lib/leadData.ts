@@ -28,6 +28,8 @@ export type Lead = {
   nextAction: string;
   nextActionDue: string;
   assignment: AssignmentStatus;
+  assignedUserId?: string;
+  assignedUserName?: string;
   // The "reason" a rules/ML engine ranked this lead here — required by
   // PRD AE07 ("top contributing factors") and the general explainability
   // rule (JN14): every score must be able to say why.
@@ -190,7 +192,19 @@ export const leads: Lead[] = [
   },
 ];
 
-export const leadSources = Array.from(new Set(leads.map((l) => l.source)));
+// Static filter-dropdown option list. NOT derived from live data on
+// purpose — deriving from whatever leads currently exist in the DB would
+// make the filter list unstable (sources disappear from the dropdown the
+// moment the last lead from that source is closed). Update this list when
+// a new lead source is connected (per the Fabric audit's confirmed source
+// list: Salesforce, HubSpot, HighLevel, Meta Ads, Google Ads).
+export const leadSources = [
+  "Salesforce",
+  "HubSpot — Landing Page",
+  "HubSpot — Chat",
+  "Meta Ads",
+  "Google Ads",
+];
 export const leadStages: LeadStage[] = [
   "New",
   "Contacted",
