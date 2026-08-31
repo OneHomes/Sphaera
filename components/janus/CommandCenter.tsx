@@ -70,8 +70,7 @@ export function CommandCenter() {
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-8 px-6">
-      <JanusGlyph />
+<div className="flex flex-col items-center gap-8 px-6 py-8">      <JanusGlyph />
 
       {!answer && !isAsking && (
         <div className="flex flex-wrap items-stretch justify-center gap-3">

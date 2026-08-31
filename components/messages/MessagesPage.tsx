@@ -1,124 +1,221 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Send, Phone, Video } from "lucide-react";
-import { conversations } from "@/lib/messagesData";
+import { useEffect, useRef, useState } from "react";
+import { Send, MessageCircle } from "lucide-react";
 
-export function MessagesPage() {
-  const [selectedId, setSelectedId] = useState(conversations[0]?.id ?? "");
+type ConversationSummary = {
+  id: string;
+  clientName: string;
+  clientPhone: string;
+  leadId: string | null;
+  lastMessage: string;
+  lastMessageAt: string;
+};
+
+type Message = {
+  id: string;
+  direction: "inbound" | "outbound";
+  content: string;
+  status: string;
+  createdAt: string;
+};
+
+// This is a polling-based MVP (refetches every few seconds) rather than
+// a real-time websocket/SSE connection — simpler to build and reliable
+// on Azure Static Web Apps' serverless functions, at the cost of a few
+// seconds of latency on new incoming messages versus true real-time.
+const POLL_INTERVAL_MS = 5000;
+
+export function MessagesPage({
+  connectedNumber,
+}: {
+  connectedNumber: string;
+}) {
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
-  const selected = conversations.find((c) => c.id === selectedId);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (!draft.trim()) return;
-    // TODO: send via the real messaging connector once available.
-    console.log(`Send to ${selected?.name}: ${draft}`);
-    setDraft("");
+  async function loadConversations() {
+    const res = await fetch("/api/whatsapp/conversations");
+    if (res.ok) {
+      const data: ConversationSummary[] = await res.json();
+      setConversations(data);
+      if (!selectedId && data.length > 0) setSelectedId(data[0].id);
+    }
   }
 
+  async function loadMessages(conversationId: string) {
+    const res = await fetch(
+      `/api/whatsapp/conversations/${conversationId}/messages`
+    );
+    if (res.ok) setMessages(await res.json());
+  }
+
+  useEffect(() => {
+    loadConversations();
+    const interval = setInterval(loadConversations, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    loadMessages(selectedId);
+    const interval = setInterval(() => loadMessages(selectedId), POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [selectedId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSend(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft.trim() || !selectedId || isSending) return;
+
+    const text = draft.trim();
+    setDraft("");
+    setIsSending(true);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/whatsapp/conversations/${selectedId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to send message");
+      }
+
+      const sent: Message = await res.json();
+      setMessages((prev) => [...prev, sent]);
+      loadConversations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send message");
+      setDraft(text); // restore draft so nothing is lost
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  const selected = conversations.find((c) => c.id === selectedId);
+
   return (
-    <div className="flex h-full">
-      <div className="w-72 shrink-0 border-r border-base-700">
-        <div className="border-b border-base-700 p-3">
-          <div className="flex items-center gap-2 rounded-lg border border-base-700 bg-base-900 px-3 py-2">
-            <Search className="h-3.5 w-3.5 text-ink-500" />
-            <input
-              placeholder="Search or start new chat"
-              className="w-full bg-transparent text-xs text-ink-50 outline-none placeholder:text-ink-500"
-            />
-          </div>
+    <div className="flex h-full min-h-0">
+      <div className="flex w-80 shrink-0 min-h-0 flex-col border-r border-base-700">
+        <div className="shrink-0 border-b border-base-700 p-3">
+          <p className="flex items-center gap-1.5 text-xs text-ink-500">
+            <MessageCircle className="h-3.5 w-3.5" />
+            {connectedNumber}
+          </p>
         </div>
-        <div className="overflow-y-auto">
-          {conversations.map((conv) => (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {conversations.map((c) => (
             <button
-              key={conv.id}
-              onClick={() => setSelectedId(conv.id)}
-              className={`flex w-full items-center gap-2.5 border-b border-base-700 p-3 text-left transition ${
-                selectedId === conv.id ? "bg-base-900" : "hover:bg-base-900"
+              key={c.id}
+              onClick={() => setSelectedId(c.id)}
+              className={`w-full border-b border-base-700 p-3 text-left transition ${
+                selectedId === c.id ? "bg-base-900" : "hover:bg-base-900"
               }`}
             >
-              <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-700 text-xs font-medium text-ink-50">
-                {conv.name.charAt(0)}
-                {conv.online && (
-                  <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-base-950 bg-status-active" />
-                )}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-ink-50">
+                  {c.clientName}
+                </span>
+                <span className="text-[10px] text-ink-500">
+                  {new Date(c.lastMessageAt).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-ink-50">
-                    {conv.name}
-                  </span>
-                  <span className="text-[10px] text-ink-500">
-                    {conv.lastTimestamp}
-                  </span>
-                </div>
-                <p className="truncate text-[11px] text-ink-500">
-                  {conv.lastMessage}
-                </p>
-              </div>
+              <p className="mt-1 truncate text-[11px] text-ink-500">
+                {c.lastMessage}
+              </p>
+              {c.leadId && (
+                <span className="mt-1 inline-block rounded-full bg-status-active/15 px-1.5 py-0.5 text-[9px] text-status-active">
+                  Linked to Lead
+                </span>
+              )}
             </button>
           ))}
+
+          {conversations.length === 0 && (
+            <p className="p-4 text-center text-xs text-ink-500">
+              No conversations yet. They&apos;ll appear here once a client
+              messages your connected number.
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         {selected ? (
           <>
-            <div className="flex items-center justify-between border-b border-base-700 px-4 py-3">
-              <div>
-                <p className="text-sm font-medium text-ink-50">
-                  {selected.name}
-                </p>
-                <p className="text-[11px] text-ink-500">
-                  {selected.online ? "Online" : "Offline"}
-                </p>
-              </div>
-              <div className="flex gap-2 text-ink-500">
-                <Phone className="h-4 w-4" />
-                <Video className="h-4 w-4" />
-              </div>
+            <div className="shrink-0 border-b border-base-700 p-4">
+              <p className="text-sm font-medium text-ink-50">
+                {selected.clientName}
+              </p>
+              <p className="text-xs text-ink-500">{selected.clientPhone}</p>
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto p-4">
-              {selected.messages.map((msg) => (
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+              {messages.map((m) => (
                 <div
-                  key={msg.id}
-                  className={`flex ${msg.from === "me" ? "justify-end" : "justify-start"}`}
+                  key={m.id}
+                  className={`flex ${m.direction === "outbound" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-xs rounded-lg px-3 py-2 text-xs ${
-                      msg.from === "me"
-                        ? "bg-status-active text-base-950"
+                    className={`max-w-[70%] rounded-lg px-3 py-2 text-xs ${
+                      m.direction === "outbound"
+                        ? "bg-status-active/20 text-ink-50"
                         : "bg-base-800 text-ink-300"
                     }`}
                   >
-                    <p>{msg.text}</p>
-                    <p
-                      className={`mt-1 text-[10px] ${
-                        msg.from === "me" ? "text-base-900" : "text-ink-500"
-                      }`}
-                    >
-                      {msg.timestamp}
+                    <p>{m.content}</p>
+                    <p className="mt-1 text-[10px] text-ink-500">
+                      {new Date(m.createdAt).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                      {m.direction === "outbound" && ` · ${m.status}`}
                     </p>
                   </div>
                 </div>
               ))}
+              <div ref={messagesEndRef} />
             </div>
+
+            {error && (
+              <p className="shrink-0 px-4 text-xs text-status-inactive">
+                {error}
+              </p>
+            )}
 
             <form
               onSubmit={handleSend}
-              className="flex items-center gap-2 border-t border-base-700 p-3"
+              className="flex shrink-0 gap-2 border-t border-base-700 p-3"
             >
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Type a message"
-                className="flex-1 rounded-full border border-base-700 bg-base-900 px-4 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500"
+                placeholder="Type a message…"
+                className="flex-1 rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500"
               />
               <button
                 type="submit"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-status-active text-base-950"
+                disabled={isSending}
+                className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-60"
               >
                 <Send className="h-3.5 w-3.5" />
               </button>

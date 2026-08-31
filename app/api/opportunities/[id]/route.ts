@@ -8,7 +8,7 @@ import {
   MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS,
   CLOSED_OPPORTUNITY_STAGES,
 } from "@/lib/allocationRules";
-
+import { createNotification } from "@/lib/notifications";
 const patchableFields = [
   "stage",
   "lossReason",
@@ -76,7 +76,7 @@ export async function PATCH(
         data: { assignedUserId: newAssigneeId },
       });
 
-      if (claim.count === 0) {
+           if (claim.count === 0) {
         return NextResponse.json(
           { error: "This opportunity was already claimed by someone else." },
           { status: 409 }
@@ -88,6 +88,17 @@ export async function PATCH(
       where: { id: params.id },
       include: { assignedUser: true },
     });
+
+    if (claimed) {
+      await createNotification(
+        newAssigneeId,
+        "opportunity_assigned",
+        "Opportunity assigned to you",
+        `${claimed.leadName} — $${claimed.value.toLocaleString()}`,
+        "/pipeline"
+      );
+    }
+
     return NextResponse.json(toUiOpportunity(claimed!));
   }
 

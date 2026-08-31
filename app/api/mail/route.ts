@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { listMailMessages, sendMail } from "@/lib/graph";
+import {
+  listMailMessages,
+  sendMail,
+  MAIL_FOLDERS,
+  type MailFolder,
+} from "@/lib/graph";
 
-export async function GET() {
+const VALID_FOLDERS = MAIL_FOLDERS.map((f) => f.key);
+
+export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   if (!session.accessToken) {
     return NextResponse.json(
       {
@@ -19,13 +25,21 @@ export async function GET() {
     );
   }
 
+  // ?folder=inbox | drafts | sentitems | deleteditems | junkemail | notes | archive
+  const { searchParams } = new URL(request.url);
+  const folderParam = searchParams.get("folder") as MailFolder | null;
+  const folder: MailFolder =
+    folderParam && VALID_FOLDERS.includes(folderParam)
+      ? folderParam
+      : "inbox";
+
   try {
-    const messages = await listMailMessages(session.accessToken, 25);
+    const messages = await listMailMessages(session.accessToken, 25, folder);
     return NextResponse.json(messages);
   } catch (err) {
-    console.error("Failed to fetch mail:", err);
+    console.error(`Failed to fetch mail (folder=${folder}):`, err);
     return NextResponse.json(
-      { error: "Failed to fetch mail from Microsoft Graph" },
+      { error: `Failed to fetch "${folder}" from Microsoft Graph` },
       { status: 502 }
     );
   }

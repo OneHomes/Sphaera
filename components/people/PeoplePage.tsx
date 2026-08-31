@@ -1,6 +1,6 @@
 import { Mail } from "lucide-react";
 import type { Tier } from "@/lib/businessActivityData";
-import { teamMembers } from "@/lib/peopleData";
+import type { TeamMember } from "@/lib/peopleData";
 
 const tierStyles: Record<Tier, string> = {
   Gold: "bg-tier-gold/15 text-tier-gold",
@@ -8,7 +8,7 @@ const tierStyles: Record<Tier, string> = {
   Bronze: "bg-tier-bronze/15 text-tier-bronze",
 };
 
-export function PeoplePage() {
+export function PeoplePage({ teamMembers }: { teamMembers: TeamMember[] }) {
   return (
     <div className="p-6">
       <h1 className="mb-1 text-xl font-semibold text-ink-50">People</h1>
@@ -43,6 +43,10 @@ export function PeoplePage() {
             </div>
           </div>
         ))}
+
+        {teamMembers.length === 0 && (
+          <p className="text-sm text-ink-500">No team members yet.</p>
+        )}
       </div>
     </div>
   );

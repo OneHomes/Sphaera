@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight, Plus, Loader2 } from "lucide-react";
 import type { GraphCalendarEvent } from "@/lib/graph";
 import { AddEventModal } from "./AddEventModal";
+import { MeetingPrepModal } from "./MeetingPrepModal";
 
 const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -43,6 +44,7 @@ export function CalendarPage({
   const [events, setEvents] = useState(initialEvents);
   const [isLoading, setIsLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [prepEvent, setPrepEvent] = useState<GraphCalendarEvent | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Re-sync from the server whenever the parent Server Component re-renders
@@ -173,14 +175,15 @@ export function CalendarPage({
                           Math.floor(pos.startHour) === hour
                       )
                       .map(({ event, pos }) => (
-                        <div
+                                                <div
                           key={event.id}
-                          className={`absolute inset-x-1 top-0.5 rounded border px-1.5 py-1 text-[10px] ${colorForEvent(event.id)}`}
+                          onClick={() => setPrepEvent(event)}
+                          className={`absolute inset-x-1 top-0.5 cursor-pointer rounded border px-1.5 py-1 text-[10px] hover:brightness-110 ${colorForEvent(event.id)}`}
                           style={{
-                            height: `${Math.max(pos.durationHours * ROW_HEIGHT - 4, 20)}px`,
+                            height: `${Math.max(pos.durationHours * 56 - 4, 20)}px`,
                             zIndex: 10,
                           }}
-                          title={event.subject}
+                          title={`${event.subject} — click for Janus meeting prep`}
                         >
                           <span className="line-clamp-2">{event.subject}</span>
                         </div>
@@ -193,8 +196,15 @@ export function CalendarPage({
         </div>
       </div>
 
-      {showAddModal && (
+           {showAddModal && (
         <AddEventModal onClose={() => setShowAddModal(false)} />
+      )}
+
+      {prepEvent && (
+        <MeetingPrepModal
+          event={prepEvent}
+          onClose={() => setPrepEvent(null)}
+        />
       )}
     </div>
   );

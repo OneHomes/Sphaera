@@ -6,7 +6,7 @@ import { tierForPoints } from "@/lib/aexTransform";
 import { formatRelativeTime } from "@/lib/leadTransform";
 import { scoreBand } from "@/lib/leadData";
 import { getAuthUser, getLeadScopeWhere } from "@/lib/authz";
-import { BusinessActivityGrid } from "@/components/business-activity/BusinessActivityGrid";
+import BusinessActivityGrid from "@/components/business-activity/BusinessActivityGrid";
 import type { AgentActivityRow } from "@/components/business-activity/AgentActivityTable";
 import type { SourceActivityRow } from "@/components/business-activity/CampaignActivityTable";
 import type { LeadActivityRow } from "@/components/business-activity/LeadActivityTable";
@@ -91,6 +91,7 @@ export default async function BusinessActivityPage() {
       tier: tierForPoints(points),
       pipelineValue,
       totalRevenue,
+      productivityIndex: points,
     };
   });
 
@@ -133,7 +134,13 @@ export default async function BusinessActivityPage() {
     activity: formatRelativeTime(lead.lastInteractionAt),
   }));
 
+  const BusinessActivityGridWithProps = BusinessActivityGrid as unknown as (props: {
+    agents: AgentActivityRow[];
+    sources: SourceActivityRow[];
+    leads: LeadActivityRow[];
+  }) => JSX.Element;
+
   return (
-    <BusinessActivityGrid agents={agents} sources={sources} leads={leadRows} />
+    <BusinessActivityGridWithProps agents={agents} sources={sources} leads={leadRows} />
   );
 }

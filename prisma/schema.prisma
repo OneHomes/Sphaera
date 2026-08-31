@@ -117,6 +117,7 @@ model Team {
   managerId String?
   manager   User?    @relation("TeamManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   members   User[]   @relation("TeamMembers")
+  targets Target[]
   createdAt DateTime @default(now())
 
   @@map("teams")
@@ -139,9 +140,90 @@ model User {
   streaks     UserStreak[]
   assignedOpportunities Opportunity[]
   assignedLeads Lead[]
+  documents Document[]
+  tasks Task[]
+  journalEntries JournalEntry[]
+  targets Target[]
+  notifications Notification[]
+  whatsappNumber WhatsAppNumber?
 
   @@map("users")
   @@index([teamId])
+}
+
+// Company-level WhatsApp Business Account (WABA) configuration. One row
+// per organization — in the current single-tenant build this is
+// effectively a singleton (One Homes), but modeling it as its own table
+// (rather than env vars) is what lets a future multi-tenant version add
+// a new company's WABA without any schema change — just a new row.
+model WhatsAppConfig {
+  id                String   @id @default(cuid())
+  wabaId            String   // WhatsApp Business Account ID from Meta
+  metaAppId         String   // Meta App ID
+  systemUserToken   String   // Permanent access token (System User)
+  businessName      String
+  isVerified        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  numbers WhatsAppNumber[]
+
+  @@map("whatsapp_configs")
+}
+
+// One row per agent's connected WhatsApp Business phone number. Verified
+// via Meta's phone-number OTP flow (lib/whatsapp.ts), not a QR-linked
+// session — see the build discussion on why QR-based unofficial clients
+// were deliberately avoided (ToS / ban risk).
+model WhatsAppNumber {
+  id               String         @id @default(cuid())
+  userId           String         @unique
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  configId         String
+  config           WhatsAppConfig @relation(fields: [configId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  phoneNumber      String         @unique
+  phoneNumberId    String         @unique // Meta's internal phone_number_id, needed for send calls
+  displayName      String?
+  verifiedAt       DateTime?
+  createdAt        DateTime       @default(now())
+
+  conversations WhatsAppConversation[]
+
+  @@map("whatsapp_numbers")
+}
+
+// One conversation per (agent number, client phone number) pair —
+// matches how WhatsApp itself groups messages into a single thread per
+// contact.
+model WhatsAppConversation {
+  id               String            @id @default(cuid())
+  agentNumberId    String
+  agentNumber      WhatsAppNumber    @relation(fields: [agentNumberId], references: [id], onDelete: Cascade)
+  clientPhone      String
+  clientName       String?
+  leadId           String?
+  lastMessageAt    DateTime          @default(now())
+  createdAt        DateTime          @default(now())
+
+  messages WhatsAppMessage[]
+
+  @@map("whatsapp_conversations")
+  @@index([agentNumberId])
+  @@unique([agentNumberId, clientPhone])
+}
+
+model WhatsAppMessage {
+  id             String                @id @default(cuid())
+  conversationId String
+  conversation   WhatsAppConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      String                // "inbound" | "outbound"
+  content        String
+  metaMessageId  String?               // Meta's own message id, for delivery/read status correlation
+  status         String                @default("sent") // sent | delivered | read | failed
+  createdAt      DateTime              @default(now())
+
+  @@map("whatsapp_messages")
+  @@index([conversationId])
 }
 
 model AexPointEvent {
@@ -193,4 +275,113 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+// PF08 (Document Service). Actual file bytes live in Azure Blob Storage
+// (see lib/blobStorage.ts) — this table stores only metadata + the blob
+// name needed to fetch/delete the real file. relatedTo is a free-text
+// field (not a strict Lead/Opportunity foreign key) matching how the
+// original mock data modeled it, to keep this MVP simple; tightening it
+// into a real relation is a reasonable future enhancement.
+model Document {
+  id           String   @id @default(cuid())
+  name         String
+  blobName     String
+  contentType  String
+  sizeBytes    Int
+  docType      String   @default("Brochure")
+  relatedTo    String?
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt    DateTime @default(now())
+
+  @@map("documents")
+  @@index([uploadedById])
+}
+
+// PRD AE14 — task sources: user created, manager assigned, Janus
+// proposed, conversation generated, rule generated, stage requirement.
+// createdById is a plain string (not a relation) to record who
+// created/assigned the task without a second User FK — avoids the same
+// multi-relation cascade complexity we hit with Team/Opportunity earlier.
+model Task {
+  id           String    @id @default(cuid())
+  title        String
+  relatedTo    String?
+  leadId       String?
+  dueAt        DateTime?
+  completed    Boolean   @default(false)
+  source       String    @default("User created")
+  assignedToId String
+  assignedTo   User      @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("tasks")
+  @@index([assignedToId])
+}
+
+// PRD 4.10 / 19.5 — Journal entries are strictly private to their
+// author. Unlike every other entity in this schema, there is NO
+// Manager/Admin override in the API layer for this one — access is
+// always author-only, by design.
+model JournalEntry {
+  id        String   @id @default(cuid())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  folder    String   @default("Work")
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("journal_entries")
+  @@index([authorId])
+}
+// PRD AV04 (Target Tracker) — a target belongs to EITHER a user
+// (personal target) OR a team (whole-team target), not both — enforced
+// at the application layer, not a DB constraint, to keep this simple.
+// Metric is a plain string (not an enum) for the same reason as
+// Lead.stage — new metric types can be added without a schema
+// migration; calculation logic per metric lives in lib/targetTracker.ts.
+model Target {
+  id          String    @id @default(cuid())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teamId      String?
+  team        Team?     @relation(fields: [teamId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  metric      String    // "revenue" | "calls" | "meetings"
+  periodStart DateTime
+  periodEnd   DateTime
+  targetValue Float
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("targets")
+  @@index([userId])
+  @@index([teamId])
+}
+
+// PRD PF05 / AE22 — Notifications. Currently wired to concrete, in-code
+// events (lead/opportunity/task assignment, new WhatsApp message) that
+// fire during a real API request. Threshold-crossing notifications
+// (e.g. "target 80% complete", "risk became critical") would need a
+// scheduled job (Azure Functions Timer Trigger) since there's no
+// background cron in this serverless architecture — deliberately not
+// built in this pass, noted as a future enhancement.
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // lead_assigned | opportunity_assigned | task_assigned | whatsapp_message
+  title     String
+  body      String
+  href      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+  @@index([userId])
 }

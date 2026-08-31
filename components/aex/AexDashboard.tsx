@@ -2,6 +2,7 @@ import { Trophy, Flame, Award, History } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ChallengePicker } from "./ChallengePicker";
 import type { Tier } from "@/lib/businessActivityData";
+import { ProductivityIndexCard } from "./ProductivityIndexCard";
 import { JanusCoachingCard } from "./JanusCoachingCard";
 const tierStyles: Record<Tier, string> = {
   Gold: "bg-tier-gold/15 text-tier-gold",
@@ -235,6 +236,7 @@ export function AexDashboard({
           pointsToNextTier={pointsToNextTier}
         />
         <StreaksCard streaks={streaks} />
+        <ProductivityIndexCard />
         <ChallengePicker leaderboard={leaderboard} />
         <JanusCoachingCard />
         <BadgesGrid badges={badges} />

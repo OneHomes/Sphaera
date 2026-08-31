@@ -1,8 +1,9 @@
 {
-  "/(app)/calendar/page": "app/(app)/calendar/page.js",
-  "/(app)/command/page": "app/(app)/command/page.js",
-  "/(app)/mail/page": "app/(app)/mail/page.js",
-  "/(app)/messages/page": "app/(app)/messages/page.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/(onboarding)/onboarding/page": "app/(onboarding)/onboarding/page.js"
+  "/(auth)/sign-in/page": "app/(auth)/sign-in/page.js",
+  "/api/notifications/route": "app/api/notifications/route.js",
+  "/page": "app/page.js",
+  "/(app)/command/page": "app/(app)/command/page.js",
+  "/(onboarding)/onboarding/page": "app/(onboarding)/onboarding/page.js",
+  "/(app)/settings/page": "app/(app)/settings/page.js"
 }

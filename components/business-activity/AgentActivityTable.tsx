@@ -13,6 +13,7 @@ export type AgentActivityRow = {
   tier: Tier;
   pipelineValue: number;
   totalRevenue: number;
+  productivityIndex: number;
 };
 
 const tierStyles: Record<Tier, string> = {
@@ -47,6 +48,7 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
               <th className="pb-2 pr-3 font-normal">Agent</th>
               <th className="pb-2 pr-3 font-normal">Status</th>
               <th className="pb-2 pr-3 font-normal">Tier</th>
+              <th className="pb-2 pr-3 font-normal text-right">PI</th>
               <th className="pb-2 pr-3 font-normal text-right">Pipeline</th>
               <th className="pb-2 font-normal text-right">Revenue</th>
             </tr>
@@ -74,6 +76,9 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
                     {agent.tier}
                   </span>
                 </td>
+                <td className="py-2 pr-3 text-right font-medium text-ink-50">
+                  {agent.productivityIndex}
+                </td>
                 <td className="py-2 pr-3 text-right">
                   {formatMoney(agent.pipelineValue)}
                 </td>
@@ -84,7 +89,7 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
             ))}
             {agents.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-ink-500">
+                <td colSpan={6} className="py-6 text-center text-ink-500">
                   No team members have signed in yet.
                 </td>
               </tr>
@@ -93,9 +98,11 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
         </table>
       </div>
       <p className="mt-2 text-[10px] text-ink-500">
-        Status reflects recent AEX activity. Live call presence, auto-generated
-        context, Productivity Index, and team hierarchy aren't connected yet —
-        pipeline/revenue reflect real assigned opportunities.
+        Status reflects recent AEX activity. PI (Productivity Index) is
+        computed from real Lead/Task data, weights pending business
+        sign-off (PRD 14.3). Live call presence and auto-generated context
+        aren't connected yet — pipeline/revenue reflect real assigned
+        opportunities.
       </p>
 
       {spectateAgent && (

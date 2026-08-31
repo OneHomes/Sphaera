@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
+import { WhatsAppConnect } from "./WhatsAppConnect";
 type ToggleSetting = {
   id: string;
   label: string;
@@ -36,6 +36,7 @@ export function SettingsPage() {
       </p>
 
       <div className="max-w-xl space-y-2">
+        <WhatsAppConnect />
         {settings.map((setting) => (
           <div
             key={setting.id}

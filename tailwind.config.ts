@@ -39,6 +39,19 @@ const config: Config = {
       borderRadius: {
         xl2: "1rem",
       },
+      keyframes: {
+        marquee: {
+          "0%": { transform: "translateX(0%)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
+      },
+      animation: {
+        // Duration is deliberately not fixed here — TopLeaderboardBar
+        // sets it dynamically via inline style based on content length,
+        // so the scroll speed stays visually consistent regardless of
+        // how many agents are in the leaderboard.
+        marquee: "marquee linear infinite",
+      },
     },
   },
   plugins: [],

@@ -1,22 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Folder, FileText } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plus, Folder, FileText, Lock } from "lucide-react";
 import {
   journalFolders,
-  journalNotes,
   type JournalFolder,
   type JournalNote,
 } from "@/lib/journalData";
+import { NewNoteModal } from "./NewNoteModal";
 
-export function JournalPage() {
+export function JournalPage({
+  initialNotes,
+}: {
+  initialNotes: JournalNote[];
+}) {
+  const router = useRouter();
   const [activeFolder, setActiveFolder] = useState<JournalFolder>("Work");
   const [selectedNoteId, setSelectedNoteId] = useState(
-    journalNotes[0]?.id ?? ""
+    initialNotes[0]?.id ?? ""
   );
+  const [showNewNote, setShowNewNote] = useState(false);
 
-  const notesInFolder = journalNotes.filter((n) => n.folder === activeFolder);
-  const selectedNote = journalNotes.find((n) => n.id === selectedNoteId);
+  const notesInFolder = initialNotes.filter((n) => n.folder === activeFolder);
+  const selectedNote = initialNotes.find((n) => n.id === selectedNoteId);
 
   return (
     <div className="flex h-full">
@@ -38,12 +45,20 @@ export function JournalPage() {
             {folder}
           </button>
         ))}
+
+        <p className="mt-6 flex items-center gap-1 px-1 text-[10px] text-ink-500">
+          <Lock className="h-2.5 w-2.5" />
+          Private — only you can see these
+        </p>
       </div>
 
       <div className="w-64 shrink-0 border-r border-base-700">
         <div className="flex items-center justify-between border-b border-base-700 p-3">
           <p className="text-xs font-medium text-ink-50">{activeFolder}</p>
-          <button className="text-ink-500 hover:text-ink-300">
+          <button
+            onClick={() => setShowNewNote(true)}
+            className="text-ink-500 hover:text-ink-300"
+          >
             <Plus className="h-4 w-4" />
           </button>
         </div>
@@ -76,10 +91,18 @@ export function JournalPage() {
           <JournalEditor note={selectedNote} />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-ink-500">
-            Select a note
+            Select a note, or create a new one
           </div>
         )}
       </div>
+
+      {showNewNote && (
+        <NewNoteModal
+          defaultFolder={activeFolder}
+          onClose={() => setShowNewNote(false)}
+          onCreated={() => router.refresh()}
+        />
+      )}
     </div>
   );
 }
@@ -94,7 +117,7 @@ function JournalEditor({ note }: { note: JournalNote }) {
         </span>
       </div>
       <h1 className="mb-4 text-xl font-semibold text-ink-50">{note.title}</h1>
-      <p className="max-w-2xl text-sm leading-relaxed text-ink-300">
+      <p className="max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-ink-300">
         {note.body}
       </p>
     </div>

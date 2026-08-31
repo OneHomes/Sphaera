@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { toUiLead, toUiNote, toUiTimelineEvent } from "@/lib/leadTransform";
 import { getAuthUser, canAccessRecord } from "@/lib/authz";
 import { MAX_ACTIVE_LEAD_ASSIGNMENTS } from "@/lib/allocationRules";
-
+import { createNotification } from "@/lib/notifications";
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
@@ -108,7 +108,7 @@ export async function PATCH(
         data: { assignedUserId: newAssigneeId },
       });
 
-      if (claim.count === 0) {
+                if (claim.count === 0) {
         return NextResponse.json(
           { error: "This lead was already claimed by someone else." },
           { status: 409 }
@@ -120,6 +120,17 @@ export async function PATCH(
       where: { id: params.id },
       include: { assignedUser: true },
     });
+
+    if (claimed) {
+      await createNotification(
+        newAssigneeId,
+        "lead_assigned",
+        "Lead assigned to you",
+        `${claimed.name} — ${claimed.stage}`,
+        `/leads/${claimed.id}`
+      );
+    }
+
     return NextResponse.json(toUiLead(claimed!));
   }
 

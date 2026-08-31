@@ -1,7 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import AzureADProvider from "next-auth/providers/azure-ad";
-import CredentialsProvider from "next-auth/providers/credentials";
 import { getOrCreateUserByEmail } from "./currentUser";
 
 // Reads the three values you get from the Entra ID App Registration:
@@ -14,6 +13,11 @@ import { getOrCreateUserByEmail } from "./currentUser";
 // also be added + admin-consented under API permissions on the App
 // Registration in the Azure portal, or the token Microsoft issues won't
 // actually carry them.
+//
+// HARDENING NOTE: the temporary email/password Credentials provider that
+// existed during development has been removed. Microsoft Entra ID is now
+// the ONLY sign-in method, matching PRD PF01 (Entra ID is the sole
+// production auth method).
 const GRAPH_SCOPES =
   "openid profile email offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite";
 
@@ -57,32 +61,6 @@ export const authOptions: NextAuthOptions = {
         params: { scope: GRAPH_SCOPES },
       },
     }),
-
-    // TEMPORARY — TESTING ONLY. Accepts any non-empty email/password with
-    // no real verification. This exists purely so the app can be exercised
-    // locally without a full Entra ID round trip every time. Per PRD PF01,
-    // Sphaera's real (and only production) sign-in method is Microsoft
-    // Entra ID. REMOVE this provider entirely before UAT/production —
-    // it must never reach a deployed/shared environment. Note: this
-    // provider cannot get a Graph access token, so Mail/Calendar won't
-    // work when signed in this way — expected, since it's Entra-only.
-    CredentialsProvider({
-      name: "Email and Password (testing only)",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          return null;
-        }
-        return {
-          id: credentials.email,
-          name: credentials.email.split("@")[0],
-          email: credentials.email,
-        };
-      },
-    }),
   ],
   session: {
     strategy: "jwt",
@@ -107,7 +85,7 @@ export const authOptions: NextAuthOptions = {
             token.oid as string | undefined
           );
           token.userId = dbUser.id;
-          token.role = dbUser.role;
+          token.role = dbUser.role as "AGENT" | "MANAGER" | "ADMIN";
           token.teamId = dbUser.teamId;
         }
 

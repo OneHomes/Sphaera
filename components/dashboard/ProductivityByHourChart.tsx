@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { BarChart3 } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -9,74 +7,43 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  CartesianGrid,
 } from "recharts";
+import { Activity } from "lucide-react";
 import { WidgetCard } from "./WidgetCard";
-import { productivityByHour, agentActivityIndex } from "@/lib/dashboardData";
+import type { ProductivityPoint } from "@/lib/dashboardMetrics";
 
-export function ProductivityByHourChart() {
-  const [selectedAgent, setSelectedAgent] = useState(
-    agentActivityIndex[0]?.name ?? "Agent 1"
-  );
-
-  // TODO: once activity events are queryable per user, refetch/recompute
-  // `productivityByHour` filtered by `selectedAgent` instead of sharing
-  // one static series across all agents.
-
+export function ProductivityByHourChart({
+  data,
+}: {
+  data: ProductivityPoint[];
+}) {
   return (
-    <WidgetCard
-      title="Productivity by Hour"
-      icon={BarChart3}
-      action={
-        <select
-          value={selectedAgent}
-          onChange={(e) => setSelectedAgent(e.target.value)}
-          className="rounded-md border border-base-700 bg-base-800 px-2 py-1 text-xs text-ink-300 outline-none"
-        >
-          {agentActivityIndex.map((agent) => (
-            <option key={agent.name + agent.extension} value={agent.name}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
-      }
-    >
-      <div className="h-40 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={productivityByHour}
-            margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
-          >
-            <XAxis
-              dataKey="hour"
-              tick={{ fill: "#71717a", fontSize: 10 }}
-              axisLine={{ stroke: "#232327" }}
-              tickLine={false}
-              interval={1}
-            />
-            <YAxis
-              tick={{ fill: "#71717a", fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <Tooltip
-              contentStyle={{
-                background: "#1a1a1d",
-                border: "1px solid #2e2e33",
-                borderRadius: 8,
-                fontSize: 12,
-              }}
-              labelStyle={{ color: "#fafafa" }}
-            />
-            <Line
-              type="monotone"
-              dataKey="score"
-              stroke="#f59e0b"
-              strokeWidth={2}
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+    <WidgetCard title="Productivity by Hour" icon={Activity}>
+      <ResponsiveContainer width="100%" height={160}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#232327" />
+          <XAxis dataKey="hour" stroke="#71717a" fontSize={9} interval={2} />
+          <YAxis stroke="#71717a" fontSize={10} />
+          <Tooltip
+            contentStyle={{
+              background: "#1a1a1d",
+              border: "1px solid #232327",
+              fontSize: 11,
+            }}
+          />
+          <Line
+            type="monotone"
+            dataKey="count"
+            stroke="#f59e0b"
+            strokeWidth={2}
+            dot={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="mt-1 text-[10px] text-ink-500">
+        Based on your logged calls/emails/meetings over the last 30 days.
+      </p>
     </WidgetCard>
   );
 }

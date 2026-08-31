@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
-import { initialTasks, type Task } from "@/lib/tasksData";
+import { useRouter } from "next/navigation";
+import { Check, Plus } from "lucide-react";
+import { type Task } from "@/lib/tasksData";
+import { AddTaskModal } from "./AddTaskModal";
 
 const sourceStyles: Record<Task["source"], string> = {
   "User created": "bg-base-700 text-ink-300",
@@ -11,15 +13,41 @@ const sourceStyles: Record<Task["source"], string> = {
   "Stage requirement": "bg-status-alert/15 text-status-alert",
 };
 
-export function TasksPage() {
+export function TasksPage({ initialTasks }: { initialTasks: Task[] }) {
+  const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  function toggleComplete(id: string) {
-    // TODO: persist to the Task entity once a backend exists; completion
-    // should also update mission/lead status and AEX score per AE14.
+  async function toggleComplete(id: string) {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+
+    const newCompleted = !task.completed;
     setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
+      prev.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              completed: newCompleted,
+              dueLabel: newCompleted ? "Completed" : t.dueLabel,
+              isOverdue: newCompleted ? false : t.isOverdue,
+            }
+          : t
+      )
     );
+
+    try {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: newCompleted }),
+      });
+      if (!res.ok) throw new Error("Failed to update task");
+      router.refresh();
+    } catch (err) {
+      console.error(err);
+      router.refresh();
+    }
   }
 
   const pending = tasks.filter((t) => !t.completed);
@@ -27,15 +55,32 @@ export function TasksPage() {
 
   return (
     <div className="p-6">
-      <h1 className="mb-1 text-xl font-semibold text-ink-50">Tasks</h1>
-      <p className="mb-5 text-sm text-ink-500">
-        {pending.length} pending · {completed.length} completed
-      </p>
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h1 className="mb-1 text-xl font-semibold text-ink-50">Tasks</h1>
+          <p className="text-sm text-ink-500">
+            {pending.length} pending · {completed.length} completed
+          </p>
+        </div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-semibold text-base-950 hover:bg-white"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add task
+        </button>
+      </div>
 
       <div className="max-w-2xl space-y-2">
         {pending.map((task) => (
           <TaskRow key={task.id} task={task} onToggle={toggleComplete} />
         ))}
+
+        {pending.length === 0 && completed.length === 0 && (
+          <p className="py-8 text-center text-sm text-ink-500">
+            No tasks yet. Add one to get started.
+          </p>
+        )}
 
         {completed.length > 0 && (
           <>
@@ -46,6 +91,10 @@ export function TasksPage() {
           </>
         )}
       </div>
+
+      {showAddModal && (
+        <AddTaskModal onClose={() => setShowAddModal(false)} />
+      )}
     </div>
   );
 }

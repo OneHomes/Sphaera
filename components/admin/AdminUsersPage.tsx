@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ShieldCheck, Plus, AlertTriangle } from "lucide-react";
-
+import { WhatsAppConfigCard } from "./WhatsAppConfigCard";
 type AdminUser = {
   id: string;
   name: string;
@@ -159,7 +159,7 @@ export function AdminUsersPage() {
         <ShieldCheck className="h-5 w-5 text-ink-300" />
         <h1 className="text-xl font-semibold text-ink-50">Admin — Users & Teams</h1>
       </div>
-
+<WhatsAppConfigCard />
       <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">
         <h2 className="mb-3 text-sm font-medium text-ink-50">Teams</h2>
         <div className="mb-3 flex flex-wrap gap-2">
