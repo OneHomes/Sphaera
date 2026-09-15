@@ -20,7 +20,10 @@ export async function GET(request: Request) {
   } catch (err) {
     console.error("Briefing failed:", err);
     return NextResponse.json(
-      { error: "Janus couldn't put together your briefing. Try again in a moment." },
+      {
+        error: "Janus couldn't put together your briefing. Try again in a moment.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }

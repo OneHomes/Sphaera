@@ -42,6 +42,7 @@ export function JanusCoachingCard({
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
+        if (data?.detail) console.error("Janus ask detail:", data.detail);
         throw new Error(data?.error ?? "Janus request failed");
       }
 

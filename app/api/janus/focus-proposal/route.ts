@@ -61,7 +61,10 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("Focus proposal parse failed:", err);
     return NextResponse.json(
-      { error: "Janus couldn't parse that instruction. Try rephrasing it more specifically." },
+      {
+        error: "Janus couldn't parse that instruction. Try rephrasing it more specifically.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }

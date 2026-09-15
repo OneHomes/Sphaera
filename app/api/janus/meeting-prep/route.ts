@@ -104,7 +104,10 @@ ${matchedLead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n")
   } catch (err) {
     console.error("Meeting prep failed:", err);
     return NextResponse.json(
-      { error: "Janus couldn't prepare this meeting brief. Try again in a moment." },
+      {
+        error: "Janus couldn't prepare this meeting brief. Try again in a moment.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }

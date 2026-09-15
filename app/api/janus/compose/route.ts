@@ -73,7 +73,10 @@ ${lead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n") || "- 
   } catch (err) {
     console.error("Message composition failed:", err);
     return NextResponse.json(
-      { error: "Janus couldn't draft this message. Try again in a moment." },
+      {
+        error: "Janus couldn't draft this message. Try again in a moment.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }

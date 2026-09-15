@@ -65,7 +65,11 @@ export function CallWorkspace({ lead }: { lead: Lead }) {
             "I'm on a live call with this lead right now. Give me one specific, short talking point or objection response I can use in the next few seconds.",
         }),
       });
-      if (!res.ok) throw new Error("Janus couldn't respond right now.");
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.detail) console.error("Janus ask detail:", data.detail);
+        throw new Error(data?.error ?? "Janus couldn't respond right now.");
+      }
       const data = await res.json();
       setTip(data.answer);
     } catch (err) {

@@ -83,7 +83,10 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("Failed to resolve online meeting id:", err);
     return NextResponse.json(
-      { error: "Couldn't look up this meeting in Microsoft Graph." },
+      {
+        error: "Couldn't look up this meeting in Microsoft Graph.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }
@@ -128,7 +131,10 @@ export async function POST(request: Request) {
     }
     console.error("Failed to fetch meeting transcript:", err);
     return NextResponse.json(
-      { error: "Failed to fetch the meeting transcript from Microsoft Graph." },
+      {
+        error: "Failed to fetch the meeting transcript from Microsoft Graph.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }
@@ -179,7 +185,10 @@ ${transcriptVtt}
   } catch (err) {
     console.error("Meeting recap generation failed:", err);
     return NextResponse.json(
-      { error: "Janus couldn't summarize this transcript. Try again in a moment." },
+      {
+        error: "Janus couldn't summarize this transcript. Try again in a moment.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }

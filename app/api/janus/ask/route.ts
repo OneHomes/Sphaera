@@ -242,7 +242,10 @@ Total leads in scope: ${leads.length}, of which ${overdueLeads} have an overdue 
   } catch (err) {
     console.error("Janus ask failed:", err);
     return NextResponse.json(
-      { error: "Janus couldn't answer right now. Try again in a moment." },
+      {
+        error: "Janus couldn't answer right now. Try again in a moment.",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 502 }
     );
   }
