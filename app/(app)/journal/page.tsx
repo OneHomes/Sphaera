@@ -18,7 +18,7 @@ export default async function JournalRoute() {
 
   const rows = await prisma.journalEntry.findMany({
     where: { authorId: user.id },
-    orderBy: { createdAt: "desc" },
+    orderBy: { updatedAt: "desc" },
   });
 
   const notes: JournalNote[] = rows.map((r) => ({
@@ -29,8 +29,12 @@ export default async function JournalRoute() {
       month: "short",
       day: "numeric",
     }),
-    preview: r.body.slice(0, 80),
+    preview: r.body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80),
     body: r.body,
+    isFavorite: r.isFavorite,
+    archivedAt: r.archivedAt?.toISOString() ?? null,
+    deletedAt: r.deletedAt?.toISOString() ?? null,
+    updatedAt: r.updatedAt.toISOString(),
   }));
 
   return <JournalPageComponent initialNotes={notes} />;

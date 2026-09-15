@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getAuthUser } from "@/lib/authz";
+import { getFreshAuthUser } from "@/lib/authz";
 import { getRiskAlerts } from "@/lib/riskCentre";
 import { RiskCentrePage } from "@/components/riskcentre/RiskCentrePage";
 
@@ -13,7 +13,7 @@ export default async function RiskCentreRoute() {
     redirect("/sign-in");
   }
 
-  const authUser = getAuthUser(session);
+  const authUser = await getFreshAuthUser(session);
   if (authUser.role === "AGENT") {
     redirect("/dashboard");
   }

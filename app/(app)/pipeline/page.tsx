@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { toUiOpportunity } from "@/lib/opportunityTransform";
-import { getAuthUser, getOpportunityScopeWhere } from "@/lib/authz";
+import { getFreshAuthUser, getOpportunityScopeWhere } from "@/lib/authz";
 import { PipelineBoard } from "@/components/pipeline/PipelineBoard";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export default async function PipelinePage() {
     redirect("/sign-in");
   }
 
-  const authUser = getAuthUser(session);
+  const authUser = await getFreshAuthUser(session);
 
   const rows = await prisma.opportunity.findMany({
     where: getOpportunityScopeWhere(authUser),

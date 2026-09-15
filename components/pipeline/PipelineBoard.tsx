@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { Download } from "lucide-react";
 import {
   pipelineStages,
   type Opportunity,
   type OpportunityStage,
 } from "@/lib/pipelineData";
+import { downloadCsv } from "@/lib/csv";
 import { PipelineColumn } from "./PipelineColumn";
 import { LossReasonModal } from "./LossReasonModal";
 import { PipelineInsight } from "./PipelineInsight";
+import { PipelineForecastCard } from "./PipelineForecastCard";
 
 type PendingLossMove = {
   opportunityId: string;
@@ -132,15 +135,39 @@ export function PipelineBoard({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-base-700 px-6 py-4">
-        <h1 className="text-xl font-semibold text-ink-50">Pipeline</h1>
-        <p className="mt-1 text-sm text-ink-500">
-          {opportunities.length} opportunities · $
-          {(totalPipelineValue / 1_000_000).toFixed(2)}M active pipeline
-        </p>
+      <div className="flex items-center justify-between border-b border-base-700 px-6 py-4">
+        <div>
+          <h1 className="text-xl font-semibold text-ink-50">Pipeline</h1>
+          <p className="mt-1 text-sm text-ink-500">
+            {opportunities.length} opportunities · $
+            {(totalPipelineValue / 1_000_000).toFixed(2)}M active pipeline
+          </p>
+        </div>
+        <button
+          onClick={() =>
+            downloadCsv(
+              "sphaera-pipeline.csv",
+              ["Lead", "Project", "Stage", "Value", "Probability", "Expected Close", "Owner"],
+              opportunities.map((o) => [
+                o.leadName,
+                o.projectInterest,
+                o.stage,
+                o.value,
+                `${o.probability}%`,
+                o.expectedCloseDate ?? "",
+                o.assignedUserName ?? "Unassigned",
+              ])
+            )
+          }
+          className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
+        >
+          <Download className="h-3 w-3" />
+          Export CSV
+        </button>
       </div>
 
       <div className="flex-1 overflow-x-auto p-6">
+        <PipelineForecastCard opportunities={opportunities} />
         <PipelineInsight />
         <div className="flex gap-3">
           {pipelineStages.map((stage) => (

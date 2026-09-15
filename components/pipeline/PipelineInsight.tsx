@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
+import { JanusGlyph } from "@/components/janus/JanusGlyph";
 
 const quickQuestions = [
   "What needs attention in my pipeline right now?",
@@ -52,7 +53,7 @@ export function PipelineInsight() {
   return (
     <div className="mb-4 rounded-xl border border-base-700 bg-base-900 p-4">
       <div className="mb-3 flex items-center gap-2">
-        <JanusGlyph />
+        <JanusGlyph className="h-4 w-4 text-white" />
         <h3 className="text-sm font-medium text-ink-50">Ask Janus about the pipeline</h3>
       </div>
 
@@ -102,18 +103,5 @@ export function PipelineInsight() {
         </button>
       </form>
     </div>
-  );
-}
-
-function JanusGlyph() {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" className="h-4 w-4 text-ink-50">
-      <path
-        d="M14 10c8 0 8 6 16 6s8-6 16-6M14 24c8 0 8 6 16 6s8-6 16-6M14 38c8 0 8 6 16 6s8-6 16-6"
-        stroke="currentColor"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }

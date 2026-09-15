@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Users } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
-import { formatMoney, type Tier, type AgentStatus } from "@/lib/businessActivityData";
+import { formatMoney, type Tier, type AgentStatus, type TrendDirection } from "@/lib/businessActivityData";
 import { SpectatePopup } from "./SpectatePopup";
+import { TrendIndicator } from "./TrendIndicator";
 
 export type AgentActivityRow = {
   id: string;
@@ -14,6 +15,10 @@ export type AgentActivityRow = {
   pipelineValue: number;
   totalRevenue: number;
   productivityIndex: number;
+  liveActivity: string; // mock — no telephony/presence signal yet
+  context: string; // mock
+  trend: TrendDirection; // mock
+  team: string; // real — Team.name
 };
 
 const tierStyles: Record<Tier, string> = {
@@ -48,6 +53,9 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
               <th className="pb-2 pr-3 font-normal">Agent</th>
               <th className="pb-2 pr-3 font-normal">Status</th>
               <th className="pb-2 pr-3 font-normal">Tier</th>
+              <th className="pb-2 pr-3 font-normal">Live Activity</th>
+              <th className="pb-2 pr-3 font-normal">Context</th>
+              <th className="pb-2 pr-3 font-normal">Team</th>
               <th className="pb-2 pr-3 font-normal text-right">PI</th>
               <th className="pb-2 pr-3 font-normal text-right">Pipeline</th>
               <th className="pb-2 font-normal text-right">Revenue</th>
@@ -76,6 +84,16 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
                     {agent.tier}
                   </span>
                 </td>
+                <td className="py-2 pr-3">
+                  <div className="flex items-center gap-1 whitespace-nowrap">
+                    <TrendIndicator direction={agent.trend} />
+                    {agent.liveActivity}
+                  </div>
+                </td>
+                <td className="py-2 pr-3 max-w-[160px] truncate text-ink-500" title={agent.context}>
+                  {agent.context}
+                </td>
+                <td className="py-2 pr-3 text-ink-500">{agent.team}</td>
                 <td className="py-2 pr-3 text-right font-medium text-ink-50">
                   {agent.productivityIndex}
                 </td>
@@ -89,7 +107,7 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
             ))}
             {agents.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-ink-500">
+                <td colSpan={9} className="py-6 text-center text-ink-500">
                   No team members have signed in yet.
                 </td>
               </tr>
@@ -98,11 +116,11 @@ export function AgentActivityTable({ agents }: { agents: AgentActivityRow[] }) {
         </table>
       </div>
       <p className="mt-2 text-[10px] text-ink-500">
-        Status reflects recent AEX activity. PI (Productivity Index) is
-        computed from real Lead/Task data, weights pending business
-        sign-off (PRD 14.3). Live call presence and auto-generated context
-        aren't connected yet — pipeline/revenue reflect real assigned
-        opportunities.
+        Status, Tier, PI, Pipeline, and Revenue reflect real activity and
+        assigned opportunities. Live Activity and Context are illustrative
+        — telephony/presence integration isn't connected yet, so these
+        don't reflect what the agent is actually doing right now. Team is
+        real (Team.name).
       </p>
 
       {spectateAgent && (

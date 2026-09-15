@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, Plus, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Plus, AlertTriangle, X, Sparkles, Download } from "lucide-react";
 import { WhatsAppConfigCard } from "./WhatsAppConfigCard";
+import { SalesforceSyncCard } from "./SalesforceSyncCard";
+import { AexConfigPanel } from "./AexConfigPanel";
+import { JanusCoachingCard } from "@/components/aex/JanusCoachingCard";
+import { downloadCsv } from "@/lib/csv";
 type AdminUser = {
   id: string;
   name: string;
@@ -36,30 +40,30 @@ const roleStyles: Record<AdminUser["role"], string> = {
   AGENT: "bg-base-700 text-ink-300",
 };
 
-// Mirrors lib/allocationRules.ts — kept in sync manually since this is a
-// client component and can't import server-only Prisma-adjacent code.
-// If those constants change, update this too.
-const MAX_ACTIVE_LEAD_ASSIGNMENTS = 15;
-const MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS = 15;
-
 export function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Real caps from AexConfig (PRD AV10) — no more hardcoded mirror.
+  const [maxActiveLeads, setMaxActiveLeads] = useState(15);
+  const [maxActiveOpportunities, setMaxActiveOpportunities] = useState(15);
   const [newTeamName, setNewTeamName] = useState("");
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  const [coachingUser, setCoachingUser] = useState<{ id: string; name: string } | null>(null);
+  const [auditSearch, setAuditSearch] = useState("");
 
   async function loadData() {
     setIsLoading(true);
     setError(null);
     try {
-      const [usersRes, teamsRes, auditRes] = await Promise.all([
+      const [usersRes, teamsRes, auditRes, aexConfigRes] = await Promise.all([
         fetch("/api/admin/users"),
         fetch("/api/admin/teams"),
         fetch("/api/admin/audit-log"),
+        fetch("/api/admin/aex-config"),
       ]);
 
       if (!usersRes.ok || !teamsRes.ok || !auditRes.ok) {
@@ -69,6 +73,11 @@ export function AdminUsersPage() {
       setUsers(await usersRes.json());
       setTeams(await teamsRes.json());
       setAuditEntries(await auditRes.json());
+      if (aexConfigRes.ok) {
+        const aexConfig = await aexConfigRes.json();
+        setMaxActiveLeads(aexConfig.maxActiveLeadAssignments);
+        setMaxActiveOpportunities(aexConfig.maxActiveOpportunityAssignments);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -79,6 +88,19 @@ export function AdminUsersPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // PF07 acceptance criterion — "authorised administrators can search and
+  // export audit events." Debounced, separate from loadData() so typing
+  // doesn't re-fetch users/teams/AEX config on every keystroke.
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      fetch(`/api/admin/audit-log?search=${encodeURIComponent(auditSearch)}`)
+        .then((res) => (res.ok ? res.json() : []))
+        .then(setAuditEntries)
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [auditSearch]);
 
   async function handleRoleChange(userId: string, role: AdminUser["role"]) {
     setSavingUserId(userId);
@@ -160,6 +182,8 @@ export function AdminUsersPage() {
         <h1 className="text-xl font-semibold text-ink-50">Admin — Users & Teams</h1>
       </div>
 <WhatsAppConfigCard />
+      <SalesforceSyncCard />
+      <AexConfigPanel />
       <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">
         <h2 className="mb-3 text-sm font-medium text-ink-50">Teams</h2>
         <div className="mb-3 flex flex-wrap gap-2">
@@ -195,12 +219,27 @@ export function AdminUsersPage() {
       </div>
 
       <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">
-        <h2 className="mb-1 text-sm font-medium text-ink-50">Users</h2>
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-ink-50">Users</h2>
+          <button
+            onClick={() =>
+              downloadCsv(
+                "sphaera-users.csv",
+                ["Name", "Email", "Role", "Team", "Active Leads", "Active Opportunities"],
+                users.map((u) => [u.name, u.email, u.role, u.teamName ?? "", u.activeLeadCount, u.activeOpportunityCount])
+              )
+            }
+            className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
+          >
+            <Download className="h-3 w-3" />
+            Export CSV
+          </button>
+        </div>
         <p className="mb-3 text-[11px] text-ink-500">
           Active lead/opportunity counts highlight in red if an agent is at
-          or above the fair-allocation cap ({MAX_ACTIVE_LEAD_ASSIGNMENTS}{" "}
-          leads / {MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS} opportunities) — PRD
-          R08.
+          or above the fair-allocation cap ({maxActiveLeads}{" "}
+          leads / {maxActiveOpportunities} opportunities, configurable
+          below) — PRD R08.
         </p>
         <table className="w-full text-left text-xs">
           <thead>
@@ -210,14 +249,15 @@ export function AdminUsersPage() {
               <th className="pb-2 pr-3 font-normal">Role</th>
               <th className="pb-2 pr-3 font-normal">Team</th>
               <th className="pb-2 pr-3 font-normal text-right">Active leads</th>
-              <th className="pb-2 font-normal text-right">Active opps</th>
+              <th className="pb-2 pr-3 font-normal text-right">Active opps</th>
+              <th className="pb-2 font-normal"></th>
             </tr>
           </thead>
           <tbody>
             {users.map((user) => {
-              const leadOverCap = user.activeLeadCount >= MAX_ACTIVE_LEAD_ASSIGNMENTS;
+              const leadOverCap = user.activeLeadCount >= maxActiveLeads;
               const oppOverCap =
-                user.activeOpportunityCount >= MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS;
+                user.activeOpportunityCount >= maxActiveOpportunities;
               return (
                 <tr key={user.id} className="border-t border-base-700 text-ink-300">
                   <td className="py-2.5 pr-3 font-medium text-ink-50">
@@ -262,9 +302,20 @@ export function AdminUsersPage() {
                     {user.activeLeadCount}
                   </td>
                   <td
-                    className={`py-2.5 text-right ${oppOverCap ? "font-semibold text-status-inactive" : ""}`}
+                    className={`py-2.5 pr-3 text-right ${oppOverCap ? "font-semibold text-status-inactive" : ""}`}
                   >
                     {user.activeOpportunityCount}
+                  </td>
+                  <td className="py-2.5 text-right">
+                    {user.role === "AGENT" && (
+                      <button
+                        onClick={() => setCoachingUser({ id: user.id, name: user.name })}
+                        className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        Coach
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -273,17 +324,50 @@ export function AdminUsersPage() {
         </table>
       </div>
 
+      {coachingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm">
+            <div className="mb-2 flex justify-end">
+              <button
+                onClick={() => setCoachingUser(null)}
+                className="rounded-full bg-base-800 p-1.5 text-ink-300 hover:text-ink-50"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <JanusCoachingCard userId={coachingUser.id} userName={coachingUser.name} />
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-ink-300" />
-          <h2 className="text-sm font-medium text-ink-50">
-            Governance Log
-          </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-ink-300" />
+            <h2 className="text-sm font-medium text-ink-50">
+              Governance Log
+            </h2>
+          </div>
+          <a
+            href={`/api/admin/audit-log?format=csv&search=${encodeURIComponent(auditSearch)}`}
+            className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
+          >
+            <Download className="h-3 w-3" />
+            Export CSV
+          </a>
         </div>
         <p className="mb-3 text-[11px] text-ink-500">
           Role/team changes and blocked AEX point-award attempts (PRD
-          Section 14.12 — Anti Gaming and Governance).
+          Section 14.12 — Anti Gaming and Governance). Export includes every
+          matching event, not just what&apos;s shown below.
         </p>
+        <input
+          value={auditSearch}
+          onChange={(e) => setAuditSearch(e.target.value)}
+          placeholder="Search action, actor, or details…"
+          className="mb-3 w-full rounded-lg border border-base-700 bg-base-800 px-3 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500 focus:border-base-600"
+        />
         <div className="space-y-2">
           {auditEntries.map((entry) => (
             <div

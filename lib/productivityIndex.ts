@@ -1,28 +1,15 @@
 import { prisma } from "./prisma";
+import { getAexConfig } from "./aexConfig";
+import { isQualifiedOrLater } from "./leadData";
 
-// PLACEHOLDER WEIGHTS/THRESHOLDS — not business-approved. PRD Section
-// 14.3 requires Productivity Index weights and thresholds to be
-// configurable and signed off by the One Homes business owner before
-// UAT. Same governance pattern already used for AEX tier thresholds
-// (lib/aexTransform.ts) and allocation caps (lib/allocationRules.ts).
-const WEIGHTS = {
-  speedToLead: 0.25,
-  output: 0.2,
-  engagementConversion: 0.2,
-  interactionFulfilment: 0.2,
-  dataQuality: 0.15,
-};
-
+// PRD Section 14.3 — weights are now real, admin-configurable values
+// (see lib/aexConfig.ts / Admin AEX Config), still PLACEHOLDER defaults
+// pending business sign-off. OUTPUT_WEEKLY_TARGET and
+// FRESHNESS_WINDOW_DAYS remain fixed constants — not yet promoted to
+// AexConfig since they're calibration knobs rather than a weighting the
+// PRD names directly; same governance pattern either way.
 const OUTPUT_WEEKLY_TARGET = 20; // PLACEHOLDER weekly activity target
 const FRESHNESS_WINDOW_DAYS = 14; // PLACEHOLDER "actively managed" window
-
-const QUALIFIED_OR_LATER = new Set([
-  "Qualified",
-  "Meeting Booked",
-  "Opportunity",
-  "Negotiation",
-  "Closed Won",
-]);
 
 const CONTACT_EVENT_TYPES = new Set(["call", "email", "meeting"]);
 
@@ -60,7 +47,7 @@ export async function calculateProductivityIndex(
 ): Promise<ProductivityIndexResult> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3_600_000);
 
-  const [leads, tasks, recentContactEvents] = await Promise.all([
+  const [leads, tasks, recentContactEvents, aexConfig] = await Promise.all([
     prisma.lead.findMany({
       where: { assignedUserId: userId },
       include: {
@@ -75,7 +62,9 @@ export async function calculateProductivityIndex(
         type: { in: ["call", "email", "meeting"] },
       },
     }),
+    getAexConfig(),
   ]);
+  const WEIGHTS = aexConfig.piWeights;
 
   // ---- 1. Speed to Lead: time from lead creation to first logged contact ----
   const speedSamples: number[] = [];
@@ -108,7 +97,7 @@ export async function calculateProductivityIndex(
 
   // ---- 3. Engagement Conversion: leads progressed past New/Contacted ----
   const qualifiedCount = leads.filter((l) =>
-    QUALIFIED_OR_LATER.has(l.stage)
+    isQualifiedOrLater(l.stage)
   ).length;
   const engagementScore =
     leads.length > 0 ? Math.round((qualifiedCount / leads.length) * 100) : 100;
@@ -123,7 +112,7 @@ export async function calculateProductivityIndex(
     const hasNextAction = Boolean(l.nextAction);
     const isFresh =
       l.lastInteractionAt !== null &&
-      Date.now() - l.lastInteractionAt.getTime() 
+      Date.now() - l.lastInteractionAt.getTime() <
         FRESHNESS_WINDOW_DAYS * 24 * 3_600_000;
     return hasNextAction && isFresh;
   }).length;

@@ -1,17 +1,66 @@
-// Placeholder data only. Replace with a real query once the Gold-layer
-// Lead entity is validated (see Sphaera_MVP_Build_Specification.md Section 6).
-// Fields here map directly to PRD AE06 (Unified Lead Inbox) and AE07
-// (Lead Scoring and Prioritisation) requirements.
+// Real Salesforce picklist values (Lead.Status / Lead.LeadSource), pulled
+// live from the org's Lead object describe — not an invented placeholder
+// list. Salesforce admins can add/edit picklist values over time, so
+// treat this as a snapshot to keep roughly in sync, not a hard contract;
+// anywhere these are used as a lookup key falls back gracefully for a
+// value not in this list (see leadStageRank/leadScoring/LeadBadges).
 
 export type LeadPriority = "High" | "Medium" | "Low";
-export type LeadStage =
-  | "New"
-  | "Contacted"
-  | "Qualified"
-  | "Meeting Booked"
-  | "Negotiation";
+// Real Salesforce Status values are free-form from the org's own
+// picklist, not a fixed small set — kept as `string` rather than a
+// union so a new/renamed Salesforce status never breaks a build.
+export type LeadStage = string;
 export type EngagementLevel = "High" | "Medium" | "Low";
 export type AssignmentStatus = "Assigned" | "Locked" | "Unassigned";
+
+// Real Lead.Status values (Salesforce org describe, 23 values). Ordered
+// roughly earliest -> most advanced for display purposes; the real
+// ranking used for scoring/badges/AEX lives in leadStageRank below.
+export const leadStages: LeadStage[] = [
+  "New Lead / Not Contacted Yet",
+  "Called & No Answer",
+  "Incorrect Contact Info",
+  "Interested",
+  "Interested OSR",
+  "Booked",
+  "Presentation",
+  "Reconfirmed",
+  "Attended",
+  "No Show",
+  "Not Attended",
+  "Qualified",
+  "EOI Submitted",
+  "EOI / Wishlist Signed",
+  "Validated",
+  "Proof of payment / DocuSign",
+  "Negotiation",
+  "SPA Completed",
+  "1st Instalment Received",
+  "Convert lead",
+  "Not Interested",
+  "Cancelled - Closed",
+  "Remove from DB",
+];
+
+// Real Lead.LeadSource values (Salesforce org describe, 52 values).
+export const leadSources: string[] = [
+  "Agent Sales", "Client Referral", "CPIC Survey", "CPIC Website",
+  "CPIC Website Call Back Lead", "CPIC Website Response IQ", "Email & SMS",
+  "Emails", "Employee Referral", "EventBrite", "Event Walk-In", "Facebook",
+  "Facebook Landing Page", "Facebook Lead Form", "Flyer Outdoor - billboards",
+  "Flyer Outdoor - busses & trams", "Flyer Outdoor - other",
+  "Google Display Network", "Google Search", "Inspection Trip",
+  "IPC Website", "Linkedin", "Live Chart", "Mobile App Lead",
+  "Mobile App Referral", "NHS", "Other", "Others", "Partner Referral",
+  "Phone Inquiry", "Purchased List", "Radio", "Referral Partner", "SMS",
+  "Typeform", "UK TV Ads", "US TV Ads", "Web", "Website - Islamabad",
+  "OSR Pre Reservation", "Youtube", "Instagram Message", "Instagram Comment",
+  "Facebook Message", "Facebook Comment", "Whatsapp", "TikTok Comment",
+  "LinkedIn Message", "YouTube Comment", "Social", "Client Site Visit",
+  "Existing Client",
+];
+
+export const leadPriorities: LeadPriority[] = ["High", "Medium", "Low"];
 
 export type Lead = {
   id: string;
@@ -28,191 +77,69 @@ export type Lead = {
   nextAction: string;
   nextActionDue: string;
   assignment: AssignmentStatus;
+  lockedUntilLabel?: string;
   assignedUserId?: string;
   assignedUserName?: string;
-  // The "reason" a rules/ML engine ranked this lead here — required by
-  // PRD AE07 ("top contributing factors") and the general explainability
-  // rule (JN14): every score must be able to say why.
   prioritizationReason: string;
 };
 
-export const leads: Lead[] = [
-  {
-    id: "L-1042",
-    name: "Evelyn Hayes",
-    contact: "+44 7911 123456",
-    source: "Meta Ads",
-    market: "UK",
-    projectInterest: "One Serene Vista — 2 Bed",
-    stage: "Qualified",
-    score: 88,
-    engagement: "High",
-    priority: "High",
-    lastInteraction: "2 mins ago",
-    nextAction: "Call back",
-    nextActionDue: "Today, 3:00 PM",
-    assignment: "Assigned",
-    prioritizationReason: "Responded within 5 min of last message; viewed 3 unit pages today",
-  },
-  {
-    id: "L-1043",
-    name: "Theodore Vance",
-    contact: "+44 7911 654321",
-    source: "HubSpot — Landing Page",
-    market: "UK",
-    projectInterest: "Azure Bay — 1 Bed Suite",
-    stage: "Meeting Booked",
-    score: 82,
-    engagement: "High",
-    priority: "High",
-    lastInteraction: "6 mins ago",
-    nextAction: "Prepare meeting brief",
-    nextActionDue: "Today, 5:30 PM",
-    assignment: "Assigned",
-    prioritizationReason: "Meeting confirmed for today; high budget fit",
-  },
-  {
-    id: "L-1044",
-    name: "Luna Wright",
-    contact: "luna.wright@gmail.com",
-    source: "Salesforce",
-    market: "UAE",
-    projectInterest: "Downtown Getaway — Studio",
-    stage: "Contacted",
-    score: 71,
-    engagement: "Medium",
-    priority: "Medium",
-    lastInteraction: "11 mins ago",
-    nextAction: "Send follow-up email",
-    nextActionDue: "Tomorrow, 10:00 AM",
-    assignment: "Assigned",
-    prioritizationReason: "Opened last 2 emails, no reply yet",
-  },
-  {
-    id: "L-1045",
-    name: "Jasper Reed",
-    contact: "+971 50 123 4567",
-    source: "Meta Ads",
-    market: "UAE",
-    projectInterest: "Ocean Breeze Residences",
-    stage: "New",
-    score: 45,
-    engagement: "Low",
-    priority: "Medium",
-    lastInteraction: "15 mins ago",
-    nextAction: "First contact call",
-    nextActionDue: "Today, 6:00 PM",
-    assignment: "Unassigned",
-    prioritizationReason: "New lead — inside 60-minute speed-to-lead window",
-  },
-  {
-    id: "L-1046",
-    name: "Scarlett Hayes",
-    contact: "scarlett.h@outlook.com",
-    source: "HubSpot — Chat",
-    market: "UK",
-    projectInterest: "Metro Luxe Downtown",
-    stage: "Qualified",
-    score: 64,
-    engagement: "Medium",
-    priority: "Medium",
-    lastInteraction: "24 mins ago",
-    nextAction: "Share brochure",
-    nextActionDue: "Today, 7:00 PM",
-    assignment: "Assigned",
-    prioritizationReason: "Asked about payment plans in last chat",
-  },
-  {
-    id: "L-1047",
-    name: "Atticus Vance",
-    contact: "+44 7911 987654",
-    source: "Salesforce",
-    market: "UK",
-    projectInterest: "Worldwide Stays",
-    stage: "Contacted",
-    score: 58,
-    engagement: "Medium",
-    priority: "Low",
-    lastInteraction: "37 mins ago",
-    nextAction: "Follow-up call",
-    nextActionDue: "Tomorrow, 2:00 PM",
-    assignment: "Assigned",
-    prioritizationReason: "Moderate engagement, no urgency flagged",
-  },
-  {
-    id: "L-1048",
-    name: "Hazel Wright",
-    contact: "+971 50 765 4321",
-    source: "Meta Ads",
-    market: "UAE",
-    projectInterest: "Summit View Launch",
-    stage: "New",
-    score: 39,
-    engagement: "Low",
-    priority: "Low",
-    lastInteraction: "6 hours ago",
-    nextAction: "First contact call",
-    nextActionDue: "Overdue",
-    assignment: "Unassigned",
-    prioritizationReason: "Missed 60-minute speed-to-lead window — needs immediate action",
-  },
-  {
-    id: "L-1049",
-    name: "Milo Reed",
-    contact: "milo.reed@gmail.com",
-    source: "HubSpot — Landing Page",
-    market: "UK",
-    projectInterest: "Peak Retreat Project",
-    stage: "Contacted",
-    score: 52,
-    engagement: "Medium",
-    priority: "Medium",
-    lastInteraction: "15 hours ago",
-    nextAction: "Re-engagement message",
-    nextActionDue: "Today, 4:00 PM",
-    assignment: "Assigned",
-    prioritizationReason: "No response in 15 hours — risk of going cold",
-  },
-  {
-    id: "L-1050",
-    name: "Violet Hayes",
-    contact: "+44 7911 456789",
-    source: "Salesforce",
-    market: "UK",
-    projectInterest: "Bright Star Flats",
-    stage: "New",
-    score: 28,
-    engagement: "Low",
-    priority: "Low",
-    lastInteraction: "5 days ago",
-    nextAction: "Nurture / re-qualify",
-    nextActionDue: "This week",
-    assignment: "Unassigned",
-    prioritizationReason: "Long inactivity — candidate for nurture track, not active outreach",
-  },
-];
+// PRD AE07 (Lead Scoring). Groups the 23 real statuses into a rank order
+// reflecting real funnel progress — used for AEX "forward progress"
+// point awards, the Productivity Index's "qualified or further" set,
+// and badge coloring. -1 = negative/terminal (doesn't count as
+// progress). PLACEHOLDER grouping — a business call, not a technical
+// one; easy to adjust once real data is flowing.
+export const leadStageRank: Record<string, number> = {
+  "New Lead / Not Contacted Yet": 0,
+  "Called & No Answer": 1,
+  "Incorrect Contact Info": 1,
+  "Interested": 2,
+  "Interested OSR": 2,
+  "Booked": 3,
+  "Presentation": 3,
+  "Reconfirmed": 3,
+  "Attended": 4,
+  "No Show": 4,
+  "Not Attended": 4,
+  "Qualified": 5,
+  "EOI Submitted": 5,
+  "EOI / Wishlist Signed": 5,
+  "Validated": 6,
+  "Proof of payment / DocuSign": 6,
+  "Negotiation": 7,
+  "SPA Completed": 8,
+  "1st Instalment Received": 9,
+  "Convert lead": 9,
+  "Not Interested": -1,
+  "Cancelled - Closed": -1,
+  "Remove from DB": -1,
+};
 
-// Static filter-dropdown option list. NOT derived from live data on
-// purpose — deriving from whatever leads currently exist in the DB would
-// make the filter list unstable (sources disappear from the dropdown the
-// moment the last lead from that source is closed). Update this list when
-// a new lead source is connected (per the Fabric audit's confirmed source
-// list: Salesforce, HubSpot, HighLevel, Meta Ads, Google Ads).
-export const leadSources = [
-  "Salesforce",
-  "HubSpot — Landing Page",
-  "HubSpot — Chat",
-  "Meta Ads",
-  "Google Ads",
-];
-export const leadStages: LeadStage[] = [
-  "New",
-  "Contacted",
-  "Qualified",
-  "Meeting Booked",
-  "Negotiation",
-];
-export const leadPriorities: LeadPriority[] = ["High", "Medium", "Low"];
+// PRD AE07 — "qualified or later" set, used by the Productivity Index's
+// Engagement Conversion dimension and Business Activity's qualified-rate.
+// Derived from leadStageRank rather than hand-listed twice.
+export const QUALIFIED_STAGE_RANK_THRESHOLD = 5;
+export function isQualifiedOrLater(stage: string): boolean {
+  return (leadStageRank[stage] ?? 0) >= QUALIFIED_STAGE_RANK_THRESHOLD;
+}
+
+// Real negative/terminal statuses (rank -1 above) — a lead in one of
+// these is done, one way or another, and shouldn't show up in "what
+// should I work on" queries (Mission Centre, Calls hub). Previously
+// those queries excluded "Closed Won"/"Closed Lost", which are
+// Opportunity-only values that never actually appeared on Lead.stage —
+// a silent no-op bug this real-status switch surfaced.
+export const TERMINAL_LEAD_STAGES: string[] = Object.entries(leadStageRank)
+  .filter(([, rank]) => rank < 0)
+  .map(([stage]) => stage);
+
+// Real statuses that represent "a meeting is on the books" — used by
+// Next Best Action's stale-meeting check.
+export const MEETING_BOOKED_STAGES = new Set([
+  "Booked",
+  "Presentation",
+  "Reconfirmed",
+]);
 
 export function scoreBand(score: number): "Hot" | "Warm" | "Cool" {
   if (score >= 75) return "Hot";

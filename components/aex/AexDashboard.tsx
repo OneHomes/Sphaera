@@ -1,6 +1,8 @@
 import { Trophy, Flame, Award, History } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ChallengePicker } from "./ChallengePicker";
+import { MyChallenges } from "./MyChallenges";
+import { DailyClubCard } from "./DailyClubCard";
 import type { Tier } from "@/lib/businessActivityData";
 import { ProductivityIndexCard } from "./ProductivityIndexCard";
 import { JanusCoachingCard } from "./JanusCoachingCard";
@@ -207,6 +209,8 @@ export function AexDashboard({
   points,
   nextTier,
   pointsToNextTier,
+  dailyClub,
+  monthlyChampion,
   badges,
   streaks,
   pointEvents,
@@ -216,6 +220,8 @@ export function AexDashboard({
   points: number;
   nextTier: Tier | null;
   pointsToNextTier: number;
+  dailyClub: { qualified: boolean; todayPoints: number; threshold: number };
+  monthlyChampion: { id: string; name: string; points: number } | null;
   badges: AexBadge[];
   streaks: AexStreak[];
   pointEvents: AexPointEvent[];
@@ -236,8 +242,10 @@ export function AexDashboard({
           pointsToNextTier={pointsToNextTier}
         />
         <StreaksCard streaks={streaks} />
+        <DailyClubCard dailyClub={dailyClub} monthlyChampion={monthlyChampion} />
         <ProductivityIndexCard />
         <ChallengePicker leaderboard={leaderboard} />
+        <MyChallenges />
         <JanusCoachingCard />
         <BadgesGrid badges={badges} />
         <PointsHistoryTable pointEvents={pointEvents} />

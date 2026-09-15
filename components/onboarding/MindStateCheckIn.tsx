@@ -10,29 +10,41 @@ import {
 } from "lucide-react";
 
 const moods = [
-  { value: 0, label: "Struggling", icon: Angry },
-  { value: 25, label: "Low", icon: Frown },
-  { value: 50, label: "Neutral", icon: Meh },
-  { value: 75, label: "Optimistic", icon: Smile },
-  { value: 100, label: "Energised", icon: Laugh },
+  { value: 0, score: 1, label: "Struggling", icon: Angry },
+  { value: 25, score: 2, label: "Low", icon: Frown },
+  { value: 50, score: 3, label: "Neutral", icon: Meh },
+  { value: 75, score: 4, label: "Optimistic", icon: Smile },
+  { value: 100, score: 5, label: "Energised", icon: Laugh },
 ];
 
-function nearestMoodLabel(value: number) {
-  const closest = moods.reduce((prev, curr) =>
+function nearestMood(value: number) {
+  return moods.reduce((prev, curr) =>
     Math.abs(curr.value - value) < Math.abs(prev.value - value) ? curr : prev
   );
-  return closest.label;
 }
 
 export function MindStateCheckIn({ onContinue }: { onContinue: () => void }) {
   const [value, setValue] = useState(75);
   const [privateNote, setPrivateNote] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
-  function handleSubmit() {
-    // TODO: persist to MindState Check In entity (PRD AE03). Raw note text
-    // must remain private per PF02/19.5 — only aggregated trend indicators
-    // are ever surfaced to managers.
-    onContinue();
+  const mood = nearestMood(value);
+
+  async function handleSubmit() {
+    setIsSaving(true);
+    try {
+      // PRD AE03 — real persistence (same endpoint as the Journal
+      // sidebar's check-in). Raw note text stays private per PF02/19.5 —
+      // only aggregated trend indicators are ever surfaced to managers,
+      // and no manager-facing aggregation view reads this yet.
+      await fetch("/api/mindstate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moodScore: mood.score, mood: mood.label, note: privateNote }),
+      });
+    } finally {
+      onContinue();
+    }
   }
 
   return (
@@ -55,9 +67,7 @@ export function MindStateCheckIn({ onContinue }: { onContinue: () => void }) {
         }}
       />
 
-      <p className="text-lg font-medium text-ink-50">
-        {nearestMoodLabel(value)}
-      </p>
+      <p className="text-lg font-medium text-ink-50">{mood.label}</p>
 
       <div className="w-full max-w-sm">
         <input
@@ -75,8 +85,8 @@ export function MindStateCheckIn({ onContinue }: { onContinue: () => void }) {
           }}
         />
         <div className="mt-2 flex justify-between">
-          {moods.map((mood) => (
-            <mood.icon key={mood.value} className="h-4 w-4 text-ink-500" />
+          {moods.map((m) => (
+            <m.icon key={m.value} className="h-4 w-4 text-ink-500" />
           ))}
         </div>
       </div>
@@ -91,9 +101,10 @@ export function MindStateCheckIn({ onContinue }: { onContinue: () => void }) {
 
       <button
         onClick={handleSubmit}
-        className="rounded-lg bg-status-active px-8 py-2.5 text-sm font-semibold text-base-950 hover:brightness-110"
+        disabled={isSaving}
+        className="rounded-lg bg-status-active px-8 py-2.5 text-sm font-semibold text-base-950 hover:brightness-110 disabled:opacity-60"
       >
-        Next
+        {isSaving ? "Saving…" : "Next"}
       </button>
     </div>
   );

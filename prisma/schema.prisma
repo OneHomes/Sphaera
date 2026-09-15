@@ -4,7 +4,14 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" keeps local dev working (Windows); "rhel-openssl-3.0.x" is
+  // the engine Azure Functions' Linux runtime needs (this app's server
+  // routes run there via Azure Static Web Apps' hybrid Next.js support).
+  // Without this, Prisma only ships the binary for whatever machine ran
+  // `prisma generate` — which silently breaks every route that touches
+  // the database once deployed, since the right engine simply isn't there.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 // NOTE on stage/priority/engagement/assignment: these are stored as plain
@@ -30,9 +37,31 @@ model Lead {
   nextAction           String?
   nextActionDueAt      DateTime?
   assignment           String              @default("Unassigned")
+  // PRD AE08 — set when a lead is claimed (assignment becomes "Locked");
+  // released back to the unassigned pool if required activity (a logged
+  // call/email/meeting) doesn't happen before this expires. See
+  // lib/leadLocks.ts for the release logic and why it's a lazy check
+  // rather than a scheduled job.
+  lockedUntil          DateTime?
   prioritizationReason String?
   assignedUserId       String?
   assignedUser         User?               @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // Real Salesforce sync (see lib/salesforceSync.ts). Null for leads
+  // created directly in Sphaera. Not @unique at the DB level — SQL
+  // Server treats multiple NULLs as a uniqueness violation on a plain
+  // unique column, which every pre-existing lead would trip; uniqueness
+  // (one Sphaera lead per Salesforce lead) is enforced in the sync code
+  // instead via a lookup-before-insert.
+  salesforceId         String?
+  lastSyncedAt         DateTime?
+  // Real deal figures pulled from Salesforce (Estimated_Value__c /
+  // Closed_Value_All__c and Closing_Date__c) — this org tracks deals
+  // directly on the Lead rather than a separate Opportunity object (its
+  // native Opportunity data is essentially empty). Used to auto-create a
+  // real Sphaera Opportunity once a lead's stage reaches deal territory
+  // — see lib/leadToOpportunity.ts.
+  estimatedValue       Int?
+  estimatedCloseAt     DateTime?
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
@@ -42,6 +71,7 @@ model Lead {
 
   @@map("leads")
   @@index([assignedUserId])
+  @@index([salesforceId])
 }
 
 model LeadNote {
@@ -61,7 +91,10 @@ model LeadTimelineEvent {
   leadId     String
   lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   type       String   // call | email | meeting | note | stage_change | task
-  summary    String
+  // Unbounded: this now holds AI-drafted messages logged as sent (JN08)
+  // and note text, either of which can exceed SQL Server's default
+  // NVARCHAR(1000) for a plain String column.
+  summary    String   @db.NVarChar(Max)
   occurredAt DateTime @default(now())
 
   @@map("lead_timeline_events")
@@ -135,6 +168,17 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // PRD AE01 (Sign In and Welcome Sequence) — Agents (not Admins) see a
+  // daily "Welcome back" target-review screen before the rest of the
+  // app. It re-shows on a genuinely new sign-in (see lib/auth.ts's
+  // `signedInAt`, set only when NextAuth's `account` param is present —
+  // i.e. an actual sign-in, not a resumed session) OR when the calendar
+  // date has rolled over since it was last acknowledged, even if the
+  // session was never signed out of. Both fields are written together
+  // when the agent clicks "Next".
+  lastWelcomeAckDate       DateTime?
+  lastWelcomeAckSignedInAt DateTime?
+
   pointEvents AexPointEvent[]
   badges      UserBadge[]
   streaks     UserStreak[]
@@ -143,12 +187,110 @@ model User {
   documents Document[]
   tasks Task[]
   journalEntries JournalEntry[]
+  mindStateCheckIns MindStateCheckIn[]
   targets Target[]
   notifications Notification[]
   whatsappNumber WhatsAppNumber?
+  janusConversations JanusConversation[]
+  janusFeedback JanusFeedback[]
+  challengesSent     Challenge[] @relation("ChallengesSent")
+  challengesReceived Challenge[] @relation("ChallengesReceived")
+  playbooksCreated   Playbook[]
+  teamFocusesSet     TeamFocus[]
 
   @@map("users")
   @@index([teamId])
+}
+
+// PRD AV10 — AEX governance config. Singleton row (single-tenant, same
+// pattern as WhatsAppConfig): tier thresholds, Productivity Index
+// weights, allocation caps, and the tier-gating/Daily-Club thresholds
+// below are all still PLACEHOLDER defaults pending business sign-off
+// (same governance note as lib/aexTransform.ts etc.) — the point of this
+// table is that an Admin can now change them without a code deploy,
+// not that the numbers themselves are final.
+model AexConfig {
+  id                               String   @id @default(cuid())
+  tierSilverMinPoints              Int      @default(500)
+  tierGoldMinPoints                Int      @default(2000)
+  piWeightSpeedToLead               Float    @default(0.25)
+  piWeightOutput                    Float    @default(0.2)
+  piWeightEngagementConversion      Float    @default(0.2)
+  piWeightInteractionFulfilment     Float    @default(0.2)
+  piWeightDataQuality                Float    @default(0.15)
+  maxActiveLeadAssignments          Int      @default(15)
+  maxActiveOpportunityAssignments   Int      @default(15)
+  // PRD 14.4 "gated opportunity access" — leads scoring at/above this
+  // are visible to everyone but claimable ONLY by Gold-tier agents for
+  // goldGateHours after creation, then open to all tiers.
+  goldGateScoreThreshold           Int      @default(85)
+  goldGateHours                    Int      @default(2)
+  // PRD 14.5 Daily Club — real points earned today at/above this
+  // threshold qualifies an agent for today's Daily Club.
+  dailyClubPointThreshold          Int      @default(50)
+  updatedById                      String?
+  updatedAt                        DateTime @updatedAt
+
+  @@map("aex_config")
+}
+
+// PRD AE18 — Playbook / best-practice feed. Deliberately seeded with
+// zero rows (no invented playbook content) — Admin/Manager author real
+// ones from Admin, Agents read them from the feed.
+model Playbook {
+  id          String   @id @default(cuid())
+  title       String
+  category    String
+  body        String   @db.NVarChar(Max)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("playbooks")
+  @@index([category])
+}
+
+// PRD 14.9/14.10 — a real head-to-head AEX challenge between two peers
+// over a fixed period, judged on points earned during that window.
+// Replaces the earlier cosmetic-only ChallengePicker stub.
+model Challenge {
+  id           String    @id @default(cuid())
+  challengerId String
+  challenger   User      @relation("ChallengesSent", fields: [challengerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  opponentId   String
+  opponent     User      @relation("ChallengesReceived", fields: [opponentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  metric       String    @default("points") // only metric AEX can currently judge head-to-head
+  periodStart  DateTime
+  periodEnd    DateTime
+  // Pending (awaiting opponent) -> Active (accepted) | Declined, then
+  // Active resolves to ChallengerWon | OpponentWon | Draw once periodEnd
+  // passes and points earned during the window are compared.
+  status       String    @default("Pending")
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+
+  @@index([challengerId])
+  @@index([opponentId])
+}
+
+// PRD JN14 (Explainability and Feedback) — "was this useful?" capture
+// for material Janus outputs that aren't already a stored JanusMessage
+// (briefing, lead summary, coaching) or don't already have their own
+// richer accept/edit/reject flow (Next Best Action, Compose). `context`
+// is a free-form tag like "briefing", "leadSummary:<leadId>",
+// "coaching", or "command:<messageId>" for a specific chat turn.
+model JanusFeedback {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  context   String
+  useful    Boolean
+  note      String?  @db.NVarChar(Max)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([context])
 }
 
 // Company-level WhatsApp Business Account (WABA) configuration. One row
@@ -327,14 +469,20 @@ model Task {
 // Manager/Admin override in the API layer for this one — access is
 // always author-only, by design.
 model JournalEntry {
-  id        String   @id @default(cuid())
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  folder    String   @default("Work")
-  title     String
-  body      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String    @id @default(cuid())
+  authorId   String
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  folder     String    @default("Work")
+  title      String
+  // Unbounded: rich-text HTML from the journal editor (incl. inline
+  // images as data URIs) easily exceeds SQL Server's default
+  // NVARCHAR(1000) for a plain String column.
+  body       String    @db.NVarChar(Max)
+  isFavorite Boolean   @default(false)
+  archivedAt DateTime?
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@map("journal_entries")
   @@index([authorId])
@@ -345,6 +493,60 @@ model JournalEntry {
 // Metric is a plain string (not an enum) for the same reason as
 // Lead.stage — new metric types can be added without a schema
 // migration; calculation logic per metric lives in lib/targetTracker.ts.
+// PRD AE03 / 4.10 / 19.5 — MindState check-in. Strictly private like
+// JournalEntry: raw entries (mood + optional note) are never exposed to
+// Manager/Admin in any API route in this pass. The PRD's "management
+// sees an aggregated trend only" requirement (AV15) is a separate,
+// not-yet-built aggregation view — deliberately not implemented here to
+// PRD JN13 (Janus Memory). Scoped to the persistent Ask interface
+// (JN01/JN02) — meeting-prep, the daily briefing, and the message
+// composer are one-shot generations by nature, not something a user
+// continues as a conversation, so they don't thread through this. Only
+// "recent conversation context" from the JN13 memory-category list is
+// implemented here; company terminology/playbooks/user-preference memory
+// are a separate, not-yet-built layer.
+model JanusConversation {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  messages  JanusMessage[]
+
+  @@map("janus_conversations")
+  @@index([userId])
+}
+
+model JanusMessage {
+  id             String            @id @default(cuid())
+  conversationId String
+  conversation   JanusConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // "user" | "assistant"
+  // Unbounded: a grounded Janus answer (briefing/ask) routinely exceeds
+  // SQL Server's default NVARCHAR(1000) for a plain String column — this
+  // is what actually broke first.
+  content        String @db.NVarChar(Max)
+  createdAt      DateTime          @default(now())
+
+  @@map("janus_messages")
+  @@index([conversationId])
+}
+
+// avoid a half-finished access-control surface for sensitive wellbeing
+// data; only the private capture side ships in this pass.
+model MindStateCheckIn {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moodScore Int      // 1 (struggling) .. 5 (great)
+  mood      String   // human label for moodScore, kept alongside for display without a lookup table
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@map("mindstate_checkins")
+  @@index([userId])
+}
+
 model Target {
   id          String    @id @default(cuid())
   userId      String?
@@ -364,18 +566,21 @@ model Target {
   @@index([teamId])
 }
 
-// PRD PF05 / AE22 — Notifications. Currently wired to concrete, in-code
-// events (lead/opportunity/task assignment, new WhatsApp message) that
-// fire during a real API request. Threshold-crossing notifications
-// (e.g. "target 80% complete", "risk became critical") would need a
-// scheduled job (Azure Functions Timer Trigger) since there's no
-// background cron in this serverless architecture — deliberately not
-// built in this pass, noted as a future enhancement.
+// PRD PF05 / AE22 — Notifications. Wired to concrete, in-code events
+// (lead/opportunity/task assignment, new WhatsApp message, challenge
+// updates) that fire during a real API request. Threshold-crossing
+// notifications (e.g. "risk became critical") are handled lazily on-read
+// from lib/riskCentre.ts, the same pattern used for lead locks and
+// challenge resolution elsewhere in this build, since there's no
+// background cron in this serverless architecture (see that file for the
+// de-dup approach — a true scheduled job, e.g. an Azure Functions Timer
+// Trigger, would let this fire even when nobody has the app open, which
+// this on-read approach can't).
 model Notification {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String   // lead_assigned | opportunity_assigned | task_assigned | whatsapp_message
+  type      String   // lead_assigned | opportunity_assigned | task_assigned | whatsapp_message | challenge_update | risk_critical
   title     String
   body      String
   href      String?
@@ -384,4 +589,29 @@ model Notification {
 
   @@map("notifications")
   @@index([userId])
+}
+
+// PRD JN12 — Prompt Based Focus Orchestration ("Janus, shift the team's
+// focus to X"). Scoped to real data Sphaera already has (market, project,
+// or source) rather than true ad-campaign data, which needs the
+// still-missing Fabric/OneLake pipeline. A focus is proposed by Janus
+// (see app/api/janus/focus-proposal) and only becomes a real row here
+// once a Manager/Admin explicitly confirms it (PRD: "Janus must not
+// silently change allocation, targets, or campaign focus from an
+// ambiguous prompt") — see app/api/focus/route.ts.
+model TeamFocus {
+  id          String    @id @default(cuid())
+  setById     String
+  setBy       User      @relation(fields: [setById], references: [id], onDelete: Cascade)
+  teamId      String?   // null = company-wide (Admin only)
+  dimension   String    // "market" | "projectInterest" | "source"
+  value       String    // e.g. "AED", "Diyar", "Referral"
+  reason      String
+  startsAt    DateTime  @default(now())
+  endsAt      DateTime
+  createdAt   DateTime  @default(now())
+
+  @@map("team_focuses")
+  @@index([teamId])
+  @@index([endsAt])
 }

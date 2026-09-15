@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, TrendingDown, Users, Clock } from "lucide-react";
 import type { RiskAlert } from "@/lib/riskCentre";
+import { TeamFocusCard } from "./TeamFocusCard";
 
 const categoryIcon: Record<RiskAlert["category"], typeof AlertTriangle> = {
   target: AlertTriangle,
@@ -33,6 +34,10 @@ export function RiskCentrePage({ alerts }: { alerts: RiskAlert[] }) {
       <p className="mb-5 text-sm text-ink-500">
         {critical.length} critical · {warning.length} warning
       </p>
+
+      <div className="mb-4 max-w-3xl">
+        <TeamFocusCard />
+      </div>
 
       <div className="max-w-3xl space-y-2">
         {alerts.map((alert) => {

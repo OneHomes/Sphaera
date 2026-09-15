@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search as SearchIcon, User, Briefcase, FileText } from "lucide-react";
+import { Search as SearchIcon, User, Briefcase, FileText, CheckSquare, Users } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
 import type { Opportunity } from "@/lib/pipelineData";
-import { documents } from "@/lib/documentsData";
+import type { SphaeraDocument } from "@/lib/documentsData";
+
+type TaskResult = { id: string; title: string; relatedTo: string | null; completed: boolean };
+type UserResult = { id: string; name: string; role: string };
 
 type SearchResult = {
   id: string;
-  type: "Lead" | "Opportunity" | "Document";
+  type: "Lead" | "Opportunity" | "Document" | "Task" | "Person";
   title: string;
   subtitle: string;
   href?: string;
@@ -22,10 +25,33 @@ export function GlobalSearch() {
   const [opportunityResults, setOpportunityResults] = useState<Opportunity[]>(
     []
   );
+  const [allDocuments, setAllDocuments] = useState<SphaeraDocument[]>([]);
+  const [taskResults, setTaskResults] = useState<TaskResult[]>([]);
+  const [userResults, setUserResults] = useState<UserResult[]>([]);
+
+  // Documents have no search-by-name API param (the list is small
+  // metadata, not worth debouncing per keystroke like Leads/Opportunities)
+  // so the full list is fetched once and filtered client-side below.
+  useEffect(() => {
+    fetch("/api/documents")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows: Array<{ id: string; name: string; docType: string; relatedTo: string | null }>) =>
+        setAllDocuments(
+          rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            type: r.docType as SphaeraDocument["type"],
+            relatedTo: r.relatedTo ?? "—",
+            uploadedDate: "",
+            uploadedBy: "",
+            sizeLabel: "",
+          }))
+        )
+      )
+      .catch(() => {});
+  }, []);
 
   // Leads and Opportunities are searched against the real database.
-  // Documents are still mock (lib/documentsData.ts) until that module is
-  // connected to real storage — see build spec Section 10 for sequencing.
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -48,6 +74,21 @@ export function GlobalSearch() {
       })
         .then((res) => (res.ok ? res.json() : []))
         .then((data: Opportunity[]) => setOpportunityResults(data))
+        .catch(() => {});
+
+      fetch(`/api/tasks?search=${encodeURIComponent(trimmed)}`, {
+        signal: controller.signal,
+      })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data: TaskResult[]) => setTaskResults(data))
+        .catch(() => {});
+
+      // Manager/Admin only — /api/users/search returns [] for Agents.
+      fetch(`/api/users/search?search=${encodeURIComponent(trimmed)}`, {
+        signal: controller.signal,
+      })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data: UserResult[]) => setUserResults(data))
         .catch(() => {});
     }, 250); // debounce
 
@@ -77,7 +118,7 @@ export function GlobalSearch() {
       href: "/pipeline",
     }));
 
-    const docResults: SearchResult[] = documents
+    const docResults: SearchResult[] = allDocuments
       .filter(
         (d) =>
           d.name.toLowerCase().includes(q) ||
@@ -91,10 +132,32 @@ export function GlobalSearch() {
         href: "/documents",
       }));
 
-    return [...leads, ...opportunities, ...docResults];
-  }, [query, leadResults, opportunityResults]);
+    const tasks: SearchResult[] = taskResults.map((t) => ({
+      id: t.id,
+      type: "Task",
+      title: t.title,
+      subtitle: t.completed ? "Completed" : t.relatedTo || "No linked record",
+      href: "/tasks",
+    }));
 
-  const iconFor = { Lead: User, Opportunity: Briefcase, Document: FileText };
+    const people: SearchResult[] = userResults.map((u) => ({
+      id: u.id,
+      type: "Person",
+      title: u.name,
+      subtitle: u.role,
+      href: "/people",
+    }));
+
+    return [...leads, ...opportunities, ...docResults, ...tasks, ...people];
+  }, [query, leadResults, opportunityResults, allDocuments, taskResults, userResults]);
+
+  const iconFor = {
+    Lead: User,
+    Opportunity: Briefcase,
+    Document: FileText,
+    Task: CheckSquare,
+    Person: Users,
+  };
 
   return (
     <div className="p-6">
@@ -105,7 +168,7 @@ export function GlobalSearch() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search leads, opportunities, documents…"
+          placeholder="Search leads, opportunities, tasks, documents, people…"
           className="w-full bg-transparent text-sm text-ink-50 outline-none placeholder:text-ink-500"
           autoFocus
         />

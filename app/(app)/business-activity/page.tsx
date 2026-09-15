@@ -3,24 +3,24 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { tierForPoints } from "@/lib/aexTransform";
+import { getAexConfig } from "@/lib/aexConfig";
 import { formatRelativeTime } from "@/lib/leadTransform";
-import { scoreBand } from "@/lib/leadData";
-import { getAuthUser, getLeadScopeWhere } from "@/lib/authz";
-import BusinessActivityGrid from "@/components/business-activity/BusinessActivityGrid";
+import { scoreBand, isQualifiedOrLater } from "@/lib/leadData";
+import { getFreshAuthUser, getLeadScopeWhere } from "@/lib/authz";
+import { calculateProductivityIndex } from "@/lib/productivityIndex";
+import { BusinessActivityGrid } from "@/components/business-activity/BusinessActivityGrid";
 import type { AgentActivityRow } from "@/components/business-activity/AgentActivityTable";
 import type { SourceActivityRow } from "@/components/business-activity/CampaignActivityTable";
 import type { LeadActivityRow } from "@/components/business-activity/LeadActivityTable";
-import type { CampaignHealth } from "@/lib/businessActivityData";
+import {
+  mockHash,
+  mockEfficiency,
+  mockBpm,
+  LIVE_ACTIVITY_POOL,
+  type CampaignHealth,
+} from "@/lib/businessActivityData";
 
 export const dynamic = "force-dynamic";
-
-const QUALIFIED_OR_LATER = new Set([
-  "Qualified",
-  "Meeting Booked",
-  "Opportunity",
-  "Negotiation",
-  "Closed Won",
-]);
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -36,7 +36,7 @@ export default async function BusinessActivityPage() {
     redirect("/sign-in");
   }
 
-   const authUser = getAuthUser(session);
+   const authUser = await getFreshAuthUser(session);
 
   // Business Activity is a management/oversight view (PRD's Apex Vision,
   // not Apex Edge) — Agents shouldn't have it at all, not just a
@@ -51,10 +51,11 @@ export default async function BusinessActivityPage() {
       ? { teamId: authUser.teamId }
       : {};
 
-  const [users, leads] = await Promise.all([
+  const [users, leads, aexConfig] = await Promise.all([
     prisma.user.findMany({
       where: userWhere,
       include: {
+        team: true,
         pointEvents: true,
         assignedOpportunities: { select: { value: true, stage: true } },
       },
@@ -62,13 +63,20 @@ export default async function BusinessActivityPage() {
     prisma.lead.findMany({
       where: getLeadScopeWhere(authUser),
       orderBy: { score: "desc" },
+      include: { assignedUser: { select: { name: true } } },
     }),
+    getAexConfig(),
   ]);
   // Agent Activity — real per-user pipeline/revenue via assigned
   // opportunities; status derived from recent AEX activity (a real
   // signal) as a proxy for "active" since true telephony/messaging
-  // presence isn't connected yet.
-  const agents: AgentActivityRow[] = users.map((u) => {
+  // presence isn't connected yet. Productivity Index (real, per PRD
+  // 14.3) is computed per user in parallel below.
+  const productivityIndexes = await Promise.all(
+    users.map((u) => calculateProductivityIndex(u.id))
+  );
+
+  const agents: AgentActivityRow[] = users.map((u, i) => {
     const points = u.pointEvents.reduce((sum, e) => sum + e.points, 0);
     const mostRecentEvent = u.pointEvents.reduce<Date | null>((latest, e) => {
       return !latest || e.createdAt > latest ? e.createdAt : latest;
@@ -84,14 +92,22 @@ export default async function BusinessActivityPage() {
       .filter((o) => o.stage === "Closed Won")
       .reduce((sum, o) => sum + o.value, 0);
 
+    // Live Activity + Context — mock, no telephony/presence signal
+    // exists yet (see AgentActivityTable's footnote). Team is real.
+    const liveActivity = LIVE_ACTIVITY_POOL[mockHash(u.id) % LIVE_ACTIVITY_POOL.length];
+
     return {
       id: u.id,
       name: u.name,
       status: isActive ? "Active" : "Inactive",
-      tier: tierForPoints(points),
+      tier: tierForPoints(points, aexConfig.tierThresholds),
       pipelineValue,
       totalRevenue,
-      productivityIndex: points,
+      productivityIndex: productivityIndexes[i].overall,
+      liveActivity: liveActivity.label,
+      context: liveActivity.context,
+      trend: liveActivity.trend,
+      team: u.team?.name ?? "Unassigned",
     };
   });
 
@@ -102,7 +118,7 @@ export default async function BusinessActivityPage() {
   for (const lead of leads) {
     const group = sourceGroups.get(lead.source) ?? { total: 0, qualified: 0 };
     group.total += 1;
-    if (QUALIFIED_OR_LATER.has(lead.stage)) group.qualified += 1;
+    if (isQualifiedOrLater(lead.stage)) group.qualified += 1;
     sourceGroups.set(lead.source, group);
   }
 
@@ -114,12 +130,20 @@ export default async function BusinessActivityPage() {
     if (qualifiedPercent >= 60) health = "Good";
     else if (qualifiedPercent >= 40) health = "Satisfactory";
 
+    // Discontinued and Efficiency are mock — no real campaign spend/CTR
+    // data exists yet (see CampaignActivityTable's footnote). Every 4th
+    // source (by stable hash, not array position) rolls into the
+    // Discontinued mock state so the grayed-out toggle has something to
+    // render, matching the reference UI.
+    if (mockHash(source) % 4 === 3) health = "Discontinued";
+
     return {
       source,
       leadCount: total,
       qualifiedCount: qualified,
       qualifiedPercent,
       health,
+      efficiency: mockEfficiency(source),
     };
   });
 
@@ -132,15 +156,11 @@ export default async function BusinessActivityPage() {
     engagement: lead.engagement as LeadActivityRow["engagement"],
     assignment: lead.assignment,
     activity: formatRelativeTime(lead.lastInteractionAt),
+    leadOwner: lead.assignedUser?.name ?? "Unassigned",
+    bpm: mockBpm(lead.id), // undefined PRD metric — mock
   }));
 
-  const BusinessActivityGridWithProps = BusinessActivityGrid as unknown as (props: {
-    agents: AgentActivityRow[];
-    sources: SourceActivityRow[];
-    leads: LeadActivityRow[];
-  }) => JSX.Element;
-
   return (
-    <BusinessActivityGridWithProps agents={agents} sources={sources} leads={leadRows} />
+    <BusinessActivityGrid agents={agents} sources={sources} leads={leadRows} />
   );
 }

@@ -4,28 +4,53 @@ import { Search, X } from "lucide-react";
 import type { LeadPriority, LeadStage } from "@/lib/leadData";
 import { leadSources, leadStages, leadPriorities } from "@/lib/leadData";
 
+export type ScoreBand = "Hot" | "Warm" | "Cool";
+
 export type LeadFilters = {
   search: string;
   priority: LeadPriority | "All";
   stage: LeadStage | "All";
   source: string | "All";
+  market: string | "All";
+  project: string | "All";
+  scoreBand: ScoreBand | "All";
+  overdueOnly: boolean;
+};
+
+export const defaultLeadFilters: LeadFilters = {
+  search: "",
+  priority: "All",
+  stage: "All",
+  source: "All",
+  market: "All",
+  project: "All",
+  scoreBand: "All",
+  overdueOnly: false,
 };
 
 export function LeadFilterBar({
   filters,
   onChange,
+  markets,
+  projects,
 }: {
   filters: LeadFilters;
   onChange: (next: LeadFilters) => void;
+  markets: string[];
+  projects: string[];
 }) {
   const hasActiveFilters =
     filters.search !== "" ||
     filters.priority !== "All" ||
     filters.stage !== "All" ||
-    filters.source !== "All";
+    filters.source !== "All" ||
+    filters.market !== "All" ||
+    filters.project !== "All" ||
+    filters.scoreBand !== "All" ||
+    filters.overdueOnly;
 
   function reset() {
-    onChange({ search: "", priority: "All", stage: "All", source: "All" });
+    onChange(defaultLeadFilters);
   }
 
   return (
@@ -82,6 +107,55 @@ export function LeadFilterBar({
           </option>
         ))}
       </select>
+
+      <select
+        value={filters.market}
+        onChange={(e) => onChange({ ...filters, market: e.target.value })}
+        className="rounded-lg border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-300 outline-none"
+      >
+        <option value="All">All markets</option>
+        {markets.map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={filters.project}
+        onChange={(e) => onChange({ ...filters, project: e.target.value })}
+        className="max-w-[160px] rounded-lg border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-300 outline-none"
+      >
+        <option value="All">All projects</option>
+        {projects.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={filters.scoreBand}
+        onChange={(e) =>
+          onChange({ ...filters, scoreBand: e.target.value as ScoreBand | "All" })
+        }
+        className="rounded-lg border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-300 outline-none"
+      >
+        <option value="All">All score bands</option>
+        <option value="Hot">Hot</option>
+        <option value="Warm">Warm</option>
+        <option value="Cool">Cool</option>
+      </select>
+
+      <label className="flex items-center gap-1.5 rounded-lg border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-300">
+        <input
+          type="checkbox"
+          checked={filters.overdueOnly}
+          onChange={(e) => onChange({ ...filters, overdueOnly: e.target.checked })}
+          className="accent-status-active"
+        />
+        Overdue only
+      </label>
 
       {hasActiveFilters && (
         <button

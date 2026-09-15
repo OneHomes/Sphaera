@@ -14,6 +14,9 @@ const initialSettings: ToggleSetting[] = [
   { id: "notif-overdue", label: "Overdue task alerts", description: "Alert me when a task or lead action is overdue", enabled: true },
   { id: "notif-aex", label: "AEX updates", description: "Notify me on tier changes, badges, and challenge progress", enabled: true },
   { id: "janus-suggestions", label: "Janus suggested prompts", description: "Show suggested questions on the command center", enabled: true },
+  // Real provider is Lexatail (confirmed), integration deliberately
+  // deferred until the ongoing data audit hands off connection details —
+  // do not wire this up before then.
   { id: "conversation-intelligence", label: "Conversation intelligence (beta)", description: "Enable live sentiment/tone indicators on calls — beta, per PRD JN07 caution", enabled: false },
 ];
 

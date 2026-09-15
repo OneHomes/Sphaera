@@ -1,5 +1,9 @@
 import { prisma } from "./prisma";
 import { formatDueLabel } from "./leadTransform";
+import { getNextBestAction, type NextBestAction } from "./nextBestAction";
+import { tierForPoints } from "./aexTransform";
+import { getAexConfig } from "./aexConfig";
+import { TERMINAL_LEAD_STAGES } from "./leadData";
 
 // PRD AE04 (Mission Centre) — a single, priority-ordered view of what
 // needs attention today: overdue leads first (revenue-at-risk), then
@@ -101,7 +105,90 @@ export async function getMissionItems(userId: string): Promise<MissionItem[]> {
     }
   }
 
+  // PRD JN12 — an active Team Focus (see app/api/focus) surfaces here as
+  // a mission item pointing the agent at their own leads matching it,
+  // rather than silently reprioritizing anything behind the scenes.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { teamId: true } });
+  const activeFocuses = await prisma.teamFocus.findMany({
+    where: {
+      endsAt: { gte: now },
+      OR: [{ teamId: null }, { teamId: user?.teamId ?? "__none__" }],
+    },
+  });
+
+  for (const focus of activeFocuses) {
+    const matchCount = await prisma.lead.count({
+      where: {
+        assignedUserId: userId,
+        stage: { notIn: TERMINAL_LEAD_STAGES },
+        [focus.dimension]: focus.value,
+      },
+    });
+    if (matchCount > 0) {
+      items.push({
+        id: `focus-${focus.id}`,
+        type: "due_lead",
+        title: `Team focus: ${focus.value}`,
+        subtitle: `${matchCount} of your leads match — ${focus.reason}`,
+        href: `/leads?${focus.dimension === "projectInterest" ? "project" : focus.dimension}=${encodeURIComponent(focus.value)}`,
+        urgency: "medium",
+      });
+    }
+  }
+
   items.sort((a, b) => urgencyRank[a.urgency] - urgencyRank[b.urgency]);
 
   return items;
+}
+
+export type MissionContext = {
+  items: MissionItem[];
+  topAction: { leadId: string; leadName: string; nba: NextBestAction } | null;
+  aex: { tier: string; points: number; streakDays: number };
+};
+
+/**
+ * Wraps getMissionItems with the two other real signals that now exist
+ * but Mission Centre never surfaced: this user's highest-priority lead's
+ * Next Best Action (AE07/JN05), and their AEX tier/points/streak — so
+ * "today's mission" reflects the same intelligence the rest of the app
+ * already computes, not just overdue/due items.
+ */
+export async function getMissionContext(userId: string): Promise<MissionContext> {
+  const [items, topLead, pointEvents, streak, aexConfig] = await Promise.all([
+    getMissionItems(userId),
+    prisma.lead.findFirst({
+      where: {
+        assignedUserId: userId,
+        stage: { notIn: TERMINAL_LEAD_STAGES },
+      },
+      orderBy: { score: "desc" },
+      include: { timelineEvents: true },
+    }),
+    prisma.aexPointEvent.findMany({ where: { userId } }),
+    prisma.userStreak.findFirst({
+      where: { userId, label: "Daily mission completion" },
+    }),
+    getAexConfig(),
+  ]);
+
+  const topAction = topLead
+    ? {
+        leadId: topLead.id,
+        leadName: topLead.name,
+        nba: getNextBestAction(topLead, topLead.timelineEvents),
+      }
+    : null;
+
+  const points = pointEvents.reduce((sum, e) => sum + e.points, 0);
+
+  return {
+    items,
+    topAction,
+    aex: {
+      tier: tierForPoints(points, aexConfig.tierThresholds),
+      points,
+      streakDays: streak?.currentCount ?? 0,
+    },
+  };
 }

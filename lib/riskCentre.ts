@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { calculateActual, type TargetMetric } from "./targetTracker";
+import { createNotification } from "./notifications";
 import type { AuthUser } from "./authz";
 
 export type RiskAlert = {
@@ -171,5 +172,39 @@ export async function getRiskAlerts(authUser: AuthUser): Promise<RiskAlert[]> {
   const severityRank = { critical: 0, warning: 1 };
   alerts.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
 
+  // Threshold-crossing notifications (PRD PF05 example: "risk became
+  // critical") — deliberately lazy, on-read, same pattern as lead locks
+  // and challenge resolution elsewhere in this codebase, since there's no
+  // background cron. This fires whenever a Manager/Admin loads the Risk
+  // Centre or Executive Dashboard, not on every notification-bell poll —
+  // the 24h de-dup below stops it from re-notifying about a condition
+  // that's still true the next time either page loads.
+  if (authUser.role !== "AGENT") {
+    await pushCriticalRiskNotifications(authUser.id, alerts);
+  }
+
   return alerts;
+}
+
+async function pushCriticalRiskNotifications(
+  userId: string,
+  alerts: RiskAlert[]
+): Promise<void> {
+  const critical = alerts.filter((a) => a.severity === "critical");
+  if (critical.length === 0) return;
+
+  const since = new Date(Date.now() - 24 * 3_600_000);
+  const recentlyNotified = new Set(
+    (
+      await prisma.notification.findMany({
+        where: { userId, type: "risk_critical", createdAt: { gte: since } },
+        select: { title: true },
+      })
+    ).map((n) => n.title)
+  );
+
+  for (const alert of critical) {
+    if (recentlyNotified.has(alert.title)) continue;
+    await createNotification(userId, "risk_critical", alert.title, alert.subtitle, alert.href);
+  }
 }

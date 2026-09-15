@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Paperclip, Loader2 } from "lucide-react";
+import { JanusGlyph } from "@/components/janus/JanusGlyph";
 
 // NOTE: This does not literally reconfigure the dashboard's widget layout
 // (that would need a dynamic widget-config engine, a separate, larger
@@ -47,7 +48,7 @@ export function JanusEditableSlot() {
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-base-700 bg-base-900 p-6 text-center">
-      <JanusGlyph />
+      <JanusGlyph className="h-8 w-8 text-ink-300" />
 
       {answer ? (
         <p className="max-w-xs text-xs leading-relaxed text-ink-300">
@@ -62,7 +63,7 @@ export function JanusEditableSlot() {
       {error && <p className="text-xs text-status-inactive">{error}</p>}
 
       <form onSubmit={handleSubmit} className="w-full max-w-xs">
-        <div className="flex items-center gap-2 rounded-full border border-base-700 bg-base-800 px-3 py-2">
+        <div className="flex items-center gap-2 rounded-full border border-base-700 bg-base-800 px-3 py-2 transition focus-within:border-status-active">
           {isAsking ? (
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-ink-500" />
           ) : (
@@ -73,23 +74,10 @@ export function JanusEditableSlot() {
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="e.g. Which leads are overdue right now?"
             disabled={isAsking}
-            className="w-full bg-transparent text-xs text-ink-50 outline-none placeholder:text-ink-500 disabled:opacity-60"
+            className="w-full bg-transparent text-xs text-ink-50 outline-none focus-visible:outline-none placeholder:text-ink-500 disabled:opacity-60"
           />
         </div>
       </form>
     </div>
-  );
-}
-
-function JanusGlyph() {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" className="h-8 w-8 text-ink-300">
-      <path
-        d="M14 10c8 0 8 6 16 6s8-6 16-6M14 24c8 0 8 6 16 6s8-6 16-6M14 38c8 0 8 6 16 6s8-6 16-6"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }

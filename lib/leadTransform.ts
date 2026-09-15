@@ -64,6 +64,10 @@ export function toUiLead(
     nextAction: row.nextAction ?? "—",
     nextActionDue: formatDueLabel(row.nextActionDueAt),
     assignment: row.assignment as AssignmentStatus,
+    lockedUntilLabel:
+      row.assignment === "Locked" && row.lockedUntil
+        ? formatDueLabel(row.lockedUntil)
+        : undefined,
     prioritizationReason: row.prioritizationReason ?? "",
     assignedUserId: row.assignedUserId ?? undefined,
     assignedUserName: row.assignedUser?.name ?? undefined,

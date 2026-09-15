@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { formatDueLabel } from "./leadTransform";
 
 export type MostInDemandRow = {
   projectInterest: string;
@@ -6,8 +7,17 @@ export type MostInDemandRow = {
   totalValue: number;
 };
 
-export type MonthlySalesPoint = { month: string; closedValue: number };
+export type MonthlySalesPoint = { month: string; closedValue: number; closedCount: number };
 export type ProductivityPoint = { hour: string; count: number };
+
+export type PendingRow = {
+  id: string;
+  name: string;
+  value: number;
+  type: string;
+  priority: "High" | "Medium" | "Low";
+  dueLabel: string;
+};
 
 export type DashboardMetrics = {
   mostInDemand: MostInDemandRow[];
@@ -16,6 +26,7 @@ export type DashboardMetrics = {
   monthlySales: MonthlySalesPoint[];
   productivityByHour: ProductivityPoint[];
   avgDealSize: number;
+  pending: PendingRow[];
 };
 
 const MONTH_LABELS = [
@@ -76,17 +87,20 @@ export async function getDashboardMetrics(
   // updatedAt exactly when stage changes, including to Closed Won.
   const currentYear = new Date().getFullYear();
   const monthlyTotals = new Array(12).fill(0);
+  const monthlyCounts = new Array(12).fill(0);
   for (const opp of myOpportunities) {
     if (
       opp.stage === "Closed Won" &&
       opp.updatedAt.getFullYear() === currentYear
     ) {
       monthlyTotals[opp.updatedAt.getMonth()] += opp.value;
+      monthlyCounts[opp.updatedAt.getMonth()] += 1;
     }
   }
   const monthlySales = MONTH_LABELS.map((month, i) => ({
     month,
     closedValue: monthlyTotals[i],
+    closedCount: monthlyCounts[i],
   }));
 
   // ---- Productivity by Hour (personal, last 30 days) ----
@@ -108,6 +122,39 @@ export async function getDashboardMetrics(
         myOpportunities.length
       : 0;
 
+  // ---- Pending (personal, open opportunities) — the mockup's "Pending"
+  // table has Value/Type/Priority/Due Date columns that map naturally to
+  // real Opportunity fields (value, nextAction, expectedCloseAt), unlike
+  // a payment-schedule concept ("Down Payment"/"Installment") this schema
+  // has no data for (that's Onyx territory, explicitly out of MVP scope
+  // per the PRD). Priority here is a real, explainable proximity-to-close
+  // banding — PLACEHOLDER THRESHOLDS, same governance pattern as the rest
+  // of this build's derived urgency logic.
+  const now = Date.now();
+  const pending: PendingRow[] = myOpportunities
+    .filter((o) => o.stage !== "Closed Won" && o.stage !== "Closed Lost")
+    .map((o) => {
+      const daysToClose = o.expectedCloseAt
+        ? (o.expectedCloseAt.getTime() - now) / 86_400_000
+        : null;
+      const priority: PendingRow["priority"] =
+        daysToClose === null || daysToClose > 14
+          ? "Low"
+          : daysToClose <= 3
+            ? "High"
+            : "Medium";
+      return {
+        id: o.id,
+        name: o.leadName,
+        value: o.value,
+        type: o.nextAction || o.stage,
+        priority,
+        dueLabel: formatDueLabel(o.expectedCloseAt),
+      };
+    })
+    .sort((a, b) => (a.dueLabel === "Overdue" ? -1 : b.dueLabel === "Overdue" ? 1 : 0))
+    .slice(0, 6);
+
   return {
     mostInDemand,
     activeLeads,
@@ -115,5 +162,6 @@ export async function getDashboardMetrics(
     monthlySales,
     productivityByHour,
     avgDealSize,
+    pending,
   };
 }

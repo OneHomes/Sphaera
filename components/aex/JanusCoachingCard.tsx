@@ -3,11 +3,26 @@
 import { useState } from "react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { Sparkles, Loader2 } from "lucide-react";
+import { JanusFeedback } from "@/components/janus/JanusFeedback";
 
-export function JanusCoachingCard() {
+// PRD AV08 — when rendered with a `userId` + `userName` (Manager/Admin
+// looking at a specific team member, e.g. from Admin Users), this asks
+// Janus for a coaching read on THAT person instead of the caller's own
+// AEX status. The ask route permission-checks userId server-side
+// (same team for Manager, any for Admin) regardless of what the client
+// sends.
+export function JanusCoachingCard({
+  userId,
+  userName,
+}: {
+  userId?: string;
+  userName?: string;
+} = {}) {
   const [insight, setInsight] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isForOther = Boolean(userId);
 
   async function handleGetCoaching() {
     setIsAsking(true);
@@ -17,9 +32,11 @@ export function JanusCoachingCard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question:
-            "Give me one short, practical piece of coaching based on my current tier, points, badges, and streaks. Be specific and encouraging, not generic.",
+          question: isForOther
+            ? `Give one short, practical coaching observation about ${userName}'s current tier, points, badges, and streaks — something their manager could act on.`
+            : "Give me one short, practical piece of coaching based on my current tier, points, badges, and streaks. Be specific and encouraging, not generic.",
           scope: "aex",
+          userId,
         }),
       });
 
@@ -40,13 +57,19 @@ export function JanusCoachingCard() {
   }
 
   return (
-    <WidgetCard title="Janus Coaching" icon={Sparkles}>
+    <WidgetCard title={isForOther ? `Coaching — ${userName}` : "Janus Coaching"} icon={Sparkles}>
       {insight ? (
-        <p className="text-xs leading-relaxed text-ink-300">{insight}</p>
+        <>
+          <p className="text-xs leading-relaxed text-ink-300">{insight}</p>
+          <div className="mt-2 border-t border-base-700 pt-2">
+            <JanusFeedback context={isForOther ? `coaching:${userId}` : "coaching"} />
+          </div>
+        </>
       ) : (
         <p className="text-xs text-ink-500">
-          Get a personalised coaching tip based on your real tier, points,
-          badges, and streaks.
+          {isForOther
+            ? `Get a coaching read on ${userName}'s real tier, points, badges, and streaks.`
+            : "Get a personalised coaching tip based on your real tier, points, badges, and streaks."}
         </p>
       )}
 

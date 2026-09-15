@@ -1,5 +1,6 @@
 import type { Session } from "next-auth";
 import type { Role } from "./roles";
+import { getOrCreateCurrentUser } from "./currentUser";
 // Central policy layer. Every API route that returns or mutates
 // Lead/Opportunity data should go through these functions rather than
 // writing its own ad-hoc permission check — this is the single place
@@ -26,6 +27,23 @@ export function getAuthUser(session: Session): AuthUser {
     id: user.id,
     role: (user.role as Role) ?? "AGENT",
     teamId: user.teamId ?? null,
+  };
+}
+
+/**
+ * Same shape as getAuthUser, but reads role/teamId from the database
+ * instead of the JWT session. The session's role/teamId are only
+ * refreshed on a fresh sign-in (see lib/auth.ts's jwt callback), so any
+ * role- or team-gated page/route that must reflect a change immediately
+ * (rather than after the user's next login) should use this instead of
+ * getAuthUser.
+ */
+export async function getFreshAuthUser(session: Session): Promise<AuthUser> {
+  const user = await getOrCreateCurrentUser(session);
+  return {
+    id: user.id,
+    role: user.role as Role,
+    teamId: user.teamId,
   };
 }
 

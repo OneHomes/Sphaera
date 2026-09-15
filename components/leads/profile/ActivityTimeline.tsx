@@ -5,6 +5,7 @@ import {
   StickyNote,
   ArrowRightCircle,
   CheckSquare,
+  Repeat,
 } from "lucide-react";
 import type { TimelineEvent, TimelineEventType } from "@/lib/leadProfileData";
 
@@ -15,6 +16,7 @@ const iconMap: Record<TimelineEventType, typeof Phone> = {
   note: StickyNote,
   stage_change: ArrowRightCircle,
   task: CheckSquare,
+  handover: Repeat,
 };
 
 const colorMap: Record<TimelineEventType, string> = {
@@ -24,6 +26,7 @@ const colorMap: Record<TimelineEventType, string> = {
   note: "text-ink-300 bg-base-700",
   stage_change: "text-status-alert bg-status-alert/15",
   task: "text-status-active bg-status-active/15",
+  handover: "text-tier-gold bg-tier-gold/15",
 };
 
 export function ActivityTimeline({ events }: { events: TimelineEvent[] }) {

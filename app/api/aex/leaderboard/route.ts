@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { tierForPoints } from "@/lib/aexTransform";
+import { getAexConfig } from "@/lib/aexConfig";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -10,11 +11,14 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const users = await prisma.user.findMany({
-    include: {
-      pointEvents: { select: { points: true } },
-    },
-  });
+  const [users, aexConfig] = await Promise.all([
+    prisma.user.findMany({
+      include: {
+        pointEvents: { select: { points: true } },
+      },
+    }),
+    getAexConfig(),
+  ]);
 
   const ranked = users
     .map((u) => {
@@ -22,7 +26,7 @@ export async function GET() {
       return {
         id: u.id,
         name: u.name,
-        tier: tierForPoints(points),
+        tier: tierForPoints(points, aexConfig.tierThresholds),
         points,
       };
     })

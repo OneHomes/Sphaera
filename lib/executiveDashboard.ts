@@ -32,6 +32,13 @@ export type ExecutiveSummary = {
   warningRiskCount: number;
   targetsOnPaceCount: number;
   targetsBehindPaceCount: number;
+  // PRD AV04 — weighted forecast: sum(value * probability%) across open
+  // opportunities, real Opportunity.probability (no ML model behind it
+  // yet, just the stage-set probability already on each record).
+  weightedForecastValue: number;
+  // Scope label so the UI can say "company-wide" vs "your team" rather
+  // than hardcoding it — set based on which branch computed this summary.
+  scope: "company" | "team";
 };
 
 const CLOSED_STAGES = new Set(["Closed Won", "Closed Lost"]);
@@ -42,17 +49,33 @@ export async function getExecutiveSummary(
   const now = new Date();
   const yearStart = new Date(now.getFullYear(), 0, 1);
 
+  // PRD AV01/AV03 — Admin sees company-wide; Manager sees their own team
+  // only (this used to ignore authUser entirely and always return
+  // everything, which is why /executive was Admin-only until now).
+  const isCompanyWide = authUser.role === "ADMIN";
+  const userTeamIdWhere = isCompanyWide || !authUser.teamId ? {} : { teamId: authUser.teamId };
+  const teamSelfWhere = isCompanyWide || !authUser.teamId ? {} : { id: authUser.teamId };
+  const opportunityTeamWhere =
+    isCompanyWide || !authUser.teamId ? {} : { assignedUser: { teamId: authUser.teamId } };
+
   const [opportunities, leads, teams, allUsers, riskAlerts, targets] =
     await Promise.all([
-      prisma.opportunity.findMany(),
-      prisma.lead.findMany(),
-      prisma.team.findMany({ include: { members: true } }),
+      prisma.opportunity.findMany({ where: opportunityTeamWhere }),
+      prisma.lead.findMany({ where: opportunityTeamWhere }),
+      prisma.team.findMany({ where: teamSelfWhere, include: { members: true } }),
       prisma.user.findMany({
+        where: userTeamIdWhere,
         include: { assignedOpportunities: true },
       }),
       getRiskAlerts(authUser),
       prisma.target.findMany({
-        where: { periodStart: { lte: now }, periodEnd: { gte: now } },
+        where: {
+          periodStart: { lte: now },
+          periodEnd: { gte: now },
+          ...(isCompanyWide || !authUser.teamId
+            ? {}
+            : { OR: [{ teamId: authUser.teamId }, { user: { teamId: authUser.teamId } }] }),
+        },
         include: { team: { include: { members: true } } },
       }),
     ]);
@@ -61,6 +84,12 @@ export async function getExecutiveSummary(
   const totalActivePipelineValue = opportunities
     .filter((o) => !CLOSED_STAGES.has(o.stage))
     .reduce((sum, o) => sum + o.value, 0);
+
+  // ---- Weighted forecast (PRD AV04) — real Opportunity.probability per
+  // record, no separate ML forecast model behind it yet. ----
+  const weightedForecastValue = opportunities
+    .filter((o) => !CLOSED_STAGES.has(o.stage))
+    .reduce((sum, o) => sum + o.value * (o.probability / 100), 0);
 
   const totalClosedRevenueThisYear = opportunities
     .filter((o) => o.stage === "Closed Won" && o.updatedAt >= yearStart)
@@ -164,5 +193,7 @@ export async function getExecutiveSummary(
       .length,
     targetsOnPaceCount,
     targetsBehindPaceCount,
+    weightedForecastValue,
+    scope: isCompanyWide ? "company" : "team",
   };
 }

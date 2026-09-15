@@ -26,6 +26,30 @@ async function graphFetch(
   return text ? JSON.parse(text) : null;
 }
 
+// Transcript content comes back as plain VTT text, not JSON — needs its
+// own fetch that doesn't try to JSON.parse the response body.
+async function graphFetchText(
+  accessToken: string,
+  path: string,
+  accept?: string
+): Promise<string> {
+  const res = await fetch(`${GRAPH_BASE}${path}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(accept ? { Accept: accept } : {}),
+    },
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(
+      `Microsoft Graph request failed (${res.status}): ${errorBody}`
+    );
+  }
+
+  return res.text();
+}
+
 // ---- Mail ----
 
 export type GraphMailMessage = {
@@ -132,6 +156,8 @@ export type GraphCalendarEvent = {
   organizer: { emailAddress: { name: string; address: string } } | null;
   attendees?: { emailAddress: { name: string; address: string } }[];
   bodyPreview: string;
+  isOnlineMeeting?: boolean;
+  onlineMeeting?: { joinUrl: string } | null;
 };
 
 export async function listCalendarEvents(
@@ -145,7 +171,7 @@ export async function listCalendarEvents(
   // any user whose mailbox isn't already set to UTC.
   const data = await graphFetch(
     accessToken,
-       `/me/calendarview?startDateTime=${encodeURIComponent(startISO)}&endDateTime=${encodeURIComponent(endISO)}&$select=id,subject,start,end,organizer,attendees,bodyPreview&$orderby=start/dateTime`,
+       `/me/calendarview?startDateTime=${encodeURIComponent(startISO)}&endDateTime=${encodeURIComponent(endISO)}&$select=id,subject,start,end,organizer,attendees,bodyPreview,isOnlineMeeting,onlineMeeting&$orderby=start/dateTime`,
     { headers: { Prefer: 'outlook.timezone="UTC"' } }
   );
   return data.value as GraphCalendarEvent[];
@@ -186,6 +212,75 @@ export async function deleteMessage(
     method: "DELETE",
   });
 }
+// ---- Meeting transcripts ----
+//
+// Teams only generates a transcript if recording/transcription was
+// turned on during the actual call — this can't be triggered remotely,
+// it's whatever happened live in Teams. Requires the delegated
+// OnlineMeetingTranscript.Read.All scope (see lib/auth.ts) AND the
+// tenant's Teams Admin Center "Transcript API access" toggle to be on;
+// without either, Graph returns 403 GraphAccessToTranscriptsDisabled.
+
+export type GraphTranscript = {
+  id: string;
+  transcriptContentUrl: string;
+};
+
+// Resolves a calendar event's Teams joinUrl to the internal online
+// meeting id the transcripts endpoint actually needs — they're not the
+// same identifier.
+export async function getOnlineMeetingIdFromJoinUrl(
+  accessToken: string,
+  joinUrl: string
+): Promise<string | null> {
+  const data = await graphFetch(
+    accessToken,
+    `/me/onlineMeetings?$filter=JoinWebUrl eq '${encodeURIComponent(joinUrl)}'`
+  );
+  return data?.value?.[0]?.id ?? null;
+}
+
+export async function listMeetingTranscripts(
+  accessToken: string,
+  onlineMeetingId: string
+): Promise<GraphTranscript[]> {
+  const data = await graphFetch(
+    accessToken,
+    `/me/onlineMeetings/${onlineMeetingId}/transcripts`
+  );
+  return (data?.value as GraphTranscript[]) ?? [];
+}
+
+// Content comes back as WebVTT (timestamped caption format), not plain
+// prose — fine to feed straight into Janus for summarization, but not
+// meant to be shown to a user verbatim.
+//
+// Requesting speaker-attributed VTT ($format=text/vtt) 403s with
+// SpeakerAttributionNotAllowed on tenants that have that setting
+// disabled — Graph's own error tells you to retry with this Accept
+// header instead, which returns plain (non-speaker-attributed) text.
+export async function getTranscriptContentVtt(
+  accessToken: string,
+  onlineMeetingId: string,
+  transcriptId: string
+): Promise<string> {
+  try {
+    return await graphFetchText(
+      accessToken,
+      `/me/onlineMeetings/${onlineMeetingId}/transcripts/${transcriptId}/content?$format=text/vtt`
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (!message.includes("SpeakerAttributionNotAllowed")) throw err;
+
+    return graphFetchText(
+      accessToken,
+      `/me/onlineMeetings/${onlineMeetingId}/transcripts/${transcriptId}/content`,
+      "application/vnd.microsoft.graph.transcript+text"
+    );
+  }
+}
+
 export async function createCalendarEvent(
   accessToken: string,
   subject: string,
@@ -203,6 +298,8 @@ export async function createCalendarEvent(
         emailAddress: { address: email },
         type: "required",
       })),
+      isOnlineMeeting: true,
+      onlineMeetingProvider: "teamsForBusiness",
     }),
   });
 }

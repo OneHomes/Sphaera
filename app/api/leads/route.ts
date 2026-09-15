@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { toUiLead } from "@/lib/leadTransform";
 import { getAuthUser, getLeadScopeWhere } from "@/lib/authz";
+import { releaseExpiredLocks } from "@/lib/leadLocks";
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
   }
 
   const authUser = getAuthUser(session);
+  await releaseExpiredLocks();
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search");
 

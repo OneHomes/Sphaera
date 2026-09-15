@@ -44,6 +44,10 @@ const config: Config = {
           "0%": { transform: "translateX(0%)" },
           "100%": { transform: "translateX(-50%)" },
         },
+        loadingSweep: {
+          "0%": { left: "-35%" },
+          "100%": { left: "100%" },
+        },
       },
       animation: {
         // Duration is deliberately not fixed here — TopLeaderboardBar
@@ -51,6 +55,7 @@ const config: Config = {
         // so the scroll speed stays visually consistent regardless of
         // how many agents are in the leaderboard.
         marquee: "marquee linear infinite",
+        loadingSweep: "loadingSweep 1.2s ease-in-out infinite",
       },
     },
   },

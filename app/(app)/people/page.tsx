@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { tierForPoints } from "@/lib/aexTransform";
+import { getAexConfig } from "@/lib/aexConfig";
 import { PeoplePage } from "@/components/people/PeoplePage";
 import type { TeamMember } from "@/lib/peopleData";
 
@@ -14,13 +15,16 @@ export default async function PeopleRoute() {
     redirect("/sign-in");
   }
 
-  const users = await prisma.user.findMany({
-    include: {
-      team: true,
-      pointEvents: { select: { points: true } },
-    },
-    orderBy: { name: "asc" },
-  });
+  const [users, aexConfig] = await Promise.all([
+    prisma.user.findMany({
+      include: {
+        team: true,
+        pointEvents: { select: { points: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
+    getAexConfig(),
+  ]);
 
   const teamMembers: TeamMember[] = users.map((u) => {
     const points = u.pointEvents.reduce((sum, e) => sum + e.points, 0);
@@ -30,7 +34,7 @@ export default async function PeopleRoute() {
       role: u.role,
       team: u.team?.name ?? "No team",
       email: u.email,
-      tier: tierForPoints(points),
+      tier: tierForPoints(points, aexConfig.tierThresholds),
     };
   });
 

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser, hasRole } from "@/lib/authz";
+import { getFreshAuthUser, hasRole } from "@/lib/authz";
 
 // Company-level WhatsApp Business Account setup — done once by an Admin
 // (per the setup flow: Meta Business Verification -> WABA -> System
@@ -14,7 +14,7 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const authUser = getAuthUser(session);
+  const authUser = await getFreshAuthUser(session);
   if (!hasRole(authUser, ["ADMIN"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const authUser = getAuthUser(session);
+  const authUser = await getFreshAuthUser(session);
   if (!hasRole(authUser, ["ADMIN"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

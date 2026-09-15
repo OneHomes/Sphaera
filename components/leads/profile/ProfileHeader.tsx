@@ -12,19 +12,27 @@ import {
   ListPlus,
   UserCog,
   UserPlus,
+  Sparkles,
+  FileText,
 } from "lucide-react";
 import type { Lead, LeadStage } from "@/lib/leadData";
 import { leadStages } from "@/lib/leadData";
-import { StageBadge, PriorityBadge, ScoreBadge } from "@/components/leads/LeadBadges";
+import { StageBadge, PriorityBadge, ScoreBadge, AssignmentBadge } from "@/components/leads/LeadBadges";
+import { LogInteractionModal } from "./LogInteractionModal";
+import { ComposeMessageModal } from "./ComposeMessageModal";
+import { ProposalModal } from "./ProposalModal";
+import { AddTaskModal } from "@/components/tasks/AddTaskModal";
 
 const actionButtons = [
   { icon: Phone, label: "Call" },
   { icon: Mail, label: "Email" },
+  { icon: Sparkles, label: "Draft with Janus" },
+  { icon: FileText, label: "Generate proposal" },
   { icon: MessageCircle, label: "WhatsApp" },
   { icon: CalendarPlus, label: "Propose meeting" },
   { icon: ListPlus, label: "Create task" },
   { icon: UserCog, label: "Request manager" },
-];
+] as const;
 
 export function ProfileHeader({
   lead,
@@ -37,13 +45,28 @@ export function ProfileHeader({
   const [isUpdatingStage, setIsUpdatingStage] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [logType, setLogType] = useState<"call" | "email" | "meeting" | null>(null);
+  const [showCreateTask, setShowCreateTask] = useState(false);
+  const [showCompose, setShowCompose] = useState(false);
+  const [showProposal, setShowProposal] = useState(false);
 
-  function handleAction(label: string) {
-    // TODO: wire each action to its real channel/API once available:
-    // Call -> telephony provider, Email -> Gmail/M365 send, WhatsApp ->
-    // messaging connector, Propose meeting -> calendar, Create task ->
-    // Task entity, Request manager -> AE10 manager-assist notification.
-    console.log(`Contact action: ${label} for ${lead.name}`);
+  function handleAction(label: (typeof actionButtons)[number]["label"]) {
+    // PRD AE11 — "Call" now launches the real Call Workspace (timer,
+    // real-time Sphaera/Manager assistance, auto-logged on end) rather
+    // than just quick-logging a call that already happened. To log a
+    // past call without the live workspace, open "Propose meeting" or
+    // "Email" and switch the type selector inside that modal to Call.
+    if (label === "Call") router.push(`/calls/${lead.id}`);
+    else if (label === "Email") setLogType("email");
+    else if (label === "Draft with Janus") setShowCompose(true);
+    else if (label === "Generate proposal") setShowProposal(true);
+    else if (label === "Propose meeting") setLogType("meeting");
+    else if (label === "Create task") setShowCreateTask(true);
+    // WhatsApp and Request manager remain unwired here: WhatsApp already
+    // has a real backend (lib/whatsapp.ts) but it's driven from the
+    // Messages surface, not this button yet. Request manager assistance
+    // IS real now, but scoped to the Call Workspace (a live-call concept)
+    // rather than this static profile page.
   }
 
   async function handleStageChange(newStage: LeadStage) {
@@ -123,13 +146,22 @@ export function ProfileHeader({
           <p className="mt-1 text-sm text-ink-500">
             {lead.contact} · {lead.source} · {lead.market}
           </p>
-          <p className="mt-1 text-xs">
+          <p className="mt-1 flex items-center gap-1.5 text-xs">
             {lead.assignedUserName ? (
-              <span
-                className={isAssignedToMe ? "text-status-active" : "text-ink-500"}
-              >
-                Assigned to: {lead.assignedUserName}
-              </span>
+              <>
+                <span
+                  className={isAssignedToMe ? "text-status-active" : "text-ink-500"}
+                >
+                  Assigned to: {lead.assignedUserName}
+                </span>
+                <AssignmentBadge status={lead.assignment} />
+                {lead.assignment === "Locked" && lead.lockedUntilLabel && (
+                  <span className="text-status-alert">
+                    · Locked until {lead.lockedUntilLabel} — log a call, email, or
+                    meeting to unlock early
+                  </span>
+                )}
+              </>
             ) : (
               <button
                 onClick={handleAssignToMe}
@@ -160,6 +192,40 @@ export function ProfileHeader({
           </button>
         ))}
       </div>
+
+      {logType && (
+        <LogInteractionModal
+          leadId={lead.id}
+          defaultType={logType}
+          onClose={() => setLogType(null)}
+          onLogged={() => router.refresh()}
+        />
+      )}
+
+      {showCreateTask && (
+        <AddTaskModal
+          heading="Create task"
+          defaultRelatedTo={lead.name}
+          leadId={lead.id}
+          onClose={() => setShowCreateTask(false)}
+        />
+      )}
+
+      {showCompose && (
+        <ComposeMessageModal
+          leadId={lead.id}
+          onClose={() => setShowCompose(false)}
+          onSent={() => router.refresh()}
+        />
+      )}
+
+      {showProposal && (
+        <ProposalModal
+          leadId={lead.id}
+          onClose={() => setShowProposal(false)}
+          onSaved={() => router.refresh()}
+        />
+      )}
     </div>
   );
 }

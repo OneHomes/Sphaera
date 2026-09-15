@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateCurrentUser } from "@/lib/currentUser";
 import { tierForPoints, nextTierInfo } from "@/lib/aexTransform";
+import { getAexConfig } from "@/lib/aexConfig";
 import { formatRelativeTime } from "@/lib/leadTransform";
 
 export async function GET() {
@@ -14,7 +15,7 @@ export async function GET() {
 
   const user = await getOrCreateCurrentUser(session);
 
-  const [pointEvents, badges, streaks, pointsAgg] = await Promise.all([
+  const [pointEvents, badges, streaks, pointsAgg, aexConfig] = await Promise.all([
     prisma.aexPointEvent.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -26,11 +27,12 @@ export async function GET() {
       where: { userId: user.id },
       _sum: { points: true },
     }),
+    getAexConfig(),
   ]);
 
   const totalPoints = pointsAgg._sum.points ?? 0;
-  const tier = tierForPoints(totalPoints);
-  const { nextTier, pointsToNextTier } = nextTierInfo(totalPoints);
+  const tier = tierForPoints(totalPoints, aexConfig.tierThresholds);
+  const { nextTier, pointsToNextTier } = nextTierInfo(totalPoints, aexConfig.tierThresholds);
 
   return NextResponse.json({
     tier,

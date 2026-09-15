@@ -10,6 +10,7 @@ declare module "next-auth" {
     } & DefaultSession["user"];
     accessToken?: string;
     graphError?: string;
+    signedInAt?: number;
   }
 }
 
@@ -23,5 +24,6 @@ declare module "next-auth/jwt" {
     refreshToken?: string;
     accessTokenExpires?: number;
     graphError?: string;
+    signedInAt?: number;
   }
 }

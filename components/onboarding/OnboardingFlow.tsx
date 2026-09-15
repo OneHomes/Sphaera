@@ -1,31 +1,61 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { QuoteScreen } from "./QuoteScreen";
 import { YesterdayTargetReview } from "./YesterdayTargetReview";
 import { TargetAcceptance } from "./TargetAcceptance";
 import { MindStateCheckIn } from "./MindStateCheckIn";
 import { RoadToSuccess } from "./RoadToSuccess";
-import { welcomeQuote, missionQuote } from "@/lib/onboardingData";
+import type { WelcomeData, TargetComparisonRow, TierProgress } from "@/lib/dailyWelcome";
 
 // Implements PRD AE01 (Sign In and Welcome Sequence): welcome -> yesterday/
 // target review -> target acceptance -> MindState check-in -> tier/road to
 // success -> mission intro -> mission centre. Acceptance criteria requires
 // this to complete in under two minutes for a returning user, so each step
 // is intentionally lightweight (single click/tap to advance).
+//
+// All data is now real, fetched server-side in
+// app/(onboarding)/onboarding/page.tsx (previously 100% mock —
+// lib/onboardingData.ts's own comment admitted this: "Placeholder data
+// only... once live").
 
-const STEP_COUNT = 6;
+const BASE_STEPS = ["welcome", "yesterday", "target", "mindstate", "road", "mission"] as const;
+type Step = (typeof BASE_STEPS)[number];
 
-export function OnboardingFlow() {
-  const router = useRouter();
-  const [step, setStep] = useState(0);
+export function OnboardingFlow({
+  userName,
+  welcomeData,
+  targetComparison,
+  tierProgress,
+  janusInsight,
+  leadsGoalCount,
+  skipMindState,
+}: {
+  userName: string;
+  welcomeData: WelcomeData;
+  targetComparison: TargetComparisonRow[];
+  tierProgress: TierProgress;
+  janusInsight: string | null;
+  leadsGoalCount: number;
+  skipMindState: boolean;
+}) {
+  const steps = skipMindState ? BASE_STEPS.filter((s) => s !== "mindstate") : BASE_STEPS;
+  const [stepIndex, setStepIndex] = useState(0);
+  const step: Step = steps[stepIndex];
 
-  function next() {
-    if (step < STEP_COUNT - 1) {
-      setStep((s) => s + 1);
-    } else {
-      router.push("/command");
+  async function next() {
+    if (stepIndex < steps.length - 1) {
+      setStepIndex((i) => i + 1);
+      return;
+    }
+
+    try {
+      await fetch("/api/welcome/acknowledge", { method: "POST" });
+    } finally {
+      // Hard navigation — guarantees the (app) layout fully re-evaluates
+      // shouldShowWelcome against fresh data rather than risking a
+      // cached client-side render of this same sequence being reused.
+      window.location.href = "/command";
     }
   }
 
@@ -34,26 +64,30 @@ export function OnboardingFlow() {
       <div className="h-1 w-full bg-base-800">
         <div
           className="h-1 bg-status-active transition-all"
-          style={{ width: `${((step + 1) / STEP_COUNT) * 100}%` }}
+          style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }}
         />
       </div>
 
       <div className="h-[calc(100%-4px)]">
-        {step === 0 && (
+        {step === "welcome" && (
           <QuoteScreen
-            eyebrow={welcomeQuote.eyebrow}
-            headline={welcomeQuote.headline}
+            eyebrow="Everyone has the will to win, but very few have the will to prepare to win…"
+            headline={`Welcome back, ${userName}. Let's get this day started.`}
             onContinue={next}
           />
         )}
-        {step === 1 && <YesterdayTargetReview onContinue={next} />}
-        {step === 2 && <TargetAcceptance onAccept={next} />}
-        {step === 3 && <MindStateCheckIn onContinue={next} />}
-        {step === 4 && <RoadToSuccess onContinue={next} />}
-        {step === 5 && (
+        {step === "yesterday" && (
+          <YesterdayTargetReview data={welcomeData} janusInsight={janusInsight} onContinue={next} />
+        )}
+        {step === "target" && (
+          <TargetAcceptance userName={userName} rows={targetComparison} onAccept={next} />
+        )}
+        {step === "mindstate" && <MindStateCheckIn onContinue={next} />}
+        {step === "road" && <RoadToSuccess tierProgress={tierProgress} onContinue={next} />}
+        {step === "mission" && (
           <QuoteScreen
-            eyebrow={missionQuote.eyebrow}
-            headline={missionQuote.headline}
+            eyebrow="Winners focus on winning, losers focus on winners…"
+            headline={`Our goal is to action ${leadsGoalCount} lead${leadsGoalCount === 1 ? "" : "s"} today.`}
             onContinue={next}
           />
         )}

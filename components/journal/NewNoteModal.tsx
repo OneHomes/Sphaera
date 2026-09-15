@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, Plus } from "lucide-react";
 import { journalFolders, type JournalFolder } from "@/lib/journalData";
+import { RichTextEditor } from "./RichTextEditor";
 
 export function NewNoteModal({
   defaultFolder,
@@ -21,7 +22,8 @@ export function NewNoteModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !body.trim()) {
+    const plainText = body.replace(/<[^>]*>/g, "").trim();
+    if (!title.trim() || !plainText) {
       setError("Title and content are required.");
       return;
     }
@@ -51,7 +53,7 @@ export function NewNoteModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-xl border border-base-700 bg-base-900 p-5">
+      <div className="w-full max-w-xl rounded-xl border border-base-700 bg-base-900 p-5">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-medium text-ink-50">New note</h2>
           <button onClick={onClose} className="text-ink-500 hover:text-ink-300">
@@ -77,12 +79,10 @@ export function NewNoteModal({
             placeholder="Title"
             className="w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500"
           />
-          <textarea
+          <RichTextEditor
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={setBody}
             placeholder="Write your note… (private, only visible to you)"
-            rows={6}
-            className="w-full resize-none rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500"
           />
 
           {error && <p className="text-xs text-status-inactive">{error}</p>}

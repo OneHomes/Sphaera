@@ -4,11 +4,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { toUiOpportunity } from "@/lib/opportunityTransform";
 import { getAuthUser, canAccessRecord } from "@/lib/authz";
-import {
-  MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS,
-  CLOSED_OPPORTUNITY_STAGES,
-} from "@/lib/allocationRules";
+import { CLOSED_OPPORTUNITY_STAGES } from "@/lib/allocationRules";
+import { getAexConfig } from "@/lib/aexConfig";
 import { createNotification } from "@/lib/notifications";
+import { awardBadgeIfNew } from "@/lib/badges";
+import { awardPoints } from "@/lib/awardPoints";
 const patchableFields = [
   "stage",
   "lossReason",
@@ -55,6 +55,7 @@ export async function PATCH(
     const newAssigneeId: string = body.assignedUserId;
 
     if (newAssigneeId !== existing.assignedUserId) {
+      const aexConfig = await getAexConfig();
       const activeCount = await prisma.opportunity.count({
         where: {
           assignedUserId: newAssigneeId,
@@ -62,10 +63,10 @@ export async function PATCH(
         },
       });
 
-      if (activeCount >= MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS) {
+      if (activeCount >= aexConfig.maxActiveOpportunityAssignments) {
         return NextResponse.json(
           {
-            error: `Capacity reached — you already have ${MAX_ACTIVE_OPPORTUNITY_ASSIGNMENTS} active opportunities. Ask your manager to help redistribute before taking more.`,
+            error: `Capacity reached — you already have ${aexConfig.maxActiveOpportunityAssignments} active opportunities. Ask your manager to help redistribute before taking more.`,
           },
           { status: 409 }
         );
@@ -116,6 +117,38 @@ export async function PATCH(
     data,
     include: { assignedUser: true },
   });
+
+  // PRD AEX 14.1/14.8 — real trigger: this opportunity just became
+  // Closed Won. Points scale with deal value (PLACEHOLDER rate, not
+  // business-approved), capped so one huge deal can't dwarf everything
+  // else in the leaderboard.
+  if (
+    body.stage === "Closed Won" &&
+    existing.stage !== "Closed Won" &&
+    updated.assignedUserId
+  ) {
+    try {
+      await awardBadgeIfNew(
+        updated.assignedUserId,
+        "Closer",
+        "Won your first opportunity"
+      );
+    } catch (err) {
+      console.error("Badge award failed:", err);
+    }
+
+    try {
+      const dealPoints = Math.min(100, Math.round(updated.value / 1000));
+      await awardPoints(
+        updated.assignedUserId,
+        updated.assignedUser?.email ?? "unknown",
+        `Closed Won: ${updated.leadName}`,
+        Math.max(20, dealPoints)
+      );
+    } catch (err) {
+      console.error("Point award failed:", err);
+    }
+  }
 
   return NextResponse.json(toUiOpportunity(updated));
 }

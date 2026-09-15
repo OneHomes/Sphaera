@@ -12,15 +12,32 @@ export function ChallengePicker({
 }) {
   const [challengedId, setChallengedId] = useState<string | null>(null);
   const [scrollIndex, setScrollIndex] = useState(0);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const visibleCount = 5;
   const maxIndex = Math.max(0, leaderboard.length - visibleCount);
 
-  function handleChallenge(id: string) {
-    // TODO: send a real peer-challenge request once the AEX challenge
-    // engine exists (PRD Section 14.10 — user selection of eligible peer
-    // challengers). Must not expose sensitive compensation data.
-    setChallengedId(id);
+  async function handleChallenge(id: string) {
+    if (isSending) return;
+    setIsSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/aex/challenges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opponentId: id }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to send challenge");
+      }
+      setChallengedId(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send challenge");
+    } finally {
+      setIsSending(false);
+    }
   }
 
   const visibleRows = leaderboard.slice(scrollIndex, scrollIndex + visibleCount);
@@ -93,6 +110,7 @@ export function ChallengePicker({
           Challenge sent to <span className="text-ink-50">{challengedRow.name}</span>.
         </p>
       )}
+      {error && <p className="mt-2 text-center text-xs text-status-inactive">{error}</p>}
     </WidgetCard>
   );
 }

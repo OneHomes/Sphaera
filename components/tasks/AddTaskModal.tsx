@@ -4,10 +4,26 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Plus } from "lucide-react";
 
-export function AddTaskModal({ onClose }: { onClose: () => void }) {
+export function AddTaskModal({
+  onClose,
+  defaultTitle = "",
+  defaultRelatedTo = "",
+  leadId,
+  source,
+  heading = "Add task",
+  onCreated,
+}: {
+  onClose: () => void;
+  defaultTitle?: string;
+  defaultRelatedTo?: string;
+  leadId?: string;
+  source?: "Janus proposed";
+  heading?: string;
+  onCreated?: () => void;
+}) {
   const router = useRouter();
-  const [title, setTitle] = useState("");
-  const [relatedTo, setRelatedTo] = useState("");
+  const [title, setTitle] = useState(defaultTitle);
+  const [relatedTo, setRelatedTo] = useState(defaultRelatedTo);
   const [dueDate, setDueDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +44,8 @@ export function AddTaskModal({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({
           title,
           relatedTo: relatedTo || undefined,
+          leadId: leadId || undefined,
+          source,
           dueAt: dueDate ? new Date(dueDate).toISOString() : undefined,
         }),
       });
@@ -38,6 +56,7 @@ export function AddTaskModal({ onClose }: { onClose: () => void }) {
       }
 
       onClose();
+      onCreated?.();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -50,7 +69,7 @@ export function AddTaskModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-sm rounded-xl border border-base-700 bg-base-900 p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-ink-50">Add task</h2>
+          <h2 className="text-sm font-medium text-ink-50">{heading}</h2>
           <button onClick={onClose} className="text-ink-500 hover:text-ink-300">
             <X className="h-4 w-4" />
           </button>

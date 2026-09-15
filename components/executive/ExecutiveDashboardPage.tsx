@@ -6,8 +6,10 @@ import {
   Building2,
   AlertTriangle,
   Target,
+  ClipboardList,
 } from "lucide-react";
 import type { ExecutiveSummary } from "@/lib/executiveDashboard";
+import type { PilotMetric } from "@/lib/pilotMetrics";
 
 function formatCurrency(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
@@ -41,8 +43,10 @@ function StatBox({
 
 export function ExecutiveDashboardPage({
   summary,
+  pilotMetrics,
 }: {
   summary: ExecutiveSummary;
+  pilotMetrics: PilotMetric[];
 }) {
   const maxStageValue = Math.max(
     ...summary.pipelineByStage.map((s) => s.value),
@@ -52,9 +56,11 @@ export function ExecutiveDashboardPage({
   return (
     <div className="p-6">
       <h1 className="mb-1 text-xl font-semibold text-ink-50">
-        Executive Command Dashboard
+        {summary.scope === "company" ? "Executive Command Dashboard" : "Team Command Dashboard"}
       </h1>
-      <p className="mb-5 text-sm text-ink-500">Company-wide overview</p>
+      <p className="mb-5 text-sm text-ink-500">
+        {summary.scope === "company" ? "Company-wide overview" : "Your team's overview"}
+      </p>
 
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatBox
@@ -69,14 +75,24 @@ export function ExecutiveDashboardPage({
           accent="text-status-active"
         />
         <StatBox
+          icon={Target}
+          label="Weighted Forecast"
+          value={formatCurrency(summary.weightedForecastValue)}
+          accent="text-sky-400"
+        />
+        <StatBox
           icon={Users}
           label="Active Leads"
           value={summary.totalActiveLeads.toLocaleString()}
         />
         <StatBox
           icon={Building2}
-          label="Teams / Agents"
-          value={`${summary.totalTeams} / ${summary.totalAgents}`}
+          label={summary.scope === "company" ? "Teams / Agents" : "Agents"}
+          value={
+            summary.scope === "company"
+              ? `${summary.totalTeams} / ${summary.totalAgents}`
+              : `${summary.totalAgents}`
+          }
         />
       </div>
 
@@ -197,6 +213,37 @@ export function ExecutiveDashboardPage({
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="mb-1 flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 text-ink-300" />
+          <h2 className="text-sm font-medium text-ink-50">Pilot Success Metrics</h2>
+        </div>
+        <p className="mb-3 text-[11px] text-ink-500">
+          PRD Section 5.2 — real numbers where the data exists; metrics with
+          no real source yet are marked rather than estimated.
+        </p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {pilotMetrics.map((m) => (
+            <div
+              key={m.key}
+              className={`rounded-lg border p-3 text-xs ${
+                m.tracked
+                  ? "border-base-700 bg-base-800"
+                  : "border-base-800 bg-base-900"
+              }`}
+            >
+              <p className="text-ink-300">{m.label}</p>
+              {m.tracked ? (
+                <p className="mt-1 text-base font-semibold text-ink-50">{m.value}</p>
+              ) : (
+                <p className="mt-1 text-xs font-medium text-ink-600">Not yet tracked</p>
+              )}
+              <p className="mt-1 text-[10px] text-ink-500">{m.note}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

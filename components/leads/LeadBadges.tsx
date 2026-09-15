@@ -4,7 +4,7 @@ import type {
   EngagementLevel,
   AssignmentStatus,
 } from "@/lib/leadData";
-import { scoreBand } from "@/lib/leadData";
+import { scoreBand, leadStageRank } from "@/lib/leadData";
 
 const priorityStyles: Record<LeadPriority, string> = {
   High: "bg-status-inactive/15 text-status-inactive",
@@ -22,18 +22,24 @@ export function PriorityBadge({ priority }: { priority: LeadPriority }) {
   );
 }
 
-const stageStyles: Record<LeadStage, string> = {
-  New: "bg-base-700 text-ink-300",
-  Contacted: "bg-sky-500/15 text-sky-400",
-  Qualified: "bg-status-active/15 text-status-active",
-  "Meeting Booked": "bg-violet-500/15 text-violet-400",
-  Negotiation: "bg-status-alert/15 text-status-alert",
-};
+// Colored by real funnel rank (lib/leadData.ts leadStageRank) rather
+// than a per-status lookup, so any real Salesforce status — known or
+// not yet seen — gets a sensible color instead of "undefined".
+function stageColorClass(stage: LeadStage): string {
+  const rank = leadStageRank[stage];
+  if (rank === undefined) return "bg-base-700 text-ink-300"; // unrecognized status — neutral, not an error
+  if (rank < 0) return "bg-status-inactive/15 text-status-inactive"; // Not Interested / Cancelled / Remove from DB
+  if (rank === 0) return "bg-base-700 text-ink-300"; // New
+  if (rank <= 2) return "bg-sky-500/15 text-sky-400"; // contacted / interested
+  if (rank <= 4) return "bg-violet-500/15 text-violet-400"; // meeting-related
+  if (rank <= 6) return "bg-status-active/15 text-status-active"; // qualified / validated
+  return "bg-tier-gold/15 text-tier-gold"; // negotiation through closing
+}
 
 export function StageBadge({ stage }: { stage: LeadStage }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageStyles[stage]}`}
+      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageColorClass(stage)}`}
     >
       {stage}
     </span>

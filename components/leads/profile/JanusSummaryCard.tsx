@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
+import { JanusGlyph } from "@/components/janus/JanusGlyph";
+import { JanusFeedback } from "@/components/janus/JanusFeedback";
 
 export function JanusSummaryCard({ lead }: { lead: Lead }) {
   const [summary, setSummary] = useState<string | null>(null);
@@ -17,6 +19,7 @@ export function JanusSummaryCard({ lead }: { lead: Lead }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "leadId",
           leadId: lead.id,
           question:
             "Summarise this lead in 3-4 sentences, including its current stage, engagement level, and any risks or overdue actions I should know about.",
@@ -42,12 +45,17 @@ export function JanusSummaryCard({ lead }: { lead: Lead }) {
   return (
     <div className="rounded-xl border border-base-700 bg-gradient-to-br from-base-900 to-base-800 p-4">
       <div className="mb-3 flex items-center gap-2">
-        <JanusGlyph />
+        <JanusGlyph className="h-4 w-4 text-white" />
         <h3 className="text-sm font-medium text-ink-50">Janus summary</h3>
       </div>
 
       {summary ? (
-        <p className="text-xs leading-relaxed text-ink-300">{summary}</p>
+        <>
+          <p className="text-xs leading-relaxed text-ink-300">{summary}</p>
+          <div className="mt-2 border-t border-base-700 pt-2">
+            <JanusFeedback context={`leadSummary:${lead.id}`} />
+          </div>
+        </>
       ) : (
         <p className="text-xs leading-relaxed text-ink-500">
           Click below to have Janus summarise this lead using its real
@@ -77,18 +85,5 @@ export function JanusSummaryCard({ lead }: { lead: Lead }) {
         {isAsking ? "Asking Janus…" : summary ? "Ask again" : "Ask Janus about this lead"}
       </button>
     </div>
-  );
-}
-
-function JanusGlyph() {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" className="h-4 w-4 text-ink-50">
-      <path
-        d="M14 10c8 0 8 6 16 6s8-6 16-6M14 24c8 0 8 6 16 6s8-6 16-6M14 38c8 0 8 6 16 6s8-6 16-6"
-        stroke="currentColor"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }

@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import { getOrCreateUserByEmail } from "./currentUser";
+import { logAudit } from "./auditLog";
 
 // Reads the three values you get from the Entra ID App Registration:
 // tenant ID, client (application) ID, and client secret.
@@ -19,7 +20,7 @@ import { getOrCreateUserByEmail } from "./currentUser";
 // the ONLY sign-in method, matching PRD PF01 (Entra ID is the sole
 // production auth method).
 const GRAPH_SCOPES =
-  "openid profile email offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite";
+  "openid profile email offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite OnlineMeetings.Read OnlineMeetingTranscript.Read.All";
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
@@ -89,6 +90,25 @@ export const authOptions: NextAuthOptions = {
           token.teamId = dbUser.teamId;
         }
 
+        // PRD AE01 — only set on an actual sign-in (this whole branch
+        // only runs when NextAuth passes `account`, i.e. real
+        // authentication, never on a resumed session from an existing
+        // cookie), so this is a reliable "was this session just created"
+        // signal for the daily welcome-screen gate (lib/dailyWelcome.ts).
+        token.signedInAt = Date.now();
+
+        // PF01 acceptance criterion — "all sign in ... events are
+        // auditable." Also the real data source for daily/weekly active
+        // use (PRD 5.2 #15/#16), which had no tracking at all before this.
+        if (token.userId) {
+          logAudit({
+            actorId: token.userId as string,
+            actorEmail: token.email ?? "unknown",
+            action: "user_signed_in",
+            details: `${token.name ?? token.email} signed in via Microsoft Entra ID`,
+          }).catch((err) => console.error("Failed to audit sign-in:", err));
+        }
+
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.accessTokenExpires = account.expires_at
@@ -144,6 +164,9 @@ export const authOptions: NextAuthOptions = {
         | undefined;
       (session as { graphError?: string }).graphError = token.graphError as
         | string
+        | undefined;
+      (session as { signedInAt?: number }).signedInAt = token.signedInAt as
+        | number
         | undefined;
 
       return session;

@@ -4,7 +4,11 @@ export type NotificationType =
   | "lead_assigned"
   | "opportunity_assigned"
   | "task_assigned"
-  | "whatsapp_message";
+  | "whatsapp_message"
+  | "manager_assist_requested"
+  | "lead_note_mention"
+  | "challenge_update"
+  | "risk_critical";
 
 export async function createNotification(
   userId: string,

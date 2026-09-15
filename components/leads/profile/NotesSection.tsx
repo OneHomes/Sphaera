@@ -57,7 +57,7 @@ export function NotesSection({
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Add a note about this lead…"
+          placeholder="Add a note about this lead… (@Name to notify a teammate)"
           className="flex-1 rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500 focus:border-status-active"
         />
         <button

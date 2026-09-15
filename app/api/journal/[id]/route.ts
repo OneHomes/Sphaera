@@ -33,6 +33,12 @@ export async function PATCH(
   for (const field of patchableFields) {
     if (field in body) data[field] = body[field];
   }
+  // Favorite/Archive/Trash are booleans over the wire — translated here
+  // into the timestamp columns Prisma actually stores, so the client
+  // never has to construct a Date itself.
+  if ("isFavorite" in body) data.isFavorite = Boolean(body.isFavorite);
+  if ("archived" in body) data.archivedAt = body.archived ? new Date() : null;
+  if ("trashed" in body) data.deletedAt = body.trashed ? new Date() : null;
 
   const updated = await prisma.journalEntry.update({
     where: { id: params.id },

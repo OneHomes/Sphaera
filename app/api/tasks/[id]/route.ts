@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateCurrentUser } from "@/lib/currentUser";
+import { recordDailyActivity } from "@/lib/streaks";
 
 const patchableFields = ["title", "completed", "dueAt"] as const;
 
@@ -37,6 +38,16 @@ export async function PATCH(
     where: { id: params.id },
     data,
   });
+
+  // PRD AEX 14.9 — completing a task is real activity worth crediting
+  // toward the daily streak (see lib/streaks.ts).
+  if (data.completed === true && !existing.completed) {
+    try {
+      await recordDailyActivity(user.id);
+    } catch (err) {
+      console.error("Streak update failed:", err);
+    }
+  }
 
   return NextResponse.json(updated);
 }
