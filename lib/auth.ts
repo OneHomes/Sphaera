@@ -80,14 +80,23 @@ export const authOptions: NextAuthOptions = {
           token.oid = (profile as { oid?: string }).oid;
         }
         if (token.email) {
-          const dbUser = await getOrCreateUserByEmail(
-            token.email,
-            token.name,
-            token.oid as string | undefined
-          );
-          token.userId = dbUser.id;
-          token.role = dbUser.role as "AGENT" | "MANAGER" | "ADMIN";
-          token.teamId = dbUser.teamId;
+          // NextAuth collapses any error thrown in this callback into a
+          // generic ?error=Callback on the sign-in page with no detail —
+          // this is the only place the real cause (e.g. the database
+          // being unreachable) actually surfaces, so log it loudly.
+          try {
+            const dbUser = await getOrCreateUserByEmail(
+              token.email,
+              token.name,
+              token.oid as string | undefined
+            );
+            token.userId = dbUser.id;
+            token.role = dbUser.role as "AGENT" | "MANAGER" | "ADMIN";
+            token.teamId = dbUser.teamId;
+          } catch (err) {
+            console.error("jwt callback: getOrCreateUserByEmail failed —", err);
+            throw err;
+          }
         }
 
         // PRD AE01 — only set on an actual sign-in (this whole branch
