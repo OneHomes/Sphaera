@@ -2,7 +2,8 @@ import type { NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import { getOrCreateUserByEmail } from "./currentUser";
-import { logAudit } from "./auditLog";
+import { logAudit, SYSTEM_ACTOR } from "./auditLog";
+import { setLastAuthError } from "./debugAuthState"; // TEMPORARY, see that file
 
 // Reads the three values you get from the Entra ID App Registration:
 // tenant ID, client (application) ID, and client secret.
@@ -94,7 +95,19 @@ export const authOptions: NextAuthOptions = {
             token.role = dbUser.role as "AGENT" | "MANAGER" | "ADMIN";
             token.teamId = dbUser.teamId;
           } catch (err) {
+            const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
             console.error("jwt callback: getOrCreateUserByEmail failed —", err);
+            // TEMPORARY (remove once the real cause is found) — two
+            // channels since we don't yet know if the DB itself is the
+            // problem: in-memory always works (single-instance only),
+            // AuditLog is durable/cross-instance but depends on the same
+            // DB that might be the actual failure.
+            setLastAuthError(`email=${token.email} :: ${message}`);
+            logAudit({
+              ...SYSTEM_ACTOR,
+              action: "auth_callback_error",
+              details: `email=${token.email} :: ${message}`,
+            }).catch(() => {});
             throw err;
           }
         }
