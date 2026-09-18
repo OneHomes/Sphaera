@@ -1,14 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
+
+// NextAuth's own error codes (no pages.error configured in lib/auth.ts,
+// so it defaults to redirecting back here as /sign-in?error=CODE on any
+// failure) — https://next-auth.js.org/configuration/pages#sign-in-page
+const ERROR_MESSAGES: Record<string, string> = {
+  OAuthSignin: "Couldn't start the Microsoft sign-in request. Check the Azure AD client ID/tenant ID are set correctly.",
+  OAuthCallback: "Microsoft rejected the callback. Almost always a redirect URI mismatch — check the App Registration's Redirect URIs include this exact domain's /api/auth/callback/azure-ad, and that NEXTAUTH_URL matches this domain exactly.",
+  OAuthCreateAccount: "Couldn't create an account from your Microsoft profile.",
+  Callback: "Something failed inside the sign-in callback itself — check server logs.",
+  AccessDenied: "Access was denied — this account may not be permitted to sign in.",
+  Configuration: "Server misconfiguration — check AZURE_AD_CLIENT_ID/CLIENT_SECRET/TENANT_ID and NEXTAUTH_SECRET are all set in this environment.",
+  Default: "Sign-in failed for an unspecified reason.",
+};
 
 // HARDENING NOTE: the temporary email/password testing form has been
 // removed along with the Credentials provider in lib/auth.ts. Microsoft
 // Entra ID is now the only sign-in method, per PRD PF01.
 export function SignInForm() {
   const [isMicrosoftLoading, setIsMicrosoftLoading] = useState(false);
+  const searchParams = useSearchParams();
+  const errorCode = searchParams.get("error");
 
   async function handleMicrosoftSignIn() {
     setIsMicrosoftLoading(true);
@@ -34,6 +50,18 @@ export function SignInForm() {
       <p className="mt-2 text-sm text-ink-300">
         Sign in with your One Homes Microsoft account to continue.
       </p>
+
+      {errorCode && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-status-inactive/40 bg-status-inactive/10 p-3 text-xs text-ink-50">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-inactive" />
+          <div>
+            <p className="font-medium">Sign-in failed: {errorCode}</p>
+            <p className="mt-1 text-ink-300">
+              {ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.Default}
+            </p>
+          </div>
+        </div>
+      )}
 
       <button
         type="button"
