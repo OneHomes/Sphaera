@@ -26,6 +26,7 @@ export type SphaeraDocument = {
   uploadedDate: string;
   uploadedBy: string;
   sizeLabel: string;
+  version: number;
 };
 
 export function formatFileSize(bytes: number): string {
@@ -45,5 +46,6 @@ export function toUiDocument(
     uploadedDate: formatRelativeTime(row.createdAt),
     uploadedBy: row.uploadedBy.name,
     sizeLabel: formatFileSize(row.sizeBytes),
+    version: row.version,
   };
 }

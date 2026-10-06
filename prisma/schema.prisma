@@ -549,8 +549,29 @@ model Document {
   // Janus grounding material.
   extractedText String? @db.NVarChar(Max)
 
+  // Doc: "An authorised content owner must be able to add, replace and
+  // retire documents." Replacing uploads a new version row (supersedesId
+  // points at the one it replaces) and retires the old one — neither
+  // action hard-deletes, so the version chain is real history, and
+  // Janus/active listings only ever see status "active" so a superseded
+  // payment plan can never get cited as current truth.
+  status       String    @default("active") // active | retired
+  version      Int       @default(1)
+  // Not @unique at the DB level — SQL Server rejects multiple NULLs on a
+  // plain unique column (hit this exact issue before with salesforceId
+  // and uid). One-document-per-supersession is enforced in the replace
+  // route instead (only ever set once, at creation, never updated).
+  supersedesId String?
+  supersedes   Document?  @relation("DocumentVersionChain", fields: [supersedesId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // Prisma requires a list here since supersedesId isn't DB-unique (see
+  // above) — in practice this is always 0 or 1 entries, enforced by the
+  // replace route only ever setting supersedesId once, at creation.
+  supersededBy Document[] @relation("DocumentVersionChain")
+
   @@map("documents")
   @@index([uploadedById])
+  @@index([status])
+  @@index([supersedesId])
 }
 
 // PRD AE14 — task sources: user created, manager assigned, Janus

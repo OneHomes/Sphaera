@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Download, Plus, Trash2 } from "lucide-react";
+import { FileText, Download, Plus, Trash2, RefreshCw, Archive } from "lucide-react";
 import type { SphaeraDocument, DocType } from "@/lib/documentsData";
 import { UploadDocumentModal } from "./UploadDocumentModal";
 
@@ -30,6 +30,9 @@ export function DocumentsPage({
   const router = useRouter();
   const [showUpload, setShowUpload] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const [replacingId, setReplacingId] = useState<string | null>(null);
 
   async function handleDelete(id: string) {
     if (!window.confirm("Delete this document? This can't be undone.")) return;
@@ -45,6 +48,49 @@ export function DocumentsPage({
       window.alert(err instanceof Error ? err.message : "Failed to delete document");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleRetire(id: string) {
+    if (!window.confirm("Retire this document? It stays as history but won't show as active or be used by Janus.")) return;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/documents/${id}/retire`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to retire document");
+      }
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to retire document");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function triggerReplace(id: string) {
+    setReplacingId(id);
+    replaceInputRef.current?.click();
+  }
+
+  async function handleReplaceFileChosen(file: File | undefined) {
+    if (!file || !replacingId) return;
+    const id = replacingId;
+    setBusyId(id);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/documents/${id}/replace`, { method: "POST", body: formData });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to replace document");
+      }
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to replace document");
+    } finally {
+      setBusyId(null);
+      setReplacingId(null);
     }
   }
 
@@ -76,7 +122,12 @@ export function DocumentsPage({
             >
               <FileText className="h-5 w-5 shrink-0 text-ink-500" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-ink-50">{doc.name}</p>
+                <p className="truncate text-sm text-ink-50">
+                  {doc.name}
+                  {doc.version > 1 && (
+                    <span className="ml-1.5 text-[10px] text-ink-500">v{doc.version}</span>
+                  )}
+                </p>
                 <p className="text-xs text-ink-500">
                   {doc.relatedTo} · {doc.uploadedBy} · {doc.uploadedDate} · {doc.sizeLabel}
                 </p>
@@ -96,14 +147,32 @@ export function DocumentsPage({
                 <Download className="h-4 w-4" />
               </a>
               {canDelete && (
-                <button
-                  onClick={() => handleDelete(doc.id)}
-                  disabled={deletingId === doc.id}
-                  className="shrink-0 text-ink-500 hover:text-status-inactive disabled:opacity-50"
-                  title="Delete"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <>
+                  <button
+                    onClick={() => triggerReplace(doc.id)}
+                    disabled={busyId === doc.id}
+                    className="shrink-0 text-ink-500 hover:text-ink-300 disabled:opacity-50"
+                    title="Replace with a new version"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => handleRetire(doc.id)}
+                    disabled={busyId === doc.id}
+                    className="shrink-0 text-ink-500 hover:text-status-alert disabled:opacity-50"
+                    title="Retire (keep as history, stop showing as active)"
+                  >
+                    <Archive className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(doc.id)}
+                    disabled={deletingId === doc.id}
+                    className="shrink-0 text-ink-500 hover:text-status-inactive disabled:opacity-50"
+                    title="Delete"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </>
               )}
             </div>
           );
@@ -115,6 +184,16 @@ export function DocumentsPage({
           </div>
         )}
       </div>
+
+      <input
+        ref={replaceInputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => {
+          handleReplaceFileChosen(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
 
       {showUpload && (
         <UploadDocumentModal

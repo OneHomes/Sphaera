@@ -19,7 +19,10 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Active only — Search and anywhere else fetching this list shouldn't
+  // surface a retired/superseded version as if it were current.
   const documents = await prisma.document.findMany({
+    where: { status: "active" },
     include: { uploadedBy: true },
     orderBy: { createdAt: "desc" },
   });

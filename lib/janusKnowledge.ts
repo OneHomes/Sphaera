@@ -37,7 +37,9 @@ export async function getRelevantDocuments(
   if (questionKeywords.size === 0) return [];
 
   const documents = await prisma.document.findMany({
-    where: { extractedText: { not: null } },
+    // "active" only — a retired/superseded document (e.g. an old payment
+    // plan replaced by a new one) must never get cited as current truth.
+    where: { extractedText: { not: null }, status: "active" },
     select: { id: true, name: true, docType: true, relatedTo: true, extractedText: true },
   });
 

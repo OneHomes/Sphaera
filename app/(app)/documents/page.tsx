@@ -15,7 +15,10 @@ export default async function DocumentsPage() {
   }
   const authUser = getAuthUser(session);
 
+  // "Replace"/"retire" keep the old version as history rather than
+  // deleting it — the main list only shows what's currently active.
   const rows = await prisma.document.findMany({
+    where: { status: "active" },
     include: { uploadedBy: true },
     orderBy: { createdAt: "desc" },
   });

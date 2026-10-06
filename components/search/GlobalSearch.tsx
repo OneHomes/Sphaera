@@ -45,6 +45,7 @@ export function GlobalSearch() {
             uploadedDate: "",
             uploadedBy: "",
             sizeLabel: "",
+            version: 1,
           }))
         )
       )
