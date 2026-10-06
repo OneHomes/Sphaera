@@ -8,6 +8,7 @@ import { NotesSection } from "./NotesSection";
 import { LeadSidePanel, type RealOpportunity, type RelatedDocument } from "./LeadSidePanel";
 import { JanusSummaryCard } from "./JanusSummaryCard";
 import { NextBestActionCard } from "./NextBestActionCard";
+import { LeadTagsCard } from "./LeadTagsCard";
 
 export function LeadProfile({
   lead,
@@ -46,6 +47,7 @@ export function LeadProfile({
 
           <div className="space-y-4">
             <NextBestActionCard leadId={lead.id} nba={nextBestAction} />
+            <LeadTagsCard leadId={lead.id} />
             <JanusSummaryCard lead={lead} />
             <LeadSidePanel
               lead={lead}

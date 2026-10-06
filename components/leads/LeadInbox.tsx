@@ -83,6 +83,12 @@ export function LeadInbox({
       if (filters.overdueOnly && lead.nextActionDue !== "Overdue") {
         return false;
       }
+      if (filters.tag.trim()) {
+        const needle = filters.tag.trim().toLowerCase().replace(/^#/, "");
+        if (!lead.tags.some((t) => t.toLowerCase().replace(/^#/, "").includes(needle))) {
+          return false;
+        }
+      }
       return true;
     });
   }, [filters, leads]);

@@ -15,6 +15,7 @@ export type LeadFilters = {
   project: string | "All";
   scoreBand: ScoreBand | "All";
   overdueOnly: boolean;
+  tag: string;
 };
 
 export const defaultLeadFilters: LeadFilters = {
@@ -26,6 +27,7 @@ export const defaultLeadFilters: LeadFilters = {
   project: "All",
   scoreBand: "All",
   overdueOnly: false,
+  tag: "",
 };
 
 export function LeadFilterBar({
@@ -47,7 +49,8 @@ export function LeadFilterBar({
     filters.market !== "All" ||
     filters.project !== "All" ||
     filters.scoreBand !== "All" ||
-    filters.overdueOnly;
+    filters.overdueOnly ||
+    filters.tag !== "";
 
   function reset() {
     onChange(defaultLeadFilters);
@@ -146,6 +149,13 @@ export function LeadFilterBar({
         <option value="Warm">Warm</option>
         <option value="Cool">Cool</option>
       </select>
+
+      <input
+        value={filters.tag}
+        onChange={(e) => onChange({ ...filters, tag: e.target.value })}
+        placeholder="#Tag"
+        className="w-24 rounded-lg border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-300 outline-none placeholder:text-ink-500"
+      />
 
       <label className="flex items-center gap-1.5 rounded-lg border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-300">
         <input

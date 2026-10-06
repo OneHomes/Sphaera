@@ -82,6 +82,7 @@ export type Lead = {
   assignedUserId?: string;
   assignedUserName?: string;
   prioritizationReason: string;
+  tags: string[];
 };
 
 // PRD AE07 (Lead Scoring). Groups the 23 real statuses into a rank order

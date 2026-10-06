@@ -47,11 +47,12 @@ export function formatDueLabel(date: Date | null): string {
 }
 
 export function toUiLead(
-  row: PrismaLead & { assignedUser?: User | null }
+  row: PrismaLead & { assignedUser?: User | null; tags?: { tag: string }[] }
 ): Lead {
   return {
     id: row.id,
     uid: row.uid ?? undefined,
+    tags: row.tags?.map((t) => t.tag) ?? [],
     name: row.name,
     contact: row.contact,
     source: row.source,

@@ -17,12 +17,16 @@ export async function GET(request: Request) {
   await releaseExpiredLocks();
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search");
+  const tag = searchParams.get("tag");
 
   const leads = await prisma.lead.findMany({
     where: {
       AND: [
         getLeadScopeWhere(authUser),
         search ? { name: { contains: search } } : {},
+        // Phase 1 Sales Scope — Interest Tags must be filterable from the
+        // Business Desk and lead views.
+        tag ? { tags: { some: { tag, removedAt: null } } } : {},
       ],
     },
     orderBy: { score: "desc" },

@@ -23,7 +23,7 @@ export default async function LeadsPage() {
     prisma.lead.findMany({
       where: getLeadScopeWhere(authUser),
       orderBy: { score: "desc" },
-      include: { assignedUser: true },
+      include: { assignedUser: true, tags: { where: { removedAt: null } } },
     }),
     // PRD AV05 — manager/admin reassignment target list. Agents don't
     // need this (they can only claim leads for themselves).

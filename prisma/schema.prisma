@@ -77,6 +77,7 @@ model Lead {
   notes                LeadNote[]
   timelineEvents       LeadTimelineEvent[]
   opportunities        Opportunity[]
+  tags                 LeadTag[]
 
   @@map("leads")
   @@index([assignedUserId])
@@ -94,6 +95,27 @@ model LeadNote {
 
   @@map("lead_notes")
   @@index([leadId])
+}
+
+// Phase 1 Sales Scope — "Interest Tags": added/removed at any lead
+// stage, searchable/filterable, with the adding/removing user and
+// timestamp retained for audit. Soft-delete (removedAt set, row kept)
+// rather than a hard delete IS the audit history here, matching this
+// model's own "author as a plain string" precedent (LeadNote above)
+// rather than a full User relation.
+model LeadTag {
+  id            String    @id @default(cuid())
+  leadId        String
+  lead          Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag           String
+  addedByName   String
+  createdAt     DateTime  @default(now())
+  removedAt     DateTime?
+  removedByName String?
+
+  @@map("lead_tags")
+  @@index([leadId])
+  @@index([tag])
 }
 
 model LeadTimelineEvent {
