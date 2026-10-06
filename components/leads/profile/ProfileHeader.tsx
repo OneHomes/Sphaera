@@ -21,6 +21,7 @@ import { StageBadge, PriorityBadge, ScoreBadge, AssignmentBadge } from "@/compon
 import { LogInteractionModal } from "./LogInteractionModal";
 import { ComposeMessageModal } from "./ComposeMessageModal";
 import { ProposalModal } from "./ProposalModal";
+import { StageChangeModal } from "./StageChangeModal";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
 
 const actionButtons = [
@@ -49,6 +50,7 @@ export function ProfileHeader({
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
   const [showProposal, setShowProposal] = useState(false);
+  const [pendingStage, setPendingStage] = useState<LeadStage | null>(null);
 
   function handleAction(label: (typeof actionButtons)[number]["label"]) {
     // PRD AE11 — "Call" now launches the real Call Workspace (timer,
@@ -69,19 +71,30 @@ export function ProfileHeader({
     // rather than this static profile page.
   }
 
-  async function handleStageChange(newStage: LeadStage) {
-    if (newStage === lead.stage) return;
+  async function handleStageChange(
+    newStage: LeadStage,
+    stageChangeNote: string,
+    nextAction: string,
+    nextActionDueAt: string
+  ) {
     setIsUpdatingStage(true);
     try {
       const res = await fetch(`/api/leads/${lead.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage: newStage }),
+        body: JSON.stringify({
+          stage: newStage,
+          stageChangeNote,
+          ...(nextAction ? { nextAction } : {}),
+          ...(nextActionDueAt ? { nextActionDueAt: new Date(nextActionDueAt).toISOString() } : {}),
+        }),
       });
-      if (!res.ok) throw new Error("Failed to update stage");
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to update stage");
+      }
+      setPendingStage(null);
       router.refresh();
-    } catch (err) {
-      console.error(err);
     } finally {
       setIsUpdatingStage(false);
     }
@@ -132,7 +145,10 @@ export function ProfileHeader({
             <select
               value={lead.stage}
               disabled={isUpdatingStage}
-              onChange={(e) => handleStageChange(e.target.value as LeadStage)}
+              onChange={(e) => {
+                const newStage = e.target.value as LeadStage;
+                if (newStage !== lead.stage) setPendingStage(newStage);
+              }}
               className="rounded-lg border border-base-700 bg-base-900 px-2 py-1 text-xs text-ink-300 outline-none disabled:opacity-50"
             >
               {leadStages.map((stage) => (
@@ -232,6 +248,19 @@ export function ProfileHeader({
           leadId={lead.id}
           onClose={() => setShowProposal(false)}
           onSaved={() => router.refresh()}
+        />
+      )}
+
+      {pendingStage && (
+        <StageChangeModal
+          leadName={lead.name}
+          fromStage={lead.stage}
+          toStage={pendingStage}
+          currentNextAction={lead.nextAction}
+          onClose={() => setPendingStage(null)}
+          onConfirm={(note, nextAction, nextActionDueAt) =>
+            handleStageChange(pendingStage, note, nextAction, nextActionDueAt)
+          }
         />
       )}
     </div>

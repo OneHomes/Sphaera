@@ -232,9 +232,24 @@ export async function PATCH(
     return NextResponse.json(toUiLead(claimed!));
   }
 
+  // Phase 1 Sales Scope — the status-change popup requires a note on
+  // every stage change; enforced here too, not just the UI, so a direct
+  // API call can't silently skip it.
+  if (body.stage && body.stage !== existing.stage) {
+    if (typeof body.stageChangeNote !== "string" || !body.stageChangeNote.trim()) {
+      return NextResponse.json(
+        { error: "A note is required when changing a lead's stage" },
+        { status: 400 }
+      );
+    }
+  }
+
   const data: Record<string, unknown> = {};
   for (const field of patchableFields) {
     if (field in body) data[field] = body[field];
+  }
+  if (body.nextActionDueAt !== undefined) {
+    data.nextActionDueAt = body.nextActionDueAt ? new Date(body.nextActionDueAt) : null;
   }
 
   const updated = await prisma.lead.update({
@@ -244,13 +259,16 @@ export async function PATCH(
   });
 
   // Record a stage change on the timeline so the audit trail reflects it
-  // (PRD 4.3 "Closed Revenue Loop" / PF07 audit trail requirement).
+  // (PRD 4.3 "Closed Revenue Loop" / PF07 audit trail requirement) — the
+  // consultant's own note is now part of that record, not just the raw
+  // from/to value, so "drill down on the lead" (the timeline) surfaces
+  // the real context behind the change.
   if (body.stage && body.stage !== existing.stage) {
     await prisma.leadTimelineEvent.create({
       data: {
         leadId: params.id,
         type: "stage_change",
-        summary: `Stage changed from ${existing.stage} to ${body.stage}`,
+        summary: `Stage changed from ${existing.stage} to ${body.stage} — ${body.stageChangeNote.trim()}`,
       },
     });
 
