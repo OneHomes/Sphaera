@@ -208,9 +208,81 @@ model User {
   playbooksCreated   Playbook[]
   teamFocusesSet     TeamFocus[]
   graphToken         GraphToken?
+  projectsCreated    Project[]
+  paymentPlansCreated PaymentPlan[]
+  unitsCreated       Unit[]
 
   @@map("users")
   @@index([teamId])
+}
+
+// Phase 1 Sales Scope — "Sphaera inventory": Sphaera is the operational
+// source of truth for sales inventory, not a read model pulled from
+// elsewhere. CRO creates/maintains this directly. Gated to ADMIN for now
+// (see lib/inventoryData.ts) since Sphaera's role model doesn't have a
+// dedicated CRO/Director tier yet — a known simplification, same as
+// elsewhere in this build, flagged for a real business decision later.
+model Project {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  units        Unit[]
+  paymentPlans PaymentPlan[]
+
+  @@map("projects")
+}
+
+model PaymentPlan {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?  @db.NVarChar(Max)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt   DateTime @default(now())
+
+  units Unit[]
+
+  @@map("payment_plans")
+  @@index([projectId])
+}
+
+// Status flow per the doc: available | reserved | sold | blocked (CRO).
+// A unit can't become "available" without a floor plan — enforced in
+// lib/inventoryData.ts, not just the UI, since a proposal must never be
+// able to present a unit that doesn't actually meet the requirement.
+model Unit {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  unitNumber    String
+  floor         String?
+  unitType      String
+  size          Float
+  areaBasis     String   @default("sqft")
+  price         Int
+  currency      String   @default("AED")
+  status        String   @default("blocked")
+  paymentPlanId String?
+  paymentPlan   PaymentPlan? @relation(fields: [paymentPlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // Document rows (lib/documentsData.ts docType "Floor Plan" / "Unit View")
+  // -- reuses the existing PF08 Document/Blob Storage service rather than a
+  // separate file-storage mechanism.
+  floorPlanDocId String?
+  viewsDocId     String?
+  createdById    String
+  createdBy      User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("units")
+  @@index([projectId])
+  @@unique([projectId, unitNumber])
 }
 
 // PRD AV10 — AEX governance config. Singleton row (single-tenant, same

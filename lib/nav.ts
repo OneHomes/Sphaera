@@ -22,6 +22,7 @@ import {
   CheckSquare,
   ShieldCheck,
   HeartPulse,
+  Building2,
 } from "lucide-react";
 
 export type NavItem = {
@@ -38,6 +39,7 @@ export const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/leads", label: "Leads", icon: Inbox },
   { href: "/pipeline", label: "Pipeline", icon: Briefcase },
+  { href: "/inventory", label: "Inventory", icon: Building2 },
   { href: "/business-activity", label: "Business Activity", icon: Activity, managerAndAbove: true },
   { href: "/aex", label: "AEX", icon: Trophy },
   { href: "/executive", label: "Executive", icon: LayoutGrid, managerAndAbove: true },

@@ -12,6 +12,8 @@ const typeStyles: Record<DocType, string> = {
   "Payment Plan": "bg-violet-500/15 text-violet-400",
   Contract: "bg-status-alert/15 text-status-alert",
   Proposal: "bg-tier-gold/15 text-tier-gold",
+  "Floor Plan": "bg-orange-500/15 text-orange-400",
+  "Unit View": "bg-emerald-500/15 text-emerald-400",
 };
 
 export function DocumentsPage({

@@ -12,6 +12,8 @@ export const DOC_TYPES = [
   "Payment Plan",
   "Contract",
   "Proposal",
+  "Floor Plan",
+  "Unit View",
 ] as const;
 
 export type DocType = (typeof DOC_TYPES)[number];
