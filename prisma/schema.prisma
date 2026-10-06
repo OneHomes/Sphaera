@@ -24,6 +24,15 @@ generator client {
 
 model Lead {
   id                   String              @id @default(cuid())
+  // Phase 1 Sales Scope — "Unique client ID (UID)": generated once at
+  // lead creation, shown to the salesperson, used as the reference across
+  // payments and the outbound Onyx handoff, and can never change.
+  // Nullable + indexed rather than @unique at the DB level, same reason
+  // as salesforceId below — SQL Server rejects multiple NULLs on a plain
+  // unique column, which every pre-existing lead would trip before the
+  // backfill script runs. Uniqueness is enforced in lib/leadUid.ts via a
+  // generate-and-check-for-collision loop.
+  uid                  String?
   name                 String
   contact              String
   source               String
@@ -72,6 +81,7 @@ model Lead {
   @@map("leads")
   @@index([assignedUserId])
   @@index([salesforceId])
+  @@index([uid])
 }
 
 model LeadNote {

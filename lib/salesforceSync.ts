@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { querySalesforce } from "./salesforce";
 import { maybeCreateOpportunityFromLead } from "./leadToOpportunity";
+import { generateUniqueLeadUid } from "./leadUid";
 
 // Real Salesforce -> Sphaera Lead sync.
 //
@@ -210,9 +211,11 @@ export async function syncSalesforceLeads(
       : null;
 
     const initialScore = Math.max(0, Math.min(100, Math.round(sf.Lead_Score__c ?? 0)));
+    const uid = await generateUniqueLeadUid();
 
     const lead = await prisma.lead.create({
       data: {
+        uid,
         name: sf.Name,
         contact: sf.Phone || sf.MobilePhone || sf.Email || "—",
         source: sf.LeadSource || "Other",

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { toUiLead } from "@/lib/leadTransform";
 import { getAuthUser, getLeadScopeWhere } from "@/lib/authz";
 import { releaseExpiredLocks } from "@/lib/leadLocks";
+import { generateUniqueLeadUid } from "@/lib/leadUid";
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -46,8 +47,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const uid = await generateUniqueLeadUid();
+
   const lead = await prisma.lead.create({
     data: {
+      uid,
       name: body.name,
       contact: body.contact,
       source: body.source,

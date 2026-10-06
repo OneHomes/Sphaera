@@ -51,6 +51,7 @@ export function toUiLead(
 ): Lead {
   return {
     id: row.id,
+    uid: row.uid ?? undefined,
     name: row.name,
     contact: row.contact,
     source: row.source,

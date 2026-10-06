@@ -142,6 +142,14 @@ export function ProfileHeader({
               ))}
             </select>
             <PriorityBadge priority={lead.priority} />
+            {lead.uid && (
+              <span
+                className="rounded-full border border-base-700 bg-base-900 px-2 py-0.5 font-mono text-[11px] text-ink-500"
+                title="Sphaera client UID — the reference used for payments and Onyx records"
+              >
+                {lead.uid}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm text-ink-500">
             {lead.contact} · {lead.source} · {lead.market}

@@ -64,6 +64,7 @@ export const leadPriorities: LeadPriority[] = ["High", "Medium", "Low"];
 
 export type Lead = {
   id: string;
+  uid?: string;
   name: string;
   contact: string;
   source: string;
