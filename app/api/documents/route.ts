@@ -7,6 +7,7 @@ import { getOrCreateCurrentUser } from "@/lib/currentUser";
 import { uploadDocumentBlob } from "@/lib/blobStorage";
 import { DOC_TYPES, type DocType } from "@/lib/documentsData";
 import { logAudit } from "@/lib/auditLog";
+import { extractDocumentText } from "@/lib/documentTextExtraction";
 
 // PRD PF08 — Document and File Service. Documents are company-wide (like
 // brochures/price lists shared across the team), not scoped to a single
@@ -62,6 +63,8 @@ export async function POST(request: Request) {
     );
   }
 
+  const extractedText = await extractDocumentText(buffer, file.type || "");
+
   const document = await prisma.document.create({
     data: {
       name: file.name,
@@ -71,6 +74,7 @@ export async function POST(request: Request) {
       docType: docType as DocType,
       relatedTo: typeof relatedTo === "string" && relatedTo.trim() ? relatedTo.trim() : null,
       uploadedById: user.id,
+      extractedText,
     },
     include: { uploadedBy: true },
   });

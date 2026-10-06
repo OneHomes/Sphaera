@@ -541,6 +541,13 @@ model Document {
   uploadedById String
   uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   createdAt    DateTime @default(now())
+  // Phase 1 Sales Scope — "Janus company knowledge": extracted at upload
+  // time (lib/documentTextExtraction.ts) so Janus can ground answers in
+  // the actual content, not just the file's existence. Null for formats
+  // extraction doesn't support yet (images, .docx, .pptx) -- those
+  // documents still upload/browse fine, they're just not usable as
+  // Janus grounding material.
+  extractedText String? @db.NVarChar(Max)
 
   @@map("documents")
   @@index([uploadedById])

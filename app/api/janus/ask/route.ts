@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getFreshAuthUser, canAccessRecord, getLeadScopeWhere } from "@/lib/authz";
 import { askJanus } from "@/lib/janus";
 import { calculateProductivityIndex } from "@/lib/productivityIndex";
+import { getRelevantDocuments, formatDocumentGroundingContext } from "@/lib/janusKnowledge";
 
 // PRD JN02 (Natural Language Business Questions) — grounding-only, no
 // hallucination (mitigates R03). Janus answers ONLY from data explicitly
@@ -17,7 +18,8 @@ Rules:
 - If the answer isn't in the provided data, say so clearly rather than guessing.
 - Be concise — this is read inside a working app, not a report.
 - Never invent or imply a price, discount, or legal commitment.
-- When you cite a number, briefly note what it's based on (e.g. "from your 12 assigned leads").`;
+- When you cite a number, briefly note what it's based on (e.g. "from your 12 assigned leads").
+- If any "Relevant company documents" context is provided, ground your answer in it and name the source document (e.g. "Per the Marina Heights Payment Plan document..."). If the documents don't cover the question, say so plainly instead of guessing — never present an unsupported claim as a confirmed fact.`;
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
@@ -90,6 +92,13 @@ ${lead.notes.map((n) => `- (${n.author}) ${n.text}`).join("\n") || "- None"}
 Timeline:
 ${lead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n") || "- None"}
 `.trim();
+
+      // Phase 1 Sales Scope — "Janus company knowledge": a lead-scoped
+      // question ("what's the payment plan for this client's unit?") is
+      // exactly where this matters most, so document grounding is added
+      // here too, not just the general scope below.
+      const docMatches = await getRelevantDocuments(question);
+      groundingContext += `\n\nRelevant company documents:\n${formatDocumentGroundingContext(docMatches)}`;
     } else if (scope === "pipeline") {
       // ---- Pipeline scope ----
       const opportunities = await prisma.opportunity.findMany({
@@ -205,12 +214,17 @@ Total leads in scope: ${leads.length}, of which ${overdueLeads} have an overdue 
         take: 50,
       });
 
+      const docMatches = await getRelevantDocuments(question);
+
       groundingContext = `Leads visible to you (${leads.length} total, showing up to 50):\n${leads
         .map(
           (l) =>
             `- ${l.name}: ${l.stage}, score ${l.score}, priority ${l.priority}, assigned to ${l.assignedUser?.name ?? "Unassigned"}`
         )
-        .join("\n")}`;
+        .join("\n")}
+
+Relevant company documents:
+${formatDocumentGroundingContext(docMatches)}`;
     }
 
     const priorMessages = conversation.messages.map((m) => ({
