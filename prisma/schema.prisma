@@ -207,6 +207,7 @@ model User {
   challengesReceived Challenge[] @relation("ChallengesReceived")
   playbooksCreated   Playbook[]
   teamFocusesSet     TeamFocus[]
+  graphToken         GraphToken?
 
   @@map("users")
   @@index([teamId])
@@ -624,4 +625,26 @@ model TeamFocus {
   @@map("team_focuses")
   @@index([teamId])
   @@index([endsAt])
+}
+
+// Real fix for an HTTP 431 ("Request Header Fields Too Large") hit in
+// production: the Graph access + refresh tokens used to live directly on
+// the NextAuth JWT, which gets encrypted into the session cookie on every
+// request. Microsoft Graph tokens for this many scopes (Mail, Calendar,
+// Online Meetings, Transcripts) are large, and the accumulated cookie
+// size eventually exceeded the server's header-size limit. Storing them
+// here instead keeps the session cookie small and fixed-size — see
+// lib/graphTokenStore.ts for the read/refresh/write logic, and
+// lib/auth.ts's session() callback for how callers still get a plain
+// `session.accessToken` with no change to their own code.
+model GraphToken {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken  String   @db.NVarChar(Max)
+  refreshToken String   @db.NVarChar(Max)
+  expiresAt    DateTime
+  updatedAt    DateTime @updatedAt
+
+  @@map("graph_tokens")
 }

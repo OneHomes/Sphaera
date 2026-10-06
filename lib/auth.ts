@@ -1,9 +1,9 @@
 import type { NextAuthOptions } from "next-auth";
-import type { JWT } from "next-auth/jwt";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import { getOrCreateUserByEmail } from "./currentUser";
 import { logAudit, SYSTEM_ACTOR } from "./auditLog";
 import { setLastAuthError } from "./debugAuthState"; // TEMPORARY, see that file
+import { saveGraphToken, getValidGraphAccessToken } from "./graphTokenStore";
 
 // Reads the three values you get from the Entra ID App Registration:
 // tenant ID, client (application) ID, and client secret.
@@ -22,36 +22,6 @@ import { setLastAuthError } from "./debugAuthState"; // TEMPORARY, see that file
 // production auth method).
 const GRAPH_SCOPES =
   "openid profile email offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite OnlineMeetings.Read OnlineMeetingTranscript.Read.All";
-
-async function refreshAccessToken(token: JWT): Promise<JWT> {
-  try {
-    const url = `https://login.microsoftonline.com/${process.env.AZURE_AD_TENANT_ID}/oauth2/v2.0/token`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: process.env.AZURE_AD_CLIENT_ID as string,
-        client_secret: process.env.AZURE_AD_CLIENT_SECRET as string,
-        grant_type: "refresh_token",
-        refresh_token: token.refreshToken as string,
-        scope: GRAPH_SCOPES,
-      }),
-    });
-
-    const refreshed = await response.json();
-    if (!response.ok) throw refreshed;
-
-    return {
-      ...token,
-      accessToken: refreshed.access_token,
-      accessTokenExpires: Date.now() + refreshed.expires_in * 1000,
-      refreshToken: refreshed.refresh_token ?? token.refreshToken,
-    };
-  } catch (err) {
-    console.error("Failed to refresh Graph access token:", err);
-    return { ...token, graphError: "RefreshAccessTokenError" };
-  }
-}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -72,9 +42,11 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     // On sign-in, resolve (or create) the real database User row and cache
-    // its id/role/teamId onto the JWT, and capture the Graph
-    // access/refresh tokens. Refresh happens automatically here whenever
-    // the cached access token has expired.
+    // its id/role/teamId onto the JWT. The Graph access/refresh tokens
+    // themselves are NOT stored on the JWT (see GraphToken in
+    // schema.prisma) — that used to bloat the session cookie enough to
+    // trip an HTTP 431 in production. Refresh now happens lazily in the
+    // session() callback via lib/graphTokenStore.ts.
     async jwt({ token, account, profile }) {
       if (account) {
         if (profile) {
@@ -131,24 +103,16 @@ export const authOptions: NextAuthOptions = {
           }).catch((err) => console.error("Failed to audit sign-in:", err));
         }
 
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
-        token.accessTokenExpires = account.expires_at
-          ? account.expires_at * 1000
-          : undefined;
+        if (token.userId && account.access_token && account.refresh_token) {
+          await saveGraphToken(
+            token.userId as string,
+            account.access_token,
+            account.refresh_token,
+            account.expires_at ? new Date(account.expires_at * 1000) : new Date(Date.now() + 3_600_000)
+          ).catch((err) => console.error("Failed to save Graph token:", err));
+        }
 
         return token;
-      }
-
-      if (
-        token.accessTokenExpires &&
-        Date.now() < (token.accessTokenExpires as number)
-      ) {
-        return token;
-      }
-
-      if (token.refreshToken) {
-        return refreshAccessToken(token);
       }
 
       return token;
@@ -178,15 +142,18 @@ export const authOptions: NextAuthOptions = {
       // an already-authenticated user could see their OWN short-lived
       // (~1hr) token via devtools — there is no cross-user exposure, and
       // the token only grants Mail/Calendar access to that same user's
-      // own mailbox. The refresh token is deliberately NOT exposed here
-      // (kept only in the encrypted JWT) since it's longer-lived and more
-      // sensitive.
-      (session as { accessToken?: string }).accessToken = token.accessToken as
-        | string
-        | undefined;
-      (session as { graphError?: string }).graphError = token.graphError as
-        | string
-        | undefined;
+      // own mailbox. The refresh token is NOT exposed here (lives only in
+      // the GraphToken table) since it's longer-lived and more sensitive.
+      //
+      // The token itself now comes from the database, not the JWT —
+      // fixes an HTTP 431 caused by storing it in the session cookie (see
+      // GraphToken in schema.prisma). Refresh-if-expired happens inside
+      // this one call.
+      if (token.userId) {
+        const { accessToken, graphError } = await getValidGraphAccessToken(token.userId as string);
+        (session as { accessToken?: string }).accessToken = accessToken;
+        (session as { graphError?: string }).graphError = graphError;
+      }
       (session as { signedInAt?: number }).signedInAt = token.signedInAt as
         | number
         | undefined;
