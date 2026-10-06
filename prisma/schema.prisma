@@ -78,6 +78,8 @@ model Lead {
   timelineEvents       LeadTimelineEvent[]
   opportunities        Opportunity[]
   tags                 LeadTag[]
+  duplicateFlagsAsNew      DuplicateLeadFlag[] @relation("DuplicateFlagLead")
+  duplicateFlagsAsOriginal DuplicateLeadFlag[] @relation("DuplicateFlagDuplicateOf")
 
   @@map("leads")
   @@index([assignedUserId])
@@ -769,4 +771,27 @@ model GraphToken {
   updatedAt    DateTime @updatedAt
 
   @@map("graph_tokens")
+}
+
+// Phase 1 Sales Scope — "Detect likely duplicates and provide an
+// authorised resolution process so communication history and AEX
+// events remain attached to the correct record." Flags, never blocks —
+// a real-time sync (Salesforce/HubSpot) shouldn't fail because of a
+// possible duplicate, a Manager/Admin reviews and resolves it after.
+model DuplicateLeadFlag {
+  id             String    @id @default(cuid())
+  leadId         String
+  lead           Lead      @relation("DuplicateFlagLead", fields: [leadId], references: [id], onDelete: Cascade)
+  duplicateOfId  String
+  duplicateOf    Lead      @relation("DuplicateFlagDuplicateOf", fields: [duplicateOfId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matchReason    String
+  status         String    @default("pending") // pending | merged | dismissed
+  resolvedByName String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@map("duplicate_lead_flags")
+  @@index([leadId])
+  @@index([duplicateOfId])
+  @@index([status])
 }

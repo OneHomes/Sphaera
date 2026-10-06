@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { querySalesforce } from "./salesforce";
 import { maybeCreateOpportunityFromLead } from "./leadToOpportunity";
 import { generateUniqueLeadUid } from "./leadUid";
+import { flagDuplicatesForLead } from "./duplicateDetection";
 
 // Real Salesforce -> Sphaera Lead sync.
 //
@@ -241,6 +242,11 @@ export async function syncSalesforceLeads(
     // moment it's imported, it gets its Opportunity right away rather
     // than waiting for an agent to touch it inside Sphaera.
     await maybeCreateOpportunityFromLead(lead.id);
+
+    // Phase 1 Sales Scope — "detect likely duplicates" applies to synced
+    // leads just as much as manually created ones (e.g. the same real
+    // client re-entering through a different source).
+    await flagDuplicatesForLead(lead.id, lead.contact, lead.name);
 
     // Deliberately NOT recalculating the score right after import — a
     // freshly-imported lead has no Sphaera-side timeline yet, so

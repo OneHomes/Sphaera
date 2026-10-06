@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ShieldCheck, Plus, AlertTriangle, X, Sparkles, Download } from "lucide-react";
 import { WhatsAppConfigCard } from "./WhatsAppConfigCard";
 import { SalesforceSyncCard } from "./SalesforceSyncCard";
+import { DuplicateLeadsCard } from "./DuplicateLeadsCard";
 import { AexConfigPanel } from "./AexConfigPanel";
 import { JanusCoachingCard } from "@/components/aex/JanusCoachingCard";
 import { downloadCsv } from "@/lib/csv";
@@ -183,6 +184,7 @@ export function AdminUsersPage() {
       </div>
 <WhatsAppConfigCard />
       <SalesforceSyncCard />
+      <DuplicateLeadsCard />
       <AexConfigPanel />
       <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">
         <h2 className="mb-3 text-sm font-medium text-ink-50">Teams</h2>

@@ -6,6 +6,7 @@ import { toUiLead } from "@/lib/leadTransform";
 import { getAuthUser, getLeadScopeWhere } from "@/lib/authz";
 import { releaseExpiredLocks } from "@/lib/leadLocks";
 import { generateUniqueLeadUid } from "@/lib/leadUid";
+import { flagDuplicatesForLead } from "@/lib/duplicateDetection";
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -78,6 +79,8 @@ export async function POST(request: Request) {
       summary: `Lead created from ${lead.source}`,
     },
   });
+
+  await flagDuplicatesForLead(lead.id, lead.contact, lead.name);
 
   return NextResponse.json(toUiLead(lead), { status: 201 });
 }
