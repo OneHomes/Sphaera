@@ -180,7 +180,11 @@ export default function AreaInsights({ initialTab = "dashboard" }: { initialTab?
     <div className="insights-app">
       <header className="topbar">
         <a href="/market-intelligence" className="brand">
-          <img src="/brand/sphaera-wordmark-black.svg" alt="Sphaera" height="24" />
+          <img
+            src="/brand/sphaera-lockup.svg"
+            alt="Sphaera"
+            style={{ height: 28, width: "auto", display: "block" }}
+          />
           <span className="brand-product">Market Intelligence</span>
         </a>
         <div className="header-right">
