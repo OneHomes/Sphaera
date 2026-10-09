@@ -1,0 +1,23 @@
+{
+  "version": "2026-10-08-demand-supply-1",
+  "asOf": "2026-10-08",
+  "baseYear": 2026,
+  "horizonYears": 5,
+  "geography": "Established Pakistan cities",
+  "measure": "Directional housing demand pressure index",
+  "baseline": 100,
+  "status": "directional_scenarios",
+  "constructionPressure": {"value": 18.08, "period": "July-September 2026-27", "label": "PBS construction input items, year on year", "source": "Pakistan Bureau of Statistics", "sourceUrl": "https://www.pbs.gov.pk/wp-content/uploads/2020/07/Press-Release-September-2026.pdf", "treatment": "upward_cost_pressure_indicator_not_direct_sale_price_growth"},
+  "assumptions": [
+    {"id":"downside","label":"Supply catch-up","annualGrowthPct":2,"colour":"#75ad86"},
+    {"id":"reference","label":"Balanced demand","annualGrowthPct":5,"colour":"#2f7d55"},
+    {"id":"upside","label":"Demand-led","annualGrowthPct":8,"colour":"#124b2d"}
+  ],
+  "assumptionBasis": "Directional scenarios compare housing demand pressure with verified available-area coverage. Population growth is a driver, not a city-level numerical forecast in this release.",
+  "method": "Index(year) = 100 × (1 + annual scenario rate / 100)^(year − 2026). Rates are transparent scenario inputs, not a fitted forecast.",
+  "drivers": [
+    {"title":"Housing demand","text":"Asking-price and rental observations provide a directional demand signal for established cities."},
+    {"title":"Available areas","text":"Verified area and segment coverage is used as a supply proxy. Missing areas are not treated as zero supply."},
+    {"title":"Population growth","text":"Population growth increases household formation pressure. City-level population inputs are not imported here, so this driver remains qualitative."}
+  ]
+}

@@ -795,3 +795,47 @@ model DuplicateLeadFlag {
   @@index([duplicateOfId])
   @@index([status])
 }
+
+// Sphaera Market Intelligence — Pakistan asking-price benchmarks module
+// handed over by the boss's team (Cloudflare D1 + Drizzle originally).
+// Same three-table shape, ported onto our own Azure SQL via Prisma per
+// request so this runs on our database rather than a separate D1 store.
+model IntelligenceDataset {
+  key       String   @id // "snapshot" | "index" | "forecast"
+  version   String
+  payload   String   @db.NVarChar(Max) // full JSON payload
+  updatedAt DateTime
+
+  @@map("intelligence_datasets")
+}
+
+model MarketObservation {
+  id          String  @id
+  city        String
+  area        String
+  segment     String // houses | flats | residential_plots | commercial_plots
+  purpose     String // buy | rent
+  period      String // YYYY-MM
+  price       BigInt // some luxury/commercial asking prices exceed SQL Server's int32 range
+  ppsf        Int?
+  retrievedAt String
+  sourceUrl   String
+  source      String
+  basis       String
+
+  @@map("market_observations")
+  @@index([city, segment, purpose, period])
+}
+
+model IndexSeries {
+  id      String @id
+  city    String
+  area    String
+  segment String
+  purpose String
+  size    String
+  payload String @db.NVarChar(Max) // full JSON series, including all points
+
+  @@map("index_series")
+  @@index([city, segment, purpose, size])
+}

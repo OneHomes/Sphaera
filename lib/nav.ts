@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   HeartPulse,
   Building2,
+  TrendingUp,
 } from "lucide-react";
 
 export type NavItem = {
@@ -40,6 +41,7 @@ export const navItems: NavItem[] = [
   { href: "/leads", label: "Leads", icon: Inbox },
   { href: "/pipeline", label: "Pipeline", icon: Briefcase },
   { href: "/inventory", label: "Inventory", icon: Building2 },
+  { href: "/market-intelligence", label: "Market Intelligence", icon: TrendingUp },
   { href: "/business-activity", label: "Business Activity", icon: Activity, managerAndAbove: true },
   { href: "/aex", label: "AEX", icon: Trophy },
   { href: "/executive", label: "Executive", icon: LayoutGrid, managerAndAbove: true },
