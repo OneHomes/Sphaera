@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getFreshAuthUser, hasRole } from "@/lib/authz";
-import { syncSalesforceLeads } from "@/lib/salesforceSync";
+import { syncHubSpotLeads } from "@/lib/hubspotSync";
 import { logAudit } from "@/lib/auditLog";
 
 // Admin-triggered ("Sync now") rather than scheduled — this serverless
@@ -22,19 +22,19 @@ export async function POST(request: Request) {
   const limit = typeof body.limit === "number" ? body.limit : 200;
 
   try {
-    const result = await syncSalesforceLeads(limit);
+    const result = await syncHubSpotLeads(limit);
 
     await logAudit({
       actorId: authUser.id,
       actorEmail: session.user?.email ?? "unknown",
-      action: "salesforce_lead_sync",
+      action: "hubspot_lead_sync",
       targetId: undefined,
       details: `Fetched ${result.fetched}, created ${result.created}, refreshed ${result.updated}, ${result.unchanged} unchanged`,
     });
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error("Salesforce sync failed:", err);
+    console.error("HubSpot sync failed:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Sync failed" },
       { status: 502 }

@@ -55,13 +55,21 @@ model Lead {
   prioritizationReason String?
   assignedUserId       String?
   assignedUser         User?               @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // Real Salesforce sync (see lib/salesforceSync.ts). Null for leads
-  // created directly in Sphaera. Not @unique at the DB level — SQL
+  // Legacy Salesforce lead ID — the live sync that wrote this has been
+  // replaced by the HubSpot sync (see lib/hubspotSync.ts), but the field
+  // stays so pre-existing Salesforce-synced leads can still be matched by
+  // hubspotleadsync via HubSpot's own "salesforceleadid" contact property
+  // (this HubSpot portal mirrors the same Salesforce org) rather than
+  // being re-created as duplicates. Not @unique at the DB level — SQL
   // Server treats multiple NULLs as a uniqueness violation on a plain
-  // unique column, which every pre-existing lead would trip; uniqueness
-  // (one Sphaera lead per Salesforce lead) is enforced in the sync code
-  // instead via a lookup-before-insert.
+  // unique column; uniqueness is enforced in the sync code via a
+  // lookup-before-insert instead.
   salesforceId         String?
+  // Real HubSpot sync (see lib/hubspotSync.ts). Null for leads created
+  // directly in Sphaera or still only matched via the legacy salesforceId
+  // above. Same nullable + indexed pattern as salesforceId, for the same
+  // SQL Server multi-NULL-uniqueness reason.
+  hubspotId            String?
   lastSyncedAt         DateTime?
   // Real deal figures pulled from Salesforce (Estimated_Value__c /
   // Closed_Value_All__c and Closing_Date__c) — this org tracks deals
@@ -84,6 +92,7 @@ model Lead {
   @@map("leads")
   @@index([assignedUserId])
   @@index([salesforceId])
+  @@index([hubspotId])
   @@index([uid])
 }
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ShieldCheck, Plus, AlertTriangle, X, Sparkles, Download } from "lucide-react";
 import { WhatsAppConfigCard } from "./WhatsAppConfigCard";
-import { SalesforceSyncCard } from "./SalesforceSyncCard";
+import { HubSpotSyncCard } from "./HubSpotSyncCard";
 import { DuplicateLeadsCard } from "./DuplicateLeadsCard";
 import { AexConfigPanel } from "./AexConfigPanel";
 import { JanusCoachingCard } from "@/components/aex/JanusCoachingCard";
@@ -183,7 +183,7 @@ export function AdminUsersPage() {
         <h1 className="text-xl font-semibold text-ink-50">Admin — Users & Teams</h1>
       </div>
 <WhatsAppConfigCard />
-      <SalesforceSyncCard />
+      <HubSpotSyncCard />
       <DuplicateLeadsCard />
       <AexConfigPanel />
       <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">

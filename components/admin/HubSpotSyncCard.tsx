@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { RefreshCw, Cloud } from "lucide-react";
-import { WidgetCard } from "@/components/dashboard/WidgetCard";
 
 type SyncResult = {
   fetched: number;
@@ -12,7 +11,7 @@ type SyncResult = {
   createdLeadNames: string[];
 };
 
-export function SalesforceSyncCard() {
+export function HubSpotSyncCard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +21,7 @@ export function SalesforceSyncCard() {
     setError(null);
     setResult(null);
     try {
-      const res = await fetch("/api/admin/salesforce-sync", {
+      const res = await fetch("/api/admin/hubspot-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 200 }),
@@ -41,13 +40,15 @@ export function SalesforceSyncCard() {
     <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">
       <div className="mb-1 flex items-center gap-2">
         <Cloud className="h-4 w-4 text-ink-300" />
-        <h2 className="text-sm font-medium text-ink-50">Salesforce Sync</h2>
+        <h2 className="text-sm font-medium text-ink-50">HubSpot Sync</h2>
       </div>
       <p className="mb-3 text-[11px] text-ink-500">
-        Pulls new leads from Salesforce into Sphaera. Already-synced leads
-        only get contact/source details refreshed — stage, priority, and
-        assignment are never overwritten, so this can&apos;t undo work
-        your team has done inside Sphaera.
+        Pulls new leads from HubSpot into Sphaera. Already-synced leads only
+        get contact/source/project details refreshed, and only where
+        HubSpot actually has a value — stage, priority, assignment, and any
+        field HubSpot leaves blank are never overwritten, so this
+        can&apos;t undo work your team has done inside Sphaera or wipe
+        better existing data.
       </p>
 
       <button
@@ -64,7 +65,7 @@ export function SalesforceSyncCard() {
       {result && (
         <div className="mt-3 rounded-lg border border-base-700 bg-base-800 p-3 text-xs text-ink-300">
           <p>
-            Fetched {result.fetched} from Salesforce — created{" "}
+            Fetched {result.fetched} from HubSpot — created{" "}
             <span className="text-status-active">{result.created}</span> new,
             refreshed {result.updated}, {result.unchanged} unchanged.
           </p>
