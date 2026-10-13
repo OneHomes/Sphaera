@@ -90,7 +90,7 @@ const managementPrompts = [
   },
 ];
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; escalated?: boolean; conflicts?: { docType: string; relatedTo: string }[] };
 
 export function CommandCenter({ isManagementView = false }: { isManagementView?: boolean }) {
   const suggestedPrompts = isManagementView ? managementPrompts : agentPrompts;
@@ -143,7 +143,10 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
 
       const data = await res.json();
       setConversationId(data.conversationId);
-      setMessages((prev) => [...prev, { role: "assistant", content: data.answer }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.answer, escalated: data.escalated, conflicts: data.conflicts },
+      ]);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Couldn't reach Janus right now."
@@ -237,7 +240,17 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
                   : "border-base-700 bg-base-900 text-ink-300"
               }`}
             >
+              {m.role === "assistant" && (m.conflicts?.length ?? 0) > 0 && (
+                <p className="mb-2 rounded-lg border border-status-alert/40 bg-status-alert/10 px-2.5 py-1.5 text-xs text-status-alert">
+                  Conflicting documents found — see above for details.
+                </p>
+              )}
               <p>{m.content}</p>
+              {m.role === "assistant" && m.escalated && (
+                <p className="mt-2 rounded-lg border border-status-alert/40 bg-status-alert/10 px-2.5 py-1.5 text-xs text-status-alert">
+                  Janus couldn&apos;t fully answer this — your manager has been notified.
+                </p>
+              )}
               {m.role === "assistant" && conversationId && (
                 <div className="mt-2 border-t border-base-700 pt-2">
                   <JanusFeedback context={`command:${conversationId}:${i}`} />

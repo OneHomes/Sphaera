@@ -5,7 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { getFreshAuthUser, canAccessRecord, getLeadScopeWhere } from "@/lib/authz";
 import { askJanus } from "@/lib/janus";
 import { calculateProductivityIndex } from "@/lib/productivityIndex";
-import { getRelevantDocuments, formatDocumentGroundingContext } from "@/lib/janusKnowledge";
+import { getRelevantDocuments, formatDocumentGroundingContext, detectConflicts } from "@/lib/janusKnowledge";
+import { createNotification } from "@/lib/notifications";
+import { logAudit } from "@/lib/auditLog";
 
 // PRD JN02 (Natural Language Business Questions) — grounding-only, no
 // hallucination (mitigates R03). Janus answers ONLY from data explicitly
@@ -19,7 +21,9 @@ Rules:
 - Be concise — this is read inside a working app, not a report.
 - Never invent or imply a price, discount, or legal commitment.
 - When you cite a number, briefly note what it's based on (e.g. "from your 12 assigned leads").
-- If any "Relevant company documents" context is provided, ground your answer in it and name the source document (e.g. "Per the Marina Heights Payment Plan document..."). If the documents don't cover the question, say so plainly instead of guessing — never present an unsupported claim as a confirmed fact.`;
+- If any "Relevant company documents" context is provided, ground your answer in it and name the source document (e.g. "Per the Marina Heights Payment Plan document..."). If the documents don't cover the question, say so plainly instead of guessing — never present an unsupported claim as a confirmed fact.
+- If a "CONFLICT WARNING" appears in the provided documents, you must tell the user multiple conflicting documents exist and name them — never silently pick one as the answer.
+- If, after all of the above, you genuinely cannot answer the question from the provided data, say so to the user AND end your entire response with a final line containing exactly the token [ESCALATE] and nothing else on that line — this routes the question to the user's manager. Only use this when you truly have no grounding for an answer, not for every edge case.`;
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
@@ -56,6 +60,7 @@ export async function POST(request: Request) {
   }
 
   let groundingContext = "";
+  let conflicts: ReturnType<typeof detectConflicts> = [];
 
   try {
     if (scope === "leadId" && leadId) {
@@ -98,6 +103,7 @@ ${lead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n") || "- 
       // exactly where this matters most, so document grounding is added
       // here too, not just the general scope below.
       const docMatches = await getRelevantDocuments(question);
+      conflicts = detectConflicts(docMatches);
       groundingContext += `\n\nRelevant company documents:\n${formatDocumentGroundingContext(docMatches)}`;
     } else if (scope === "pipeline") {
       // ---- Pipeline scope ----
@@ -215,6 +221,7 @@ Total leads in scope: ${leads.length}, of which ${overdueLeads} have an overdue 
       });
 
       const docMatches = await getRelevantDocuments(question);
+      conflicts = detectConflicts(docMatches);
 
       groundingContext = `Leads visible to you (${leads.length} total, showing up to 50):\n${leads
         .map(
@@ -232,12 +239,19 @@ ${formatDocumentGroundingContext(docMatches)}`;
       content: m.content,
     }));
 
-    const answer = await askJanus([
+    const raw = await askJanus([
       { role: "system", content: JANUS_SYSTEM_PROMPT },
       { role: "system", content: groundingContext },
       ...priorMessages,
       { role: "user", content: question },
     ]);
+
+    // Phase 1 Sales Scope — "escalate to hierarchy when Janus can't
+    // answer": a deterministic marker in the model's own output (same
+    // approach as the proposal route's JSON parsing) rather than trying
+    // to semantically detect "I don't know" from free text.
+    const escalated = /\[ESCALATE\]\s*$/.test(raw.trim());
+    const answer = raw.replace(/\[ESCALATE\]\s*$/, "").trim();
 
     await prisma.janusMessage.createMany({
       data: [
@@ -252,7 +266,34 @@ ${formatDocumentGroundingContext(docMatches)}`;
       data: {},
     });
 
-    return NextResponse.json({ answer, conversationId: conversation.id });
+    if (escalated) {
+      const requester = await prisma.user.findUnique({
+        where: { id: authUser.id },
+        include: { team: true },
+      });
+      const managerId = requester?.team?.managerId;
+      // Best-effort — an agent with no manager assigned yet (or an Admin
+      // asking) just doesn't get an escalation notification; this must
+      // never block Janus from still returning its answer.
+      if (managerId && managerId !== authUser.id) {
+        await createNotification(
+          managerId,
+          "janus_escalation",
+          `${requester?.name ?? "An agent"} asked Janus something it couldn't answer`,
+          question.length > 200 ? `${question.slice(0, 200)}…` : question,
+          scope === "leadId" && leadId ? `/leads/${leadId}` : undefined
+        );
+        await logAudit({
+          actorId: authUser.id,
+          actorEmail: session.user?.email ?? "unknown",
+          action: "janus_escalation",
+          targetId: leadId ?? undefined,
+          details: `Janus couldn't answer: "${question}"`,
+        });
+      }
+    }
+
+    return NextResponse.json({ answer, conversationId: conversation.id, escalated, conflicts });
   } catch (err) {
     console.error("Janus ask failed:", err);
     return NextResponse.json(

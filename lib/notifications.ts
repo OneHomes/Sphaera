@@ -8,7 +8,8 @@ export type NotificationType =
   | "manager_assist_requested"
   | "lead_note_mention"
   | "challenge_update"
-  | "risk_critical";
+  | "risk_critical"
+  | "janus_escalation";
 
 export async function createNotification(
   userId: string,

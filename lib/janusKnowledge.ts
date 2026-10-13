@@ -70,14 +70,62 @@ export async function getRelevantDocuments(
   }));
 }
 
+export type DocumentConflict = {
+  docType: string;
+  relatedTo: string;
+  documentNames: string[];
+};
+
+/**
+ * A real conflict signal, not semantic guessing: two or more ACTIVE
+ * documents of the same type, related to the same project, matched the
+ * same question. If Document Replace had been used (see
+ * app/api/documents/[id]/replace), the older one would already be
+ * "retired" and excluded by getRelevantDocuments' active-only filter —
+ * so two live matches here means two genuinely un-reconciled sources of
+ * truth (e.g. someone uploaded a fresh price list as a new document
+ * instead of replacing the old one), and Janus must not silently pick
+ * one.
+ */
+export function detectConflicts(matches: DocumentMatch[]): DocumentConflict[] {
+  const groups = new Map<string, DocumentMatch[]>();
+  for (const m of matches) {
+    if (!m.relatedTo) continue;
+    const key = `${m.docType}::${m.relatedTo}`;
+    const group = groups.get(key) ?? [];
+    group.push(m);
+    groups.set(key, group);
+  }
+  return [...groups.entries()]
+    .filter(([, group]) => group.length > 1)
+    .map(([key, group]) => {
+      const [docType, relatedTo] = key.split("::");
+      return { docType, relatedTo, documentNames: group.map((g) => g.name) };
+    });
+}
+
 export function formatDocumentGroundingContext(matches: DocumentMatch[]): string {
   if (matches.length === 0) {
     return "No approved company documents matched this question.";
   }
-  return matches
-    .map(
-      (m) =>
-        `Document: "${m.name}" (${m.docType}${m.relatedTo ? `, related to ${m.relatedTo}` : ""})\n${m.excerpt}`
-    )
-    .join("\n\n---\n\n");
+
+  const conflicts = detectConflicts(matches);
+  const conflictWarning = conflicts.length
+    ? conflicts
+        .map(
+          (c) =>
+            `CONFLICT WARNING: ${c.documentNames.length} active "${c.docType}" documents are all related to "${c.relatedTo}": ${c.documentNames.map((n) => `"${n}"`).join(", ")}. Do not silently pick one as correct — tell the user multiple exist and ask them to confirm which is current, or recommend one be retired via Document Replace.`
+        )
+        .join("\n") + "\n\n"
+    : "";
+
+  return (
+    conflictWarning +
+    matches
+      .map(
+        (m) =>
+          `Document: "${m.name}" (${m.docType}${m.relatedTo ? `, related to ${m.relatedTo}` : ""})\n${m.excerpt}`
+      )
+      .join("\n\n---\n\n")
+  );
 }
