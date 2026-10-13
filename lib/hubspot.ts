@@ -22,6 +22,19 @@ async function hubspotFetch<T>(path: string): Promise<T> {
   return data as T;
 }
 
+async function hubspotPost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${HUBSPOT_API_BASE}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getAccessToken()}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(`HubSpot request failed (${res.status}): ${data.message ?? res.statusText}`);
+  }
+  return data as T;
+}
+
 export type HubSpotPropertyMeta = {
   name: string;
   label: string;
@@ -59,6 +72,20 @@ export async function fetchAllHubSpotContacts(properties: string[], limit: numbe
     all.push(...page.results);
     after = page.paging?.next?.after;
     if (!after) break;
+  }
+  return all;
+}
+
+/** Batch-fetches specific contacts by ID (HubSpot caps this at 100 IDs per call). */
+export async function batchReadHubSpotContacts(ids: string[], properties: string[]): Promise<HubSpotContact[]> {
+  const all: HubSpotContact[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const data = await hubspotPost<{ results: HubSpotContact[] }>("/crm/v3/objects/contacts/batch/read", {
+      properties,
+      inputs: chunk.map((id) => ({ id })),
+    });
+    all.push(...data.results);
   }
   return all;
 }
