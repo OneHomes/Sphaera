@@ -19,11 +19,28 @@ import { recordJanusAction } from "@/lib/janusPolicy";
 const PROPOSAL_SYSTEM_PROMPT = `You are Janus, drafting a client proposal for a real-estate sales agent inside Sphaera.
 
 Rules:
-- Only use the lead record and reference documents provided as ground truth. Never invent a price, unit number, payment term, or commitment not present in that data.
-- If a needed figure (price, payment plan) isn't in the provided reference documents, say "see attached [document name]" or "to be confirmed" rather than inventing a number.
+- Only use the lead record, available inventory, and reference documents provided as ground truth. Never invent a price, unit number, payment term, availability status, or commitment not present in that data.
+- Only reference units listed under "Available inventory" — never mention a unit number, price, or status that isn't shown there. If that section says no units are currently available, say the consultant will confirm availability rather than inventing one.
+- If a needed figure isn't in the provided inventory or reference documents, say "see attached [document name]" or "to be confirmed" rather than inventing a number.
 - Write in a professional, warm tone addressed to the client by name.
-- Structure: greeting, why this property fits their interest, key details from the reference documents, next steps.
+- Structure: greeting, why this property fits their interest, specific available units and pricing from the inventory data, payment plan terms, next steps.
 - Respond with ONLY raw JSON, no markdown fences: {"title": "<short title>", "body": "<HTML using <p>/<h2> tags>"}`;
+
+// Lead.projectInterest is a free-text field (no FK to Project), so the
+// match to real inventory is a best-effort, case-insensitive substring
+// match in both directions (e.g. "OSR" <-> "One Sixty Residences (OSR)")
+// rather than an exact-equality join.
+async function findMatchingProject(projectInterest: string) {
+  const interest = projectInterest.trim().toLowerCase();
+  if (!interest) return null;
+  const projects = await prisma.project.findMany({ select: { id: true, name: true } });
+  return (
+    projects.find((p) => {
+      const name = p.name.toLowerCase();
+      return name.includes(interest) || interest.includes(name);
+    }) ?? null
+  );
+}
 
 async function loadGroundingContext(leadId: string, authUser: Awaited<ReturnType<typeof getFreshAuthUser>>) {
   const lead = await prisma.lead.findUnique({
@@ -43,6 +60,33 @@ async function loadGroundingContext(leadId: string, authUser: Awaited<ReturnType
     take: 5,
   });
 
+  // Real Sphaera Inventory data — the actual fix for the "Janus proposal
+  // workflow not wired to real Inventory" gap. Only "available" units are
+  // ever surfaced (same rule lib/inventoryData.ts's assertUnitIsAvailable
+  // enforces elsewhere): a proposal must never offer a unit that's
+  // reserved, sold, or blocked.
+  const matchedProject = await findMatchingProject(lead.projectInterest);
+  const availableUnits = matchedProject
+    ? await prisma.unit.findMany({
+        where: { projectId: matchedProject.id, status: "available" },
+        include: { paymentPlan: true },
+        orderBy: { unitNumber: "asc" },
+        take: 15,
+      })
+    : [];
+
+  const inventorySection = !matchedProject
+    ? `Available inventory: no Sphaera project matches this lead's stated interest ("${lead.projectInterest}") — do not reference any specific unit or price; direct the client to the consultant for current availability.`
+    : availableUnits.length === 0
+    ? `Available inventory in ${matchedProject.name}: no units are currently marked "available" — do not state a unit or price is available; say availability will be confirmed by the consultant.`
+    : `Available inventory in ${matchedProject.name} (ONLY these units may be referenced/quoted):
+${availableUnits
+  .map(
+    (u) =>
+      `- Unit ${u.unitNumber}${u.floor ? `, Floor ${u.floor}` : ""}: ${u.unitType}, ${u.size} ${u.areaBasis} — ${u.currency} ${u.price.toLocaleString()} — Payment plan: ${u.paymentPlan?.name ?? "to be confirmed"}`
+  )
+  .join("\n")}`;
+
   const context = `
 Lead: ${lead.name}
 Contact: ${lead.contact}
@@ -52,6 +96,8 @@ Stage: ${lead.stage}
 
 Recent notes:
 ${lead.notes.map((n) => `- ${n.text}`).join("\n") || "- None"}
+
+${inventorySection}
 
 Reference documents available (names only — actual figures live in these documents, not repeated here):
 ${referenceDocs.map((d) => `- ${d.name} (${d.docType})`).join("\n") || "- None uploaded for this project yet"}
