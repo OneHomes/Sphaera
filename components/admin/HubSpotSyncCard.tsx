@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw, Cloud } from "lucide-react";
+import { RefreshCw, Cloud, History } from "lucide-react";
 
 type SyncResult = {
   fetched: number;
@@ -11,10 +11,19 @@ type SyncResult = {
   createdLeadNames: string[];
 };
 
+type ActivitySyncResult = {
+  perType: Record<string, { found: number; imported: number; failed: boolean }>;
+  totalImported: number;
+};
+
 export function HubSpotSyncCard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [isSyncingActivity, setIsSyncingActivity] = useState(false);
+  const [activityResult, setActivityResult] = useState<ActivitySyncResult | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
 
   async function handleSync() {
     setIsSyncing(true);
@@ -33,6 +42,26 @@ export function HubSpotSyncCard() {
       setError(err instanceof Error ? err.message : "Sync failed");
     } finally {
       setIsSyncing(false);
+    }
+  }
+
+  async function handleActivitySync() {
+    setIsSyncingActivity(true);
+    setActivityError(null);
+    setActivityResult(null);
+    try {
+      const res = await fetch("/api/admin/hubspot-activity-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadLimit: 2500 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Activity sync failed");
+      setActivityResult(data);
+    } catch (err) {
+      setActivityError(err instanceof Error ? err.message : "Activity sync failed");
+    } finally {
+      setIsSyncingActivity(false);
     }
   }
 
@@ -76,6 +105,40 @@ export function HubSpotSyncCard() {
           )}
         </div>
       )}
+
+      <div className="mt-4 border-t border-base-700 pt-4">
+        <p className="mb-3 text-[11px] text-ink-500">
+          Pulls full call/email/meeting/note/task history from HubSpot into
+          each lead&apos;s activity timeline, alongside anything already
+          logged inside Sphaera. Safe to re-run — already-imported
+          engagements are never duplicated.
+        </p>
+        <button
+          onClick={handleActivitySync}
+          disabled={isSyncingActivity}
+          className="flex items-center gap-1.5 rounded-lg border border-base-700 bg-base-800 px-3 py-1.5 text-xs font-semibold text-ink-50 hover:border-base-600 disabled:opacity-60"
+        >
+          <History className={`h-3.5 w-3.5 ${isSyncingActivity ? "animate-spin" : ""}`} />
+          {isSyncingActivity ? "Importing activity…" : "Sync activity history"}
+        </button>
+
+        {activityError && <p className="mt-3 text-xs text-status-inactive">{activityError}</p>}
+
+        {activityResult && (
+          <div className="mt-3 rounded-lg border border-base-700 bg-base-800 p-3 text-xs text-ink-300">
+            <p>
+              Imported <span className="text-status-active">{activityResult.totalImported}</span> activity events.
+            </p>
+            <ul className="mt-1.5 space-y-0.5 text-ink-500">
+              {Object.entries(activityResult.perType).map(([type, r]) => (
+                <li key={type}>
+                  {type}: {r.imported} imported ({r.found} found){r.failed ? " — failed, check scope" : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

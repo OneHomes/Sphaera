@@ -139,9 +139,16 @@ model LeadTimelineEvent {
   // NVARCHAR(1000) for a plain String column.
   summary    String   @db.NVarChar(Max)
   occurredAt DateTime @default(now())
+  // Set only for rows imported from HubSpot (see lib/hubspotActivitySync.ts)
+  // — lets re-running the import skip engagements already pulled in,
+  // instead of duplicating the whole timeline on every sync. Null for
+  // every Sphaera-native event (notes, calls logged in-app, stage
+  // changes, etc.), which already land here through their own routes.
+  hubspotEngagementId String?
 
   @@map("lead_timeline_events")
   @@index([leadId])
+  @@index([hubspotEngagementId])
 }
 
 // Stage set here consolidates PRD AE15's full 10-stage list into 8

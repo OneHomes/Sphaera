@@ -76,18 +76,60 @@ export async function fetchAllHubSpotContacts(properties: string[], limit: numbe
   return all;
 }
 
-/** Batch-fetches specific contacts by ID (HubSpot caps this at 100 IDs per call). */
-export async function batchReadHubSpotContacts(ids: string[], properties: string[]): Promise<HubSpotContact[]> {
-  const all: HubSpotContact[] = [];
+export type HubSpotObject = { id: string; properties: Record<string, string | null> };
+
+/** Batch-fetches specific objects of any type by ID (HubSpot caps this at 100 IDs per call). */
+export async function batchReadObjects(
+  objectType: string,
+  ids: string[],
+  properties: string[]
+): Promise<HubSpotObject[]> {
+  const all: HubSpotObject[] = [];
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
-    const data = await hubspotPost<{ results: HubSpotContact[] }>("/crm/v3/objects/contacts/batch/read", {
+    const data = await hubspotPost<{ results: HubSpotObject[] }>(`/crm/v3/objects/${objectType}/batch/read`, {
       properties,
       inputs: chunk.map((id) => ({ id })),
     });
     all.push(...data.results);
   }
   return all;
+}
+
+/** Batch-fetches specific contacts by ID (HubSpot caps this at 100 IDs per call). */
+export async function batchReadHubSpotContacts(ids: string[], properties: string[]): Promise<HubSpotContact[]> {
+  return batchReadObjects("contacts", ids, properties);
+}
+
+/**
+ * Batch-fetches which engagement-type objects (calls/emails/meetings/
+ * notes/tasks) are associated with each given contact, via the v4
+ * associations batch-read endpoint — one call covers up to 1000 contacts
+ * at once, versus one association request per contact, which is the
+ * only way pulling full activity history for ~2000 leads is feasible
+ * within HubSpot's rate limits.
+ */
+export async function batchReadAssociations(
+  fromObjectType: string,
+  toObjectType: string,
+  fromIds: string[]
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  for (let i = 0; i < fromIds.length; i += 1000) {
+    const chunk = fromIds.slice(i, i + 1000);
+    const data = await hubspotPost<{
+      results: { from: { id: string }; to: { toObjectId: number }[] }[];
+    }>(`/crm/v4/associations/${fromObjectType}/${toObjectType}/batch/read`, {
+      inputs: chunk.map((id) => ({ id })),
+    });
+    for (const r of data.results) {
+      result.set(
+        r.from.id,
+        r.to.map((t) => String(t.toObjectId))
+      );
+    }
+  }
+  return result;
 }
 
 export type HubSpotOwner = { id: string; email: string };
