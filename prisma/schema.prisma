@@ -124,9 +124,31 @@ model LeadTag {
   removedAt     DateTime?
   removedByName String?
 
+  removalRequests TagRemovalRequest[]
+
   @@map("lead_tags")
   @@index([leadId])
   @@index([tag])
+}
+
+// Per the boss's direct request (2026-10-13 call): removing a tag is no
+// longer instant — the requester must give a reason, an Admin reviews
+// it, and only an approval actually soft-deletes the LeadTag. Mirrors
+// DuplicateLeadFlag's pending/resolved shape.
+model TagRemovalRequest {
+  id               String    @id @default(cuid())
+  leadTagId        String
+  leadTag          LeadTag   @relation(fields: [leadTagId], references: [id], onDelete: Cascade)
+  reason           String
+  requestedByName  String
+  status           String    @default("pending") // pending | approved | denied
+  resolvedByName   String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@map("tag_removal_requests")
+  @@index([leadTagId])
+  @@index([status])
 }
 
 model LeadTimelineEvent {

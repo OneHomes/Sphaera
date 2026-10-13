@@ -5,6 +5,7 @@ import { ShieldCheck, Plus, AlertTriangle, X, Sparkles, Download } from "lucide-
 import { WhatsAppConfigCard } from "./WhatsAppConfigCard";
 import { HubSpotSyncCard } from "./HubSpotSyncCard";
 import { DuplicateLeadsCard } from "./DuplicateLeadsCard";
+import { TagRemovalRequestsCard } from "./TagRemovalRequestsCard";
 import { AexConfigPanel } from "./AexConfigPanel";
 import { JanusCoachingCard } from "@/components/aex/JanusCoachingCard";
 import { downloadCsv } from "@/lib/csv";
@@ -206,6 +207,7 @@ export function AdminUsersPage({ canExportData }: { canExportData: boolean }) {
 <WhatsAppConfigCard />
       <HubSpotSyncCard />
       <DuplicateLeadsCard />
+      <TagRemovalRequestsCard />
       <AexConfigPanel />
       <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">
         <h2 className="mb-3 text-sm font-medium text-ink-50">Teams</h2>

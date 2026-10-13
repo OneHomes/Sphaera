@@ -9,7 +9,8 @@ export type NotificationType =
   | "lead_note_mention"
   | "challenge_update"
   | "risk_critical"
-  | "janus_escalation";
+  | "janus_escalation"
+  | "tag_removal_requested";
 
 export async function createNotification(
   userId: string,
