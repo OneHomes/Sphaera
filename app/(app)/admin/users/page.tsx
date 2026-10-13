@@ -15,5 +15,5 @@ export default async function AdminUsersRoute() {
     redirect("/dashboard");
   }
 
-  return <AdminUsersPage />;
+  return <AdminUsersPage canExportData={authUser.canExportData} />;
 }

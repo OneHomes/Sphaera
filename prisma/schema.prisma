@@ -208,6 +208,11 @@ model User {
   teamId    String?
   team      Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
   managedTeams Team[] @relation("TeamManager")
+  // Phase 1 Sales Scope Foundations — "No data can be exported unless you
+  // [have] specific rights": an explicit, Admin-grantable permission,
+  // deliberately separate from role. Being an Admin does not imply this —
+  // it must be turned on per user, including for Admins themselves.
+  canExportData Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

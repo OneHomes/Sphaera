@@ -28,6 +28,7 @@ export default async function PipelinePage() {
     <PipelineBoard
       initialOpportunities={opportunities}
       currentUserId={authUser.id}
+      canExportData={authUser.canExportData}
     />
   );
 }

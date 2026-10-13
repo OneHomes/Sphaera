@@ -21,11 +21,13 @@ export function LeadInbox({
   currentUserId,
   isManagementView = false,
   assignableUsers = [],
+  canExportData = false,
 }: {
   initialLeads: Lead[];
   currentUserId: string;
   isManagementView?: boolean;
   assignableUsers?: { id: string; name: string }[];
+  canExportData?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -225,32 +227,34 @@ export function LeadInbox({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() =>
-              downloadCsv(
-                "sphaera-leads.csv",
-                ["Name", "Contact", "Source", "Market", "Project", "Stage", "Score", "Engagement", "Priority", "Next Action Due", "Assignment", "Owner"],
-                filteredLeads.map((l) => [
-                  l.name,
-                  l.contact,
-                  l.source,
-                  l.market,
-                  l.projectInterest,
-                  l.stage,
-                  l.score,
-                  l.engagement,
-                  l.priority,
-                  l.nextActionDue,
-                  l.assignment,
-                  l.assignedUserName ?? "",
-                ])
-              )
-            }
-            className="flex items-center gap-1.5 rounded-lg border border-base-700 px-3 py-1.5 text-xs font-medium text-ink-300 hover:border-base-600 hover:text-ink-50"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
-          </button>
+          {canExportData && (
+            <button
+              onClick={() =>
+                downloadCsv(
+                  "sphaera-leads.csv",
+                  ["Name", "Contact", "Source", "Market", "Project", "Stage", "Score", "Engagement", "Priority", "Next Action Due", "Assignment", "Owner"],
+                  filteredLeads.map((l) => [
+                    l.name,
+                    l.contact,
+                    l.source,
+                    l.market,
+                    l.projectInterest,
+                    l.stage,
+                    l.score,
+                    l.engagement,
+                    l.priority,
+                    l.nextActionDue,
+                    l.assignment,
+                    l.assignedUserName ?? "",
+                  ])
+                )
+              }
+              className="flex items-center gap-1.5 rounded-lg border border-base-700 px-3 py-1.5 text-xs font-medium text-ink-300 hover:border-base-600 hover:text-ink-50"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </button>
+          )}
           <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1.5 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-semibold text-base-950 hover:bg-white"

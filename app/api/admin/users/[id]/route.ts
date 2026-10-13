@@ -25,7 +25,7 @@ export async function PATCH(
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const data: { role?: Role; teamId?: string | null } = {};
+  const data: { role?: Role; teamId?: string | null; canExportData?: boolean } = {};
 
   if ("role" in body) {
     if (!ROLES.includes(body.role)) {
@@ -36,6 +36,10 @@ export async function PATCH(
 
   if ("teamId" in body) {
     data.teamId = body.teamId || null;
+  }
+
+  if ("canExportData" in body) {
+    data.canExportData = !!body.canExportData;
   }
 
   const updated = await prisma.user.update({
@@ -49,6 +53,9 @@ export async function PATCH(
   }
   if ("teamId" in data && data.teamId !== existing.teamId) {
     changeDescriptions.push(`team: ${existing.teamId ?? "none"} -> ${data.teamId ?? "none"}`);
+  }
+  if (data.canExportData !== undefined && data.canExportData !== existing.canExportData) {
+    changeDescriptions.push(`export rights: ${existing.canExportData} -> ${data.canExportData}`);
   }
 
   if (changeDescriptions.length > 0) {
@@ -67,5 +74,6 @@ export async function PATCH(
     id: updated.id,
     role: updated.role,
     teamId: updated.teamId,
+    canExportData: updated.canExportData,
   });
 }

@@ -11,6 +11,11 @@ export type AuthUser = {
   id: string;
   role: Role;
   teamId: string | null;
+  // Not carried in the JWT session (see getAuthUser below) — always false
+  // there. Only getFreshAuthUser reflects the real, current value, since
+  // an export permission is security-sensitive enough that a stale "true"
+  // from before it was revoked is worse than an extra DB read.
+  canExportData: boolean;
 };
 
 /** Extracts the scoping-relevant fields from a NextAuth session. */
@@ -27,6 +32,7 @@ export function getAuthUser(session: Session): AuthUser {
     id: user.id,
     role: (user.role as Role) ?? "AGENT",
     teamId: user.teamId ?? null,
+    canExportData: false,
   };
 }
 
@@ -44,6 +50,7 @@ export async function getFreshAuthUser(session: Session): Promise<AuthUser> {
     id: user.id,
     role: user.role as Role,
     teamId: user.teamId,
+    canExportData: user.canExportData,
   };
 }
 

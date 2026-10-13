@@ -21,9 +21,11 @@ type PendingLossMove = {
 export function PipelineBoard({
   initialOpportunities,
   currentUserId,
+  canExportData = false,
 }: {
   initialOpportunities: Opportunity[];
   currentUserId: string;
+  canExportData?: boolean;
 }) {
   const [opportunities, setOpportunities] = useState<Opportunity[]>(
     initialOpportunities
@@ -143,27 +145,29 @@ export function PipelineBoard({
             {(totalPipelineValue / 1_000_000).toFixed(2)}M active pipeline
           </p>
         </div>
-        <button
-          onClick={() =>
-            downloadCsv(
-              "sphaera-pipeline.csv",
-              ["Lead", "Project", "Stage", "Value", "Probability", "Expected Close", "Owner"],
-              opportunities.map((o) => [
-                o.leadName,
-                o.projectInterest,
-                o.stage,
-                o.value,
-                `${o.probability}%`,
-                o.expectedCloseDate ?? "",
-                o.assignedUserName ?? "Unassigned",
-              ])
-            )
-          }
-          className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
-        >
-          <Download className="h-3 w-3" />
-          Export CSV
-        </button>
+        {canExportData && (
+          <button
+            onClick={() =>
+              downloadCsv(
+                "sphaera-pipeline.csv",
+                ["Lead", "Project", "Stage", "Value", "Probability", "Expected Close", "Owner"],
+                opportunities.map((o) => [
+                  o.leadName,
+                  o.projectInterest,
+                  o.stage,
+                  o.value,
+                  `${o.probability}%`,
+                  o.expectedCloseDate ?? "",
+                  o.assignedUserName ?? "Unassigned",
+                ])
+              )
+            }
+            className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
+          >
+            <Download className="h-3 w-3" />
+            Export CSV
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-x-auto p-6">

@@ -49,6 +49,7 @@ export default async function LeadsPage() {
       currentUserId={authUser.id}
       isManagementView={authUser.role !== "AGENT"}
       assignableUsers={assignableUsers}
+      canExportData={authUser.canExportData}
     />
   );
 }

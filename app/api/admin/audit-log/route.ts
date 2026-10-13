@@ -29,6 +29,16 @@ export async function GET(request: Request) {
   const search = searchParams.get("search");
   const isExport = searchParams.get("format") === "csv";
 
+  // Phase 1 Sales Scope Foundations — "No data can be exported unless you
+  // [have] specific rights": a separate, explicit permission from the
+  // ADMIN role check above, same as every other export surface.
+  if (isExport && !authUser.canExportData) {
+    return NextResponse.json(
+      { error: "You don't have export rights. Ask an admin to grant them." },
+      { status: 403 }
+    );
+  }
+
   const where = search
     ? {
         OR: [

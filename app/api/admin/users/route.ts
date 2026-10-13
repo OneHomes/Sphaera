@@ -50,6 +50,7 @@ export async function GET() {
       role: u.role,
       teamId: u.teamId,
       teamName: u.team?.name ?? null,
+      canExportData: u.canExportData,
       createdAt: u.createdAt.toISOString(),
       activeLeadCount: u._count.assignedLeads,
       activeOpportunityCount: oppCountByUser.get(u.id) ?? 0,

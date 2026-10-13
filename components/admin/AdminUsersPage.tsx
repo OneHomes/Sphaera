@@ -18,6 +18,7 @@ type AdminUser = {
   createdAt: string;
   activeLeadCount: number;
   activeOpportunityCount: number;
+  canExportData: boolean;
 };
 
 type Team = {
@@ -41,7 +42,7 @@ const roleStyles: Record<AdminUser["role"], string> = {
   AGENT: "bg-base-700 text-ink-300",
 };
 
-export function AdminUsersPage() {
+export function AdminUsersPage({ canExportData }: { canExportData: boolean }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
@@ -115,6 +116,26 @@ export function AdminUsersPage() {
         body: JSON.stringify({ role }),
       });
       if (!res.ok) throw new Error("Failed to update role");
+    } catch (err) {
+      console.error(err);
+      loadData();
+    } finally {
+      setSavingUserId(null);
+    }
+  }
+
+  async function handleExportToggle(userId: string, canExportData: boolean) {
+    setSavingUserId(userId);
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, canExportData } : u))
+    );
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ canExportData }),
+      });
+      if (!res.ok) throw new Error("Failed to update export rights");
     } catch (err) {
       console.error(err);
       loadData();
@@ -223,19 +244,21 @@ export function AdminUsersPage() {
       <div className="mb-6 rounded-xl border border-base-700 bg-base-900 p-4">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-sm font-medium text-ink-50">Users</h2>
-          <button
-            onClick={() =>
-              downloadCsv(
-                "sphaera-users.csv",
-                ["Name", "Email", "Role", "Team", "Active Leads", "Active Opportunities"],
-                users.map((u) => [u.name, u.email, u.role, u.teamName ?? "", u.activeLeadCount, u.activeOpportunityCount])
-              )
-            }
-            className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
-          >
-            <Download className="h-3 w-3" />
-            Export CSV
-          </button>
+          {canExportData && (
+            <button
+              onClick={() =>
+                downloadCsv(
+                  "sphaera-users.csv",
+                  ["Name", "Email", "Role", "Team", "Active Leads", "Active Opportunities"],
+                  users.map((u) => [u.name, u.email, u.role, u.teamName ?? "", u.activeLeadCount, u.activeOpportunityCount])
+                )
+              }
+              className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
+            >
+              <Download className="h-3 w-3" />
+              Export CSV
+            </button>
+          )}
         </div>
         <p className="mb-3 text-[11px] text-ink-500">
           Active lead/opportunity counts highlight in red if an agent is at
@@ -252,6 +275,7 @@ export function AdminUsersPage() {
               <th className="pb-2 pr-3 font-normal">Team</th>
               <th className="pb-2 pr-3 font-normal text-right">Active leads</th>
               <th className="pb-2 pr-3 font-normal text-right">Active opps</th>
+              <th className="pb-2 pr-3 font-normal text-center">Export rights</th>
               <th className="pb-2 font-normal"></th>
             </tr>
           </thead>
@@ -308,6 +332,16 @@ export function AdminUsersPage() {
                   >
                     {user.activeOpportunityCount}
                   </td>
+                  <td className="py-2.5 pr-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={user.canExportData}
+                      disabled={savingUserId === user.id}
+                      onChange={(e) => handleExportToggle(user.id, e.target.checked)}
+                      aria-label={`Export rights for ${user.name}`}
+                      className="h-3.5 w-3.5 accent-status-active disabled:opacity-50"
+                    />
+                  </td>
                   <td className="py-2.5 text-right">
                     {user.role === "AGENT" && (
                       <button
@@ -351,13 +385,15 @@ export function AdminUsersPage() {
               Governance Log
             </h2>
           </div>
-          <a
-            href={`/api/admin/audit-log?format=csv&search=${encodeURIComponent(auditSearch)}`}
-            className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
-          >
-            <Download className="h-3 w-3" />
-            Export CSV
-          </a>
+          {canExportData && (
+            <a
+              href={`/api/admin/audit-log?format=csv&search=${encodeURIComponent(auditSearch)}`}
+              className="flex items-center gap-1 rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
+            >
+              <Download className="h-3 w-3" />
+              Export CSV
+            </a>
+          )}
         </div>
         <p className="mb-3 text-[11px] text-ink-500">
           Role/team changes and blocked AEX point-award attempts (PRD
