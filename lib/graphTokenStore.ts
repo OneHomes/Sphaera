@@ -20,7 +20,7 @@ export async function saveGraphToken(
   });
 }
 
-async function refreshGraphToken(refreshToken: string) {
+export async function refreshGraphToken(refreshToken: string) {
   const url = `https://login.microsoftonline.com/${process.env.AZURE_AD_TENANT_ID}/oauth2/v2.0/token`;
   const response = await fetch(url, {
     method: "POST",
