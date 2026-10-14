@@ -30,7 +30,19 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.AZURE_AD_CLIENT_SECRET as string,
       tenantId: process.env.AZURE_AD_TENANT_ID as string,
       authorization: {
-        params: { scope: GRAPH_SCOPES },
+        params: {
+          scope: GRAPH_SCOPES,
+          // With 8 Graph scopes requested, Microsoft's authorization code
+          // is large enough that appending it to the callback URL as a
+          // query string (the default "query" response_mode) can exceed
+          // header/URL-length limits on some requests — same underlying
+          // class of bug as the earlier session-cookie HTTP 431, just on
+          // the incoming request from Microsoft instead of our own
+          // response. form_post moves the code into a POST body instead
+          // of the URL, which the callback route already accepts (see
+          // app/api/auth/[...nextauth]/route.ts exporting both GET/POST).
+          response_mode: "form_post",
+        },
       },
     }),
   ],
