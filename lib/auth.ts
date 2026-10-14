@@ -3,37 +3,25 @@ import AzureADProvider from "next-auth/providers/azure-ad";
 import { getOrCreateUserByEmail } from "./currentUser";
 import { logAudit, SYSTEM_ACTOR } from "./auditLog";
 import { setLastAuthError } from "./debugAuthState"; // TEMPORARY, see that file
-import { saveGraphToken, getValidGraphAccessToken, refreshGraphToken } from "./graphTokenStore";
+import { saveGraphToken, getValidGraphAccessToken } from "./graphTokenStore";
 
 // Reads the three values you get from the Entra ID App Registration:
 // tenant ID, client (application) ID, and client secret.
 // See ENTRA_ID_SETUP.md for how to create these in the Azure portal.
 //
+// The `scope` here requests Microsoft Graph Mail + Calendar permissions
+// on top of standard sign-in scopes, so the access token we get back can
+// call Graph on the signed-in user's behalf (lib/graph.ts). These must
+// also be added + admin-consented under API permissions on the App
+// Registration in the Azure portal, or the token Microsoft issues won't
+// actually carry them.
+//
 // HARDENING NOTE: the temporary email/password Credentials provider that
 // existed during development has been removed. Microsoft Entra ID is now
 // the ONLY sign-in method, matching PRD PF01 (Entra ID is the sole
 // production auth method).
-//
-// SCOPE SIZE FIX (2026-10-14): the browser-facing sign-in request below
-// deliberately asks for only the minimal scopes needed to authenticate.
-// Requesting the full Graph scope set here (Mail, Calendar, meeting
-// transcripts — 8 scopes total) made Microsoft's authorization code long
-// enough to risk exceeding header/URL-length limits on the callback
-// redirect, worst on Edge. (An earlier attempt to fix this with
-// response_mode: "form_post" broke the callback for every browser and
-// was reverted — root cause for that was never fully confirmed, so it
-// wasn't safe to retry against production. This scope-reduction
-// approach avoids the browser-facing redirect/URL entirely instead.)
-//
-// The full Graph scope set (still needed for Mail/Calendar/meeting
-// features, lib/graph.ts) is requested separately below, via a
-// server-to-server refresh-token exchange — no browser URL involved at
-// all, so no size constraint applies. This relies on the app's Graph
-// permissions already being tenant-wide admin-consented (API
-// permissions on the App Registration in the Azure portal), so the
-// scope upgrade happens silently with no extra user-facing consent
-// prompt.
-const SIGNIN_SCOPES = "openid profile email offline_access User.Read";
+const GRAPH_SCOPES =
+  "openid profile email offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite OnlineMeetings.Read OnlineMeetingTranscript.Read.All";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -42,7 +30,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.AZURE_AD_CLIENT_SECRET as string,
       tenantId: process.env.AZURE_AD_TENANT_ID as string,
       authorization: {
-        params: { scope: SIGNIN_SCOPES },
+        params: { scope: GRAPH_SCOPES },
       },
     }),
   ],
@@ -115,34 +103,13 @@ export const authOptions: NextAuthOptions = {
           }).catch((err) => console.error("Failed to audit sign-in:", err));
         }
 
-        if (token.userId && account.refresh_token) {
-          // Immediately upgrade the minimal sign-in token to the full
-          // Graph scope set, server-to-server — the refresh_token grant
-          // has no URL/header size constraint, unlike the browser-facing
-          // authorization redirect above. Falls back to the minimal
-          // sign-in token if the upgrade fails for some reason (e.g.
-          // Graph scopes not yet admin-consented), so sign-in itself
-          // never breaks over this — Mail/Calendar features would just
-          // show their own "reconnect" state until it's resolved.
-          try {
-            const upgraded = await refreshGraphToken(account.refresh_token);
-            await saveGraphToken(
-              token.userId as string,
-              upgraded.access_token,
-              upgraded.refresh_token ?? account.refresh_token,
-              new Date(Date.now() + upgraded.expires_in * 1000)
-            );
-          } catch (err) {
-            console.error("Failed to upgrade to full Graph scope, falling back to sign-in token:", err);
-            if (account.access_token) {
-              await saveGraphToken(
-                token.userId as string,
-                account.access_token,
-                account.refresh_token,
-                account.expires_at ? new Date(account.expires_at * 1000) : new Date(Date.now() + 3_600_000)
-              ).catch((saveErr) => console.error("Failed to save fallback Graph token:", saveErr));
-            }
-          }
+        if (token.userId && account.access_token && account.refresh_token) {
+          await saveGraphToken(
+            token.userId as string,
+            account.access_token,
+            account.refresh_token,
+            account.expires_at ? new Date(account.expires_at * 1000) : new Date(Date.now() + 3_600_000)
+          ).catch((err) => console.error("Failed to save Graph token:", err));
         }
 
         return token;
