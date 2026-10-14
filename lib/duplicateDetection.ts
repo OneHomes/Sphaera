@@ -5,7 +5,7 @@ import { prisma } from "./prisma";
 // differences ("+44 7441 913824" vs "07441913824") don't hide a real
 // match. Name is a weaker secondary signal, used only as an exact
 // case-insensitive match (no fuzzy-matching library in this build).
-function normalizeContact(contact: string): string {
+export function normalizeContact(contact: string): string {
   const trimmed = contact.trim().toLowerCase();
   // Email-like: compare as-is (lowercased). Otherwise treat as a phone
   // number and strip everything but digits, then drop a leading

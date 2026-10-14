@@ -3,6 +3,14 @@ import { fetchAllHubSpotContacts, listHubSpotOwners, type HubSpotContact } from 
 import { maybeCreateOpportunityFromLead } from "./leadToOpportunity";
 import { generateUniqueLeadUid } from "./leadUid";
 import { flagDuplicatesForLead } from "./duplicateDetection";
+import {
+  CONTACT_PROPERTIES,
+  isExcludedContact,
+  fullName,
+  truthy,
+  realDealValue,
+  realDealCloseDate,
+} from "./hubspotContactFilter";
 
 // Real HubSpot -> Sphaera Lead sync. Replaces the earlier Salesforce sync
 // (lib/salesforceSync.ts, removed) — this HubSpot portal turned out to be
@@ -28,51 +36,6 @@ import { flagDuplicatesForLead } from "./duplicateDetection";
 // has no write-back path to HubSpot, so overwriting them risks silently
 // reverting real in-app work.
 
-const DEMO_CONTACT_SOURCE_LABEL = "INTERNAL_PROCESSING"; // HubSpot's own built-in sample contacts
-
-const CONTACT_PROPERTIES = [
-  "firstname",
-  "lastname",
-  "email",
-  "phone",
-  "mobilephone",
-  "leadsource",
-  "leadstatus",
-  "project__c",
-  "salesforceleadid",
-  "hubspot_owner_id",
-  "lastmodifieddate",
-  "createdate",
-  "estimated_value__c",
-  "closed_value_all_project",
-  "closing_date__c",
-  "closed_date_all_project",
-  "hs_object_source_label",
-];
-
-function fullName(p: Record<string, string | null>): string {
-  const name = [p.firstname, p.lastname].filter(Boolean).join(" ").trim();
-  return name || "Unknown";
-}
-
-function truthy(value: string | null | undefined): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function parseNumber(value: string | null | undefined): number | null {
-  if (!truthy(value)) return null;
-  const n = Number(value.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n) ? Math.round(n) : null;
-}
-
-function realDealValue(p: Record<string, string | null>): number | null {
-  return parseNumber(p.closed_value_all_project) ?? parseNumber(p.estimated_value__c);
-}
-function realDealCloseDate(p: Record<string, string | null>): Date | null {
-  const raw = p.closed_date_all_project || p.closing_date__c;
-  return truthy(raw) ? new Date(raw) : null;
-}
-
 export type HubSpotSyncResult = {
   fetched: number;
   created: number;
@@ -94,7 +57,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
   const sphaeraUsers = await prisma.user.findMany({ select: { id: true, email: true } });
   const userIdByEmail = new Map(sphaeraUsers.map((u) => [u.email.toLowerCase(), u.id]));
 
-  const realContacts = contacts.filter((c) => c.properties.hs_object_source_label !== DEMO_CONTACT_SOURCE_LABEL);
+  const realContacts = contacts.filter((c) => !isExcludedContact(c.properties));
 
   let created = 0;
   let updated = 0;

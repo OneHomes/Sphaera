@@ -11,28 +11,52 @@ function getAccessToken(): string {
   return token;
 }
 
-async function hubspotFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${HUBSPOT_API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${getAccessToken()}` },
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`HubSpot request failed (${res.status}): ${data.message ?? res.statusText}`);
+// A long-running bulk import (~2000 pages for the real ~194,000-contact
+// account) will eventually hit a transient network blip (ECONNRESET,
+// a dropped TLS connection, etc.) — that's expected over a run lasting
+// this long, not a real failure, so it's retried with backoff here
+// rather than crashing the whole import over one bad request.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 8): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      // Caps at 30s/attempt — a real DNS/network interruption during an
+      // hours-long bulk import needs more runway than a quick backoff.
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, Math.min(30000, 1000 * 2 ** i)));
+    }
   }
-  return data as T;
+  throw lastErr;
+}
+
+async function hubspotFetch<T>(path: string): Promise<T> {
+  return withRetry(async () => {
+    const res = await fetch(`${HUBSPOT_API_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${getAccessToken()}` },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(`HubSpot request failed (${res.status}): ${data.message ?? res.statusText}`);
+    }
+    return data as T;
+  });
 }
 
 async function hubspotPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${HUBSPOT_API_BASE}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${getAccessToken()}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  return withRetry(async () => {
+    const res = await fetch(`${HUBSPOT_API_BASE}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getAccessToken()}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(`HubSpot request failed (${res.status}): ${data.message ?? res.statusText}`);
+    }
+    return data as T;
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`HubSpot request failed (${res.status}): ${data.message ?? res.statusText}`);
-  }
-  return data as T;
 }
 
 export type HubSpotPropertyMeta = {
@@ -74,6 +98,29 @@ export async function fetchAllHubSpotContacts(properties: string[], limit: numbe
     if (!after) break;
   }
   return all;
+}
+
+/**
+ * Streams every contact (no artificial cap — HubSpot's cursor-based "after"
+ * pagination has no 10,000-result limit the way the Search API does),
+ * invoking `onPage` once per 100-contact page rather than accumulating
+ * everything in memory, since the real account here has ~194,000 contacts.
+ */
+export async function streamAllHubSpotContacts(
+  properties: string[],
+  onPage: (contacts: HubSpotContact[]) => Promise<void | false>
+): Promise<number> {
+  let after: string | undefined;
+  let total = 0;
+  for (;;) {
+    const page = await listHubSpotContacts(properties, 100, after);
+    const keepGoing = await onPage(page.results);
+    total += page.results.length;
+    if (keepGoing === false) break;
+    after = page.paging?.next?.after;
+    if (!after) break;
+  }
+  return total;
 }
 
 export type HubSpotObject = { id: string; properties: Record<string, string | null> };
