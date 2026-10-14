@@ -30,20 +30,25 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.AZURE_AD_CLIENT_SECRET as string,
       tenantId: process.env.AZURE_AD_TENANT_ID as string,
       authorization: {
-        params: {
-          scope: GRAPH_SCOPES,
-          // With 8 Graph scopes requested, Microsoft's authorization code
-          // is large enough that appending it to the callback URL as a
-          // query string (the default "query" response_mode) can exceed
-          // header/URL-length limits on some requests — same underlying
-          // class of bug as the earlier session-cookie HTTP 431, just on
-          // the incoming request from Microsoft instead of our own
-          // response. form_post moves the code into a POST body instead
-          // of the URL, which the callback route already accepts (see
-          // app/api/auth/[...nextauth]/route.ts exporting both GET/POST).
-          response_mode: "form_post",
-        },
+        params: { scope: GRAPH_SCOPES },
       },
+      // ATTEMPTED FIX, REVERTED 2026-10-14: response_mode: "form_post" was
+      // tried here to shrink the callback URL (8 Graph scopes make
+      // Microsoft's authorization code large enough to risk exceeding
+      // header/URL-length limits on some requests, worst on Edge) — but it
+      // broke the callback for EVERY browser with a generic OAuthCallback
+      // error, most likely because the Entra App Registration's redirect
+      // URI is registered under the "Single-page application" platform,
+      // which only supports response_mode=query/fragment, not form_post.
+      // Reverted to the known-working baseline rather than leave sign-in
+      // broken for everyone while chasing an Edge-specific slowness issue.
+      // Real fix once confirmed: either move the redirect URI to the
+      // "Web" platform in Entra (Azure Portal > App Registrations > this
+      // app > Authentication) and re-apply form_post, or reduce the
+      // number/breadth of requested Graph scopes to shrink the code
+      // directly (all 8 are currently wired to real shipped features —
+      // Mail, Calendar, meeting transcripts — so none are free to drop
+      // without losing functionality).
     }),
   ],
   session: {
