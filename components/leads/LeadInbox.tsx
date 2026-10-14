@@ -1,11 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Info, Plus, UserPlus, Repeat, Download } from "lucide-react";
+import { Info, Plus, UserPlus, Repeat, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
-import { scoreBand } from "@/lib/leadData";
-import { downloadCsv } from "@/lib/csv";
 import { LeadFilterBar, defaultLeadFilters, type LeadFilters } from "./LeadFilterBar";
 import { AddLeadModal } from "./AddLeadModal";
 import {
@@ -16,84 +14,139 @@ import {
   AssignmentBadge,
 } from "./LeadBadges";
 
+// Filtering, sorting, and pagination all happen server-side now (see
+// app/(app)/leads/page.tsx + lib/leadFilterQuery.ts) — `initialLeads` is
+// exactly one page of already-filtered rows, not the full table. This
+// component just reflects filter/page state into the URL and lets the
+// server component re-fetch; it no longer holds or filters the whole
+// dataset in the browser. That split is the fix for /leads hanging once
+// the Lead table reached ~194,000 rows (was previously one unbounded
+// findMany + in-memory filtering).
+
+function filtersToSearchParams(filters: LeadFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.search.trim()) params.set("search", filters.search.trim());
+  if (filters.priority !== "All") params.set("priority", filters.priority);
+  if (filters.stage !== "All") params.set("stage", filters.stage);
+  if (filters.source !== "All") params.set("source", filters.source);
+  if (filters.market !== "All") params.set("market", filters.market);
+  if (filters.project !== "All") params.set("project", filters.project);
+  if (filters.scoreBand !== "All") params.set("scoreBand", filters.scoreBand);
+  if (filters.overdueOnly) params.set("overdueOnly", "true");
+  if (filters.tag.trim()) params.set("tag", filters.tag.trim());
+  return params;
+}
+
 export function LeadInbox({
   initialLeads,
   currentUserId,
   isManagementView = false,
   assignableUsers = [],
   canExportData = false,
+  markets = [],
+  projects = [],
+  totalCount,
+  page,
+  pageSize,
 }: {
   initialLeads: Lead[];
   currentUserId: string;
   isManagementView?: boolean;
   assignableUsers?: { id: string; name: string }[];
   canExportData?: boolean;
+  markets?: string[];
+  projects?: string[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
+  // The server component re-runs on every filter/page navigation and
+  // hands down a new `initialLeads` page — sync local state (which also
+  // carries optimistic assign/reassign edits) to match each time.
+  useEffect(() => setLeads(initialLeads), [initialLeads]);
+
   // PRD JN12 — Mission Centre's "Team Focus" item links here with
-  // ?market=/?project=/?source=, so the linked filter is actually applied
-  // rather than just landing on an unfiltered page.
-  const [filters, setFilters] = useState<LeadFilters>(() => ({
-    ...defaultLeadFilters,
+  // ?market=/?project=/?source=, so the linked filter is actually applied.
+  const filters: LeadFilters = {
+    search: searchParams.get("search") ?? defaultLeadFilters.search,
+    priority: (searchParams.get("priority") as LeadFilters["priority"]) ?? defaultLeadFilters.priority,
+    stage: searchParams.get("stage") ?? defaultLeadFilters.stage,
+    source: searchParams.get("source") ?? defaultLeadFilters.source,
     market: searchParams.get("market") ?? defaultLeadFilters.market,
     project: searchParams.get("project") ?? defaultLeadFilters.project,
-    source: searchParams.get("source") ?? defaultLeadFilters.source,
-  }));
+    scoreBand: (searchParams.get("scoreBand") as LeadFilters["scoreBand"]) ?? defaultLeadFilters.scoreBand,
+    overdueOnly: searchParams.get("overdueOnly") === "true",
+    tag: searchParams.get("tag") ?? defaultLeadFilters.tag,
+  };
+
+  // Free-text fields (search, tag) get a debounce so typing doesn't fire
+  // a server round trip on every keystroke; every other filter navigates
+  // immediately, same as before.
+  const [localText, setLocalText] = useState({ search: filters.search, tag: filters.tag });
+  useEffect(() => {
+    setLocalText({ search: filters.search, tag: filters.tag });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.tag]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localText.search !== filters.search || localText.tag !== filters.tag) {
+        pushFilters({ ...filters, search: localText.search, tag: localText.tag });
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localText]);
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [reassigningLeadId, setReassigningLeadId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkTargetId, setBulkTargetId] = useState("");
   const [isBulkReassigning, setIsBulkReassigning] = useState(false);
 
-  const markets = useMemo(
-    () => Array.from(new Set(leads.map((l) => l.market))).sort(),
-    [leads]
-  );
-  const projects = useMemo(
-    () => Array.from(new Set(leads.map((l) => l.projectInterest))).sort(),
-    [leads]
-  );
+  function pushFilters(next: LeadFilters) {
+    const params = filtersToSearchParams(next);
+    const qs = params.toString();
+    router.push(qs ? `/leads?${qs}` : "/leads");
+  }
 
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
-      if (
-        filters.search &&
-        !lead.name.toLowerCase().includes(filters.search.toLowerCase())
-      ) {
-        return false;
-      }
-      if (filters.priority !== "All" && lead.priority !== filters.priority) {
-        return false;
-      }
-      if (filters.stage !== "All" && lead.stage !== filters.stage) {
-        return false;
-      }
-      if (filters.source !== "All" && lead.source !== filters.source) {
-        return false;
-      }
-      if (filters.market !== "All" && lead.market !== filters.market) {
-        return false;
-      }
-      if (filters.project !== "All" && lead.projectInterest !== filters.project) {
-        return false;
-      }
-      if (filters.scoreBand !== "All" && scoreBand(lead.score) !== filters.scoreBand) {
-        return false;
-      }
-      if (filters.overdueOnly && lead.nextActionDue !== "Overdue") {
-        return false;
-      }
-      if (filters.tag.trim()) {
-        const needle = filters.tag.trim().toLowerCase().replace(/^#/, "");
-        if (!lead.tags.some((t) => t.toLowerCase().replace(/^#/, "").includes(needle))) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [filters, leads]);
+  function handleFilterChange(next: LeadFilters) {
+    const onlyTextChanged =
+      next.priority === filters.priority &&
+      next.stage === filters.stage &&
+      next.source === filters.source &&
+      next.market === filters.market &&
+      next.project === filters.project &&
+      next.scoreBand === filters.scoreBand &&
+      next.overdueOnly === filters.overdueOnly;
+    if (onlyTextChanged) {
+      setLocalText({ search: next.search, tag: next.tag });
+      return;
+    }
+    setLocalText({ search: next.search, tag: next.tag });
+    pushFilters(next);
+  }
+
+  function goToPage(newPage: number) {
+    const params = filtersToSearchParams(filters);
+    if (newPage > 1) params.set("page", String(newPage));
+    const qs = params.toString();
+    router.push(qs ? `/leads?${qs}` : "/leads");
+  }
+
+  const displayFilters: LeadFilters = { ...filters, search: localText.search, tag: localText.tag };
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const rangeStart = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, totalCount);
+
+  function exportCsvUrl(): string {
+    const params = filtersToSearchParams(filters);
+    params.set("format", "csv");
+    return `/api/leads?${params.toString()}`;
+  }
 
   async function handleReassign(leadId: string, newUserId: string, newUserName: string) {
     setReassigningLeadId(null);
@@ -141,9 +194,9 @@ export function LeadInbox({
 
   function toggleSelectAllVisible() {
     setSelectedIds((prev) => {
-      const allSelected = filteredLeads.every((l) => prev.has(l.id));
+      const allSelected = leads.every((l) => prev.has(l.id));
       if (allSelected) return new Set();
-      return new Set(filteredLeads.map((l) => l.id));
+      return new Set(leads.map((l) => l.id));
     });
   }
 
@@ -223,37 +276,18 @@ export function LeadInbox({
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Lead Inbox</h1>
           <p className="mt-1 text-sm text-ink-500">
-            {filteredLeads.length} of {leads.length} leads
+            {totalCount.toLocaleString()} lead{totalCount === 1 ? "" : "s"} match these filters
           </p>
         </div>
         <div className="flex items-center gap-2">
           {canExportData && (
-            <button
-              onClick={() =>
-                downloadCsv(
-                  "sphaera-leads.csv",
-                  ["Name", "Contact", "Source", "Market", "Project", "Stage", "Score", "Engagement", "Priority", "Next Action Due", "Assignment", "Owner"],
-                  filteredLeads.map((l) => [
-                    l.name,
-                    l.contact,
-                    l.source,
-                    l.market,
-                    l.projectInterest,
-                    l.stage,
-                    l.score,
-                    l.engagement,
-                    l.priority,
-                    l.nextActionDue,
-                    l.assignment,
-                    l.assignedUserName ?? "",
-                  ])
-                )
-              }
+            <a
+              href={exportCsvUrl()}
               className="flex items-center gap-1.5 rounded-lg border border-base-700 px-3 py-1.5 text-xs font-medium text-ink-300 hover:border-base-600 hover:text-ink-50"
             >
               <Download className="h-3.5 w-3.5" />
               Export CSV
-            </button>
+            </a>
           )}
           <button
             onClick={() => setShowAddModal(true)}
@@ -265,7 +299,7 @@ export function LeadInbox({
         </div>
       </div>
 
-      <LeadFilterBar filters={filters} onChange={setFilters} markets={markets} projects={projects} />
+      <LeadFilterBar filters={displayFilters} onChange={handleFilterChange} markets={markets} projects={projects} />
 
       {isManagementView && selectedIds.size > 0 && assignableUsers.length > 0 && (
         <div className="flex items-center gap-2 border-b border-base-700 bg-base-900 px-6 py-2.5">
@@ -306,7 +340,7 @@ export function LeadInbox({
                 <th className="pb-2 pr-2 font-normal">
                   <input
                     type="checkbox"
-                    checked={filteredLeads.length > 0 && filteredLeads.every((l) => selectedIds.has(l.id))}
+                    checked={leads.length > 0 && leads.every((l) => selectedIds.has(l.id))}
                     onChange={toggleSelectAllVisible}
                     className="accent-status-active"
                   />
@@ -325,7 +359,7 @@ export function LeadInbox({
             </tr>
           </thead>
           <tbody>
-            {filteredLeads.map((lead) => (
+            {leads.map((lead) => (
               <tr
                 key={lead.id}
                 onClick={() => router.push(`/leads/${lead.id}`)}
@@ -450,10 +484,39 @@ export function LeadInbox({
           </tbody>
         </table>
 
-        {filteredLeads.length === 0 && (
+        {leads.length === 0 && (
           <div className="mt-12 text-center text-sm text-ink-500">
             No leads match these filters. Try clearing one and searching
             again.
+          </div>
+        )}
+
+        {totalCount > 0 && (
+          <div className="mt-4 flex items-center justify-between text-xs text-ink-500">
+            <span>
+              Showing {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()} of {totalCount.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => goToPage(page - 1)}
+                disabled={page <= 1}
+                className="flex items-center gap-1 rounded-lg border border-base-700 px-2.5 py-1.5 text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-40"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                Prev
+              </button>
+              <span>
+                Page {page} of {totalPages}
+              </span>
+              <button
+                onClick={() => goToPage(page + 1)}
+                disabled={page >= totalPages}
+                className="flex items-center gap-1 rounded-lg border border-base-700 px-2.5 py-1.5 text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-40"
+              >
+                Next
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         )}
       </div>

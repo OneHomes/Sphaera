@@ -23,7 +23,7 @@ generator client {
 // the API layer (or a CHECK constraint) rather than a hard Prisma enum.
 
 model Lead {
-  id                   String              @id @default(cuid())
+  id                   String    @id @default(cuid())
   // Phase 1 Sales Scope — "Unique client ID (UID)": generated once at
   // lead creation, shown to the salesperson, used as the reference across
   // payments and the outbound Onyx handoff, and can never change.
@@ -38,14 +38,14 @@ model Lead {
   source               String
   market               String
   projectInterest      String
-  stage                String              @default("New")
-  score                Int                 @default(0)
-  engagement           String              @default("Medium")
-  priority             String              @default("Medium")
+  stage                String    @default("New")
+  score                Int       @default(0)
+  engagement           String    @default("Medium")
+  priority             String    @default("Medium")
   lastInteractionAt    DateTime?
   nextAction           String?
   nextActionDueAt      DateTime?
-  assignment           String              @default("Unassigned")
+  assignment           String    @default("Unassigned")
   // PRD AE08 — set when a lead is claimed (assignment becomes "Locked");
   // released back to the unassigned pool if required activity (a logged
   // call/email/meeting) doesn't happen before this expires. See
@@ -54,7 +54,7 @@ model Lead {
   lockedUntil          DateTime?
   prioritizationReason String?
   assignedUserId       String?
-  assignedUser         User?               @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  assignedUser         User?     @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   // Legacy Salesforce lead ID — the live sync that wrote this has been
   // replaced by the HubSpot sync (see lib/hubspotSync.ts), but the field
   // stays so pre-existing Salesforce-synced leads can still be matched by
@@ -79,21 +79,31 @@ model Lead {
   // — see lib/leadToOpportunity.ts.
   estimatedValue       Int?
   estimatedCloseAt     DateTime?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  notes                LeadNote[]
-  timelineEvents       LeadTimelineEvent[]
-  opportunities        Opportunity[]
-  tags                 LeadTag[]
+  notes                    LeadNote[]
+  timelineEvents           LeadTimelineEvent[]
+  opportunities            Opportunity[]
+  tags                     LeadTag[]
   duplicateFlagsAsNew      DuplicateLeadFlag[] @relation("DuplicateFlagLead")
   duplicateFlagsAsOriginal DuplicateLeadFlag[] @relation("DuplicateFlagDuplicateOf")
 
-  @@map("leads")
   @@index([assignedUserId])
   @@index([salesforceId])
   @@index([hubspotId])
   @@index([uid])
+  // Added alongside the /leads list page's server-side pagination +
+  // filtering (2026-10-15) — at ~194K rows (post HubSpot bulk import),
+  // the previous unindexed `ORDER BY score DESC` plus client-side
+  // filtering over the full table was the reason the page hung.
+  @@index([score])
+  @@index([stage])
+  @@index([source])
+  @@index([market])
+  @@index([projectInterest])
+  @@index([nextActionDueAt])
+  @@map("leads")
 }
 
 model LeadNote {
@@ -104,8 +114,8 @@ model LeadNote {
   text      String
   createdAt DateTime @default(now())
 
-  @@map("lead_notes")
   @@index([leadId])
+  @@map("lead_notes")
 }
 
 // Phase 1 Sales Scope — "Interest Tags": added/removed at any lead
@@ -126,9 +136,9 @@ model LeadTag {
 
   removalRequests TagRemovalRequest[]
 
-  @@map("lead_tags")
   @@index([leadId])
   @@index([tag])
+  @@map("lead_tags")
 }
 
 // Per the boss's direct request (2026-10-13 call): removing a tag is no
@@ -136,31 +146,31 @@ model LeadTag {
 // it, and only an approval actually soft-deletes the LeadTag. Mirrors
 // DuplicateLeadFlag's pending/resolved shape.
 model TagRemovalRequest {
-  id               String    @id @default(cuid())
-  leadTagId        String
-  leadTag          LeadTag   @relation(fields: [leadTagId], references: [id], onDelete: Cascade)
-  reason           String
-  requestedByName  String
-  status           String    @default("pending") // pending | approved | denied
-  resolvedByName   String?
-  resolvedAt       DateTime?
-  createdAt        DateTime  @default(now())
+  id              String    @id @default(cuid())
+  leadTagId       String
+  leadTag         LeadTag   @relation(fields: [leadTagId], references: [id], onDelete: Cascade)
+  reason          String
+  requestedByName String
+  status          String    @default("pending") // pending | approved | denied
+  resolvedByName  String?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
 
-  @@map("tag_removal_requests")
   @@index([leadTagId])
   @@index([status])
+  @@map("tag_removal_requests")
 }
 
 model LeadTimelineEvent {
-  id         String   @id @default(cuid())
-  leadId     String
-  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  type       String   // call | email | meeting | note | stage_change | task
+  id                  String   @id @default(cuid())
+  leadId              String
+  lead                Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type                String // call | email | meeting | note | stage_change | task
   // Unbounded: this now holds AI-drafted messages logged as sent (JN08)
   // and note text, either of which can exceed SQL Server's default
   // NVARCHAR(1000) for a plain String column.
-  summary    String   @db.NVarChar(Max)
-  occurredAt DateTime @default(now())
+  summary             String   @db.NVarChar(Max)
+  occurredAt          DateTime @default(now())
   // Set only for rows imported from HubSpot (see lib/hubspotActivitySync.ts)
   // — lets re-running the import skip engagements already pulled in,
   // instead of duplicating the whole timeline on every sync. Null for
@@ -168,9 +178,9 @@ model LeadTimelineEvent {
   // changes, etc.), which already land here through their own routes.
   hubspotEngagementId String?
 
-  @@map("lead_timeline_events")
   @@index([leadId])
   @@index([hubspotEngagementId])
+  @@map("lead_timeline_events")
 }
 
 // Stage set here consolidates PRD AE15's full 10-stage list into 8
@@ -179,26 +189,26 @@ model LeadTimelineEvent {
 // string for the same reason as Lead.stage — status domains aren't
 // confirmed yet per the Fabric audit.
 model Opportunity {
-  id                String    @id @default(cuid())
-  leadName          String
-  contact           String
-  value             Int
-  probability       Int
-  expectedCloseAt   DateTime?
-  projectInterest   String
-  nextAction        String
-  stage             String    @default("New")
-  lossReason        String?
-  leadId            String?
-  lead              Lead?     @relation(fields: [leadId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  assignedUserId    String?
-  assignedUser      User?     @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  leadName        String
+  contact         String
+  value           Int
+  probability     Int
+  expectedCloseAt DateTime?
+  projectInterest String
+  nextAction      String
+  stage           String    @default("New")
+  lossReason      String?
+  leadId          String?
+  lead            Lead?     @relation(fields: [leadId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  assignedUserId  String?
+  assignedUser    User?     @relation(fields: [assignedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  @@map("opportunities")
   @@index([leadId])
   @@index([assignedUserId])
+  @@map("opportunities")
 }
 
 // AEX (gamification) entities. Tier thresholds live in
@@ -222,28 +232,28 @@ model Team {
   managerId String?
   manager   User?    @relation("TeamManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   members   User[]   @relation("TeamMembers")
-  targets Target[]
+  targets   Target[]
   createdAt DateTime @default(now())
 
   @@map("teams")
 }
 
 model User {
-  id        String   @id @default(cuid())
-  entraId   String?  @unique
-  name      String
-  email     String   @unique
-  role      String   @default("AGENT")
-  teamId    String?
-  team      Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
-  managedTeams Team[] @relation("TeamManager")
+  id            String   @id @default(cuid())
+  entraId       String?  @unique
+  name          String
+  email         String   @unique
+  role          String   @default("AGENT")
+  teamId        String?
+  team          Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  managedTeams  Team[]   @relation("TeamManager")
   // Phase 1 Sales Scope Foundations — "No data can be exported unless you
   // [have] specific rights": an explicit, Admin-grantable permission,
   // deliberately separate from role. Being an Admin does not imply this —
   // it must be turned on per user, including for Admins themselves.
-  canExportData Boolean @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  canExportData Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   // PRD AE01 (Sign In and Welcome Sequence) — Agents (not Admins) see a
   // daily "Welcome back" target-review screen before the rest of the
@@ -256,31 +266,31 @@ model User {
   lastWelcomeAckDate       DateTime?
   lastWelcomeAckSignedInAt DateTime?
 
-  pointEvents AexPointEvent[]
-  badges      UserBadge[]
-  streaks     UserStreak[]
+  pointEvents           AexPointEvent[]
+  badges                UserBadge[]
+  streaks               UserStreak[]
   assignedOpportunities Opportunity[]
-  assignedLeads Lead[]
-  documents Document[]
-  tasks Task[]
-  journalEntries JournalEntry[]
-  mindStateCheckIns MindStateCheckIn[]
-  targets Target[]
-  notifications Notification[]
-  whatsappNumber WhatsAppNumber?
-  janusConversations JanusConversation[]
-  janusFeedback JanusFeedback[]
-  challengesSent     Challenge[] @relation("ChallengesSent")
-  challengesReceived Challenge[] @relation("ChallengesReceived")
-  playbooksCreated   Playbook[]
-  teamFocusesSet     TeamFocus[]
-  graphToken         GraphToken?
-  projectsCreated    Project[]
-  paymentPlansCreated PaymentPlan[]
-  unitsCreated       Unit[]
+  assignedLeads         Lead[]
+  documents             Document[]
+  tasks                 Task[]
+  journalEntries        JournalEntry[]
+  mindStateCheckIns     MindStateCheckIn[]
+  targets               Target[]
+  notifications         Notification[]
+  whatsappNumber        WhatsAppNumber?
+  janusConversations    JanusConversation[]
+  janusFeedback         JanusFeedback[]
+  challengesSent        Challenge[]         @relation("ChallengesSent")
+  challengesReceived    Challenge[]         @relation("ChallengesReceived")
+  playbooksCreated      Playbook[]
+  teamFocusesSet        TeamFocus[]
+  graphToken            GraphToken?
+  projectsCreated       Project[]
+  paymentPlansCreated   PaymentPlan[]
+  unitsCreated          Unit[]
 
-  @@map("users")
   @@index([teamId])
+  @@map("users")
 }
 
 // Phase 1 Sales Scope — "Sphaera inventory": Sphaera is the operational
@@ -315,8 +325,8 @@ model PaymentPlan {
 
   units Unit[]
 
-  @@map("payment_plans")
   @@index([projectId])
+  @@map("payment_plans")
 }
 
 // Status flow per the doc: available | reserved | sold | blocked (CRO).
@@ -324,32 +334,32 @@ model PaymentPlan {
 // lib/inventoryData.ts, not just the UI, since a proposal must never be
 // able to present a unit that doesn't actually meet the requirement.
 model Unit {
-  id            String   @id @default(cuid())
-  projectId     String
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  unitNumber    String
-  floor         String?
-  unitType      String
-  size          Float
-  areaBasis     String   @default("sqft")
-  price         Int
-  currency      String   @default("AED")
-  status        String   @default("blocked")
-  paymentPlanId String?
-  paymentPlan   PaymentPlan? @relation(fields: [paymentPlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id             String       @id @default(cuid())
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  unitNumber     String
+  floor          String?
+  unitType       String
+  size           Float
+  areaBasis      String       @default("sqft")
+  price          Int
+  currency       String       @default("AED")
+  status         String       @default("blocked")
+  paymentPlanId  String?
+  paymentPlan    PaymentPlan? @relation(fields: [paymentPlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   // Document rows (lib/documentsData.ts docType "Floor Plan" / "Unit View")
   // -- reuses the existing PF08 Document/Blob Storage service rather than a
   // separate file-storage mechanism.
   floorPlanDocId String?
   viewsDocId     String?
   createdById    String
-  createdBy      User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdBy      User         @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
-  @@map("units")
-  @@index([projectId])
   @@unique([projectId, unitNumber])
+  @@index([projectId])
+  @@map("units")
 }
 
 // PRD AV10 — AEX governance config. Singleton row (single-tenant, same
@@ -360,26 +370,26 @@ model Unit {
 // table is that an Admin can now change them without a code deploy,
 // not that the numbers themselves are final.
 model AexConfig {
-  id                               String   @id @default(cuid())
-  tierSilverMinPoints              Int      @default(500)
-  tierGoldMinPoints                Int      @default(2000)
-  piWeightSpeedToLead               Float    @default(0.25)
-  piWeightOutput                    Float    @default(0.2)
-  piWeightEngagementConversion      Float    @default(0.2)
-  piWeightInteractionFulfilment     Float    @default(0.2)
-  piWeightDataQuality                Float    @default(0.15)
-  maxActiveLeadAssignments          Int      @default(15)
-  maxActiveOpportunityAssignments   Int      @default(15)
+  id                              String   @id @default(cuid())
+  tierSilverMinPoints             Int      @default(500)
+  tierGoldMinPoints               Int      @default(2000)
+  piWeightSpeedToLead             Float    @default(0.25)
+  piWeightOutput                  Float    @default(0.2)
+  piWeightEngagementConversion    Float    @default(0.2)
+  piWeightInteractionFulfilment   Float    @default(0.2)
+  piWeightDataQuality             Float    @default(0.15)
+  maxActiveLeadAssignments        Int      @default(15)
+  maxActiveOpportunityAssignments Int      @default(15)
   // PRD 14.4 "gated opportunity access" — leads scoring at/above this
   // are visible to everyone but claimable ONLY by Gold-tier agents for
   // goldGateHours after creation, then open to all tiers.
-  goldGateScoreThreshold           Int      @default(85)
-  goldGateHours                    Int      @default(2)
+  goldGateScoreThreshold          Int      @default(85)
+  goldGateHours                   Int      @default(2)
   // PRD 14.5 Daily Club — real points earned today at/above this
   // threshold qualifies an agent for today's Daily Club.
-  dailyClubPointThreshold          Int      @default(50)
-  updatedById                      String?
-  updatedAt                        DateTime @updatedAt
+  dailyClubPointThreshold         Int      @default(50)
+  updatedById                     String?
+  updatedAt                       DateTime @updatedAt
 
   @@map("aex_config")
 }
@@ -397,8 +407,8 @@ model Playbook {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("playbooks")
   @@index([category])
+  @@map("playbooks")
 }
 
 // PRD 14.9/14.10 — a real head-to-head AEX challenge between two peers
@@ -449,14 +459,14 @@ model JanusFeedback {
 // (rather than env vars) is what lets a future multi-tenant version add
 // a new company's WABA without any schema change — just a new row.
 model WhatsAppConfig {
-  id                String   @id @default(cuid())
-  wabaId            String   // WhatsApp Business Account ID from Meta
-  metaAppId         String   // Meta App ID
-  systemUserToken   String   // Permanent access token (System User)
-  businessName      String
-  isVerified        Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String   @id @default(cuid())
+  wabaId          String // WhatsApp Business Account ID from Meta
+  metaAppId       String // Meta App ID
+  systemUserToken String // Permanent access token (System User)
+  businessName    String
+  isVerified      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   numbers WhatsAppNumber[]
 
@@ -468,16 +478,16 @@ model WhatsAppConfig {
 // session — see the build discussion on why QR-based unofficial clients
 // were deliberately avoided (ToS / ban risk).
 model WhatsAppNumber {
-  id               String         @id @default(cuid())
-  userId           String         @unique
-  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  configId         String
-  config           WhatsAppConfig @relation(fields: [configId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  phoneNumber      String         @unique
-  phoneNumberId    String         @unique // Meta's internal phone_number_id, needed for send calls
-  displayName      String?
-  verifiedAt       DateTime?
-  createdAt        DateTime       @default(now())
+  id            String         @id @default(cuid())
+  userId        String         @unique
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  configId      String
+  config        WhatsAppConfig @relation(fields: [configId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  phoneNumber   String         @unique
+  phoneNumberId String         @unique // Meta's internal phone_number_id, needed for send calls
+  displayName   String?
+  verifiedAt    DateTime?
+  createdAt     DateTime       @default(now())
 
   conversations WhatsAppConversation[]
 
@@ -488,34 +498,34 @@ model WhatsAppNumber {
 // matches how WhatsApp itself groups messages into a single thread per
 // contact.
 model WhatsAppConversation {
-  id               String            @id @default(cuid())
-  agentNumberId    String
-  agentNumber      WhatsAppNumber    @relation(fields: [agentNumberId], references: [id], onDelete: Cascade)
-  clientPhone      String
-  clientName       String?
-  leadId           String?
-  lastMessageAt    DateTime          @default(now())
-  createdAt        DateTime          @default(now())
+  id            String         @id @default(cuid())
+  agentNumberId String
+  agentNumber   WhatsAppNumber @relation(fields: [agentNumberId], references: [id], onDelete: Cascade)
+  clientPhone   String
+  clientName    String?
+  leadId        String?
+  lastMessageAt DateTime       @default(now())
+  createdAt     DateTime       @default(now())
 
   messages WhatsAppMessage[]
 
-  @@map("whatsapp_conversations")
-  @@index([agentNumberId])
   @@unique([agentNumberId, clientPhone])
+  @@index([agentNumberId])
+  @@map("whatsapp_conversations")
 }
 
 model WhatsAppMessage {
-  id             String                @id @default(cuid())
+  id             String               @id @default(cuid())
   conversationId String
-  conversation   WhatsAppConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  direction      String                // "inbound" | "outbound"
+  conversation   WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      String // "inbound" | "outbound"
   content        String
-  metaMessageId  String?               // Meta's own message id, for delivery/read status correlation
-  status         String                @default("sent") // sent | delivered | read | failed
-  createdAt      DateTime              @default(now())
+  metaMessageId  String? // Meta's own message id, for delivery/read status correlation
+  status         String               @default("sent") // sent | delivered | read | failed
+  createdAt      DateTime             @default(now())
 
-  @@map("whatsapp_messages")
   @@index([conversationId])
+  @@map("whatsapp_messages")
 }
 
 model AexPointEvent {
@@ -526,8 +536,8 @@ model AexPointEvent {
   points    Int
   createdAt DateTime @default(now())
 
-  @@map("aex_point_events")
   @@index([userId])
+  @@map("aex_point_events")
 }
 
 model UserBadge {
@@ -538,8 +548,8 @@ model UserBadge {
   description String
   earnedAt    DateTime @default(now())
 
-  @@map("aex_user_badges")
   @@index([userId])
+  @@map("aex_user_badges")
 }
 
 model UserStreak {
@@ -551,8 +561,8 @@ model UserStreak {
   resetRule    String
   updatedAt    DateTime @updatedAt
 
-  @@map("aex_user_streaks")
   @@index([userId])
+  @@map("aex_user_streaks")
 }
 
 // PF07 (Audit Trail) requirement: permission and role changes must be
@@ -576,23 +586,23 @@ model AuditLog {
 // original mock data modeled it, to keep this MVP simple; tightening it
 // into a real relation is a reasonable future enhancement.
 model Document {
-  id           String   @id @default(cuid())
-  name         String
-  blobName     String
-  contentType  String
-  sizeBytes    Int
-  docType      String   @default("Brochure")
-  relatedTo    String?
-  uploadedById String
-  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt    DateTime @default(now())
+  id            String   @id @default(cuid())
+  name          String
+  blobName      String
+  contentType   String
+  sizeBytes     Int
+  docType       String   @default("Brochure")
+  relatedTo     String?
+  uploadedById  String
+  uploadedBy    User     @relation(fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt     DateTime @default(now())
   // Phase 1 Sales Scope — "Janus company knowledge": extracted at upload
   // time (lib/documentTextExtraction.ts) so Janus can ground answers in
   // the actual content, not just the file's existence. Null for formats
   // extraction doesn't support yet (images, .docx, .pptx) -- those
   // documents still upload/browse fine, they're just not usable as
   // Janus grounding material.
-  extractedText String? @db.NVarChar(Max)
+  extractedText String?  @db.NVarChar(Max)
 
   // Doc: "An authorised content owner must be able to add, replace and
   // retire documents." Replacing uploads a new version row (supersedesId
@@ -600,8 +610,8 @@ model Document {
   // action hard-deletes, so the version chain is real history, and
   // Janus/active listings only ever see status "active" so a superseded
   // payment plan can never get cited as current truth.
-  status       String    @default("active") // active | retired
-  version      Int       @default(1)
+  status       String     @default("active") // active | retired
+  version      Int        @default(1)
   // Not @unique at the DB level — SQL Server rejects multiple NULLs on a
   // plain unique column (hit this exact issue before with salesforceId
   // and uid). One-document-per-supersession is enforced in the replace
@@ -613,10 +623,10 @@ model Document {
   // replace route only ever setting supersedesId once, at creation.
   supersededBy Document[] @relation("DocumentVersionChain")
 
-  @@map("documents")
   @@index([uploadedById])
   @@index([status])
   @@index([supersedesId])
+  @@map("documents")
 }
 
 // PRD AE14 — task sources: user created, manager assigned, Janus
@@ -638,8 +648,8 @@ model Task {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@map("tasks")
   @@index([assignedToId])
+  @@map("tasks")
 }
 
 // PRD 4.10 / 19.5 — Journal entries are strictly private to their
@@ -662,9 +672,10 @@ model JournalEntry {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  @@map("journal_entries")
   @@index([authorId])
+  @@map("journal_entries")
 }
+
 // PRD AV04 (Target Tracker) — a target belongs to EITHER a user
 // (personal target) OR a team (whole-team target), not both — enforced
 // at the application layer, not a DB constraint, to keep this simple.
@@ -691,8 +702,8 @@ model JanusConversation {
   updatedAt DateTime       @updatedAt
   messages  JanusMessage[]
 
-  @@map("janus_conversations")
   @@index([userId])
+  @@map("janus_conversations")
 }
 
 model JanusMessage {
@@ -703,11 +714,11 @@ model JanusMessage {
   // Unbounded: a grounded Janus answer (briefing/ask) routinely exceeds
   // SQL Server's default NVARCHAR(1000) for a plain String column — this
   // is what actually broke first.
-  content        String @db.NVarChar(Max)
+  content        String            @db.NVarChar(Max)
   createdAt      DateTime          @default(now())
 
-  @@map("janus_messages")
   @@index([conversationId])
+  @@map("janus_messages")
 }
 
 // avoid a half-finished access-control surface for sensitive wellbeing
@@ -716,32 +727,32 @@ model MindStateCheckIn {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  moodScore Int      // 1 (struggling) .. 5 (great)
-  mood      String   // human label for moodScore, kept alongside for display without a lookup table
+  moodScore Int // 1 (struggling) .. 5 (great)
+  mood      String // human label for moodScore, kept alongside for display without a lookup table
   note      String?
   createdAt DateTime @default(now())
 
-  @@map("mindstate_checkins")
   @@index([userId])
+  @@map("mindstate_checkins")
 }
 
 model Target {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   userId      String?
-  user        User?     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   teamId      String?
-  team        Team?     @relation(fields: [teamId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  metric      String    // "revenue" | "calls" | "meetings"
+  team        Team?    @relation(fields: [teamId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  metric      String // "revenue" | "calls" | "meetings"
   periodStart DateTime
   periodEnd   DateTime
   targetValue Float
   createdById String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  @@map("targets")
   @@index([userId])
   @@index([teamId])
+  @@map("targets")
 }
 
 // PRD PF05 / AE22 — Notifications. Wired to concrete, in-code events
@@ -758,15 +769,15 @@ model Notification {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String   // lead_assigned | opportunity_assigned | task_assigned | whatsapp_message | challenge_update | risk_critical
+  type      String // lead_assigned | opportunity_assigned | task_assigned | whatsapp_message | challenge_update | risk_critical
   title     String
   body      String
   href      String?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@map("notifications")
   @@index([userId])
+  @@map("notifications")
 }
 
 // PRD JN12 — Prompt Based Focus Orchestration ("Janus, shift the team's
@@ -778,20 +789,20 @@ model Notification {
 // silently change allocation, targets, or campaign focus from an
 // ambiguous prompt") — see app/api/focus/route.ts.
 model TeamFocus {
-  id          String    @id @default(cuid())
-  setById     String
-  setBy       User      @relation(fields: [setById], references: [id], onDelete: Cascade)
-  teamId      String?   // null = company-wide (Admin only)
-  dimension   String    // "market" | "projectInterest" | "source"
-  value       String    // e.g. "AED", "Diyar", "Referral"
-  reason      String
-  startsAt    DateTime  @default(now())
-  endsAt      DateTime
-  createdAt   DateTime  @default(now())
+  id        String   @id @default(cuid())
+  setById   String
+  setBy     User     @relation(fields: [setById], references: [id], onDelete: Cascade)
+  teamId    String? // null = company-wide (Admin only)
+  dimension String // "market" | "projectInterest" | "source"
+  value     String // e.g. "AED", "Diyar", "Referral"
+  reason    String
+  startsAt  DateTime @default(now())
+  endsAt    DateTime
+  createdAt DateTime @default(now())
 
-  @@map("team_focuses")
   @@index([teamId])
   @@index([endsAt])
+  @@map("team_focuses")
 }
 
 // Real fix for an HTTP 431 ("Request Header Fields Too Large") hit in
@@ -833,10 +844,10 @@ model DuplicateLeadFlag {
   resolvedAt     DateTime?
   createdAt      DateTime  @default(now())
 
-  @@map("duplicate_lead_flags")
   @@index([leadId])
   @@index([duplicateOfId])
   @@index([status])
+  @@map("duplicate_lead_flags")
 }
 
 // Sphaera Market Intelligence — Pakistan asking-price benchmarks module
@@ -853,7 +864,7 @@ model IntelligenceDataset {
 }
 
 model MarketObservation {
-  id          String  @id
+  id          String @id
   city        String
   area        String
   segment     String // houses | flats | residential_plots | commercial_plots
@@ -866,8 +877,8 @@ model MarketObservation {
   source      String
   basis       String
 
-  @@map("market_observations")
   @@index([city, segment, purpose, period])
+  @@map("market_observations")
 }
 
 model IndexSeries {
@@ -879,6 +890,6 @@ model IndexSeries {
   size    String
   payload String @db.NVarChar(Max) // full JSON series, including all points
 
-  @@map("index_series")
   @@index([city, segment, purpose, size])
+  @@map("index_series")
 }
