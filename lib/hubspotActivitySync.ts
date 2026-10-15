@@ -62,23 +62,25 @@ export type ActivitySyncResult = {
   totalImported: number;
 };
 
-export async function syncHubSpotActivity(leadLimit = 2500): Promise<ActivitySyncResult> {
-  const leads = await prisma.lead.findMany({
-    where: { hubspotId: { not: null } },
-    select: { id: true, hubspotId: true },
-    take: leadLimit,
+async function fetchExistingEngagementIds(): Promise<Set<string>> {
+  const rows = await prisma.leadTimelineEvent.findMany({
+    where: { hubspotEngagementId: { not: null } },
+    select: { hubspotEngagementId: true },
   });
-  const leadIdByHubspotId = new Map(leads.map((l) => [l.hubspotId!, l.id]));
-  const hubspotIds = leads.map((l) => l.hubspotId!);
+  return new Set(rows.map((r) => r.hubspotEngagementId!));
+}
 
-  const existingEngagementIds = new Set(
-    (
-      await prisma.leadTimelineEvent.findMany({
-        where: { hubspotEngagementId: { not: null } },
-        select: { hubspotEngagementId: true },
-      })
-    ).map((e) => e.hubspotEngagementId!)
-  );
+// Shared by both syncHubSpotActivity (one bounded admin-triggered batch)
+// and syncHubSpotActivityForAllLeads (the full sweep below) — takes the
+// existing-engagement-id set by reference and adds to it as rows are
+// inserted, so a multi-batch caller never re-queries the whole
+// (ever-growing) LeadTimelineEvent table once per batch.
+async function syncHubSpotActivityForLeads(
+  leads: { id: string; hubspotId: string }[],
+  existingEngagementIds: Set<string>
+): Promise<ActivitySyncResult> {
+  const leadIdByHubspotId = new Map(leads.map((l) => [l.hubspotId, l.id]));
+  const hubspotIds = leads.map((l) => l.hubspotId);
 
   const result: ActivitySyncResult = { perType: {}, totalImported: 0 };
 
@@ -119,6 +121,7 @@ export async function syncHubSpotActivity(leadLimit = 2500): Promise<ActivitySyn
       for (let i = 0; i < rows.length; i += 500) {
         await prisma.leadTimelineEvent.createMany({ data: rows.slice(i, i + 500) });
       }
+      for (const r of rows) existingEngagementIds.add(r.hubspotEngagementId);
 
       result.perType[config.hubspotType] = {
         found: allEngagementIds.length,
@@ -135,4 +138,83 @@ export async function syncHubSpotActivity(leadLimit = 2500): Promise<ActivitySyn
   }
 
   return result;
+}
+
+/** One bounded batch, admin-triggered from HubSpotSyncCard.tsx. */
+export async function syncHubSpotActivity(leadLimit = 2500): Promise<ActivitySyncResult> {
+  const leads = await prisma.lead.findMany({
+    where: { hubspotId: { not: null } },
+    select: { id: true, hubspotId: true },
+    take: leadLimit,
+  });
+  const existingEngagementIds = await fetchExistingEngagementIds();
+  return syncHubSpotActivityForLeads(
+    leads.map((l) => ({ id: l.id, hubspotId: l.hubspotId! })),
+    existingEngagementIds
+  );
+}
+
+export type ActivityBulkSyncProgress = {
+  leadsProcessed: number;
+  totalLeads: number;
+  totalImported: number;
+  batchesFailed: number;
+};
+
+// 2026-10-15 — syncHubSpotActivity's leadLimit=2500 cap meant only ~0.6%
+// of the ~191,000 HubSpot-imported leads ever got their activity history
+// pulled in. This sweeps ALL of them, in small lead batches (so each
+// HubSpot call stays small and a failure only loses one batch, not the
+// whole run), with a short pause between batches — same reasoning as
+// lib/hubspotBulkImport.ts's self-throttling: a tight loop hammering
+// Azure SQL + HubSpot back-to-back for the hours this will take is
+// exactly what starved the DB connection pool and took the live site
+// down earlier this session. Cursor-paginated (not skip-based) so it
+// doesn't slow down as it works through ~383 batches.
+export async function syncHubSpotActivityForAllLeads(
+  onProgress?: (progress: ActivityBulkSyncProgress) => void,
+  batchSize = 500,
+  pauseMs = 500
+): Promise<ActivityBulkSyncProgress> {
+  const totalLeads = await prisma.lead.count({ where: { hubspotId: { not: null } } });
+  const existingEngagementIds = await fetchExistingEngagementIds();
+
+  const progress: ActivityBulkSyncProgress = {
+    leadsProcessed: 0,
+    totalLeads,
+    totalImported: 0,
+    batchesFailed: 0,
+  };
+
+  let cursorId: string | undefined;
+  for (;;) {
+    const batch = await prisma.lead.findMany({
+      where: { hubspotId: { not: null } },
+      select: { id: true, hubspotId: true },
+      orderBy: { id: "asc" },
+      take: batchSize,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+    });
+    if (batch.length === 0) break;
+
+    try {
+      const result = await syncHubSpotActivityForLeads(
+        batch.map((l) => ({ id: l.id, hubspotId: l.hubspotId! })),
+        existingEngagementIds
+      );
+      progress.totalImported += result.totalImported;
+    } catch (err) {
+      progress.batchesFailed++;
+      console.error("HubSpot activity bulk sync: a batch failed:", err);
+    }
+
+    progress.leadsProcessed += batch.length;
+    cursorId = batch[batch.length - 1].id;
+    onProgress?.(progress);
+
+    if (batch.length < batchSize) break;
+    await new Promise((resolve) => setTimeout(resolve, pauseMs));
+  }
+
+  return progress;
 }
