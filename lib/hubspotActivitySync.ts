@@ -11,7 +11,7 @@ import { batchReadAssociations, batchReadObjects, type HubSpotObject } from "./h
 // Idempotent: hubspotEngagementId is checked before insert, so re-running
 // this only pulls in genuinely new engagements, never duplicates.
 
-type EngagementConfig = {
+export type EngagementConfig = {
   hubspotType: string; // HubSpot object type, e.g. "emails"
   timelineType: string; // LeadTimelineEvent.type value, e.g. "email"
   properties: string[];
@@ -57,6 +57,14 @@ const ENGAGEMENT_TYPES: EngagementConfig[] = [
   },
 ];
 
+// Keyed by the singular object name HubSpot uses in webhook
+// subscriptionType strings ("call.creation", "email.propertyChange", …)
+// — see lib/hubspotEngagementWebhook.ts, the real-time counterpart to
+// this file's bulk sweep.
+export const ENGAGEMENT_TYPE_BY_WEBHOOK_NAME: Record<string, EngagementConfig> = Object.fromEntries(
+  ENGAGEMENT_TYPES.map((c) => [c.hubspotType.slice(0, -1), c])
+);
+
 export type ActivitySyncResult = {
   perType: Record<string, { found: number; imported: number; failed: boolean }>;
   totalImported: number;
@@ -75,7 +83,7 @@ async function fetchExistingEngagementIds(): Promise<Set<string>> {
 // existing-engagement-id set by reference and adds to it as rows are
 // inserted, so a multi-batch caller never re-queries the whole
 // (ever-growing) LeadTimelineEvent table once per batch.
-async function syncHubSpotActivityForLeads(
+export async function syncHubSpotActivityForLeads(
   leads: { id: string; hubspotId: string }[],
   existingEngagementIds: Set<string>
 ): Promise<ActivitySyncResult> {

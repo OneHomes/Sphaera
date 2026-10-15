@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { syncHubSpotContactFromWebhook } from "@/lib/hubspotWebhook";
+import { syncHubSpotEngagementFromWebhook } from "@/lib/hubspotEngagementWebhook";
 
-// Real-time HubSpot -> Sphaera lead creation. HubSpot calls this the
-// instant a contact is created (subscribe to "Contact creation" on this
-// Private App's Webhooks tab, target URL https://apex.sphaera.tech/api/
-// webhooks/hubspot). No session/login here — this is a public endpoint
-// by necessity, so HubSpot's own request signature is the auth
-// mechanism instead.
+// Real-time HubSpot -> Sphaera sync. HubSpot calls this the instant a
+// contact is created, OR a call/email/meeting/note/task is created or
+// edited on a contact that's already a lead here — subscribe to
+// "Contact creation" plus, for each engagement type, both "creation" and
+// "propertyChange" on this Private App's Webhooks tab, target URL
+// https://apex.sphaera.tech/api/webhooks/hubspot. No session/login here —
+// this is a public endpoint by necessity, so HubSpot's own request
+// signature is the auth mechanism instead.
 //
 // Signature verification per HubSpot's v3 scheme: HMAC-SHA256 of
 // `${method}${uri}${body}${timestamp}` using the Private App's "Client
@@ -56,19 +59,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // HubSpot normally sends one event per webhook call for a single
-  // contact creation, so processing inline (rather than needing a
+  // HubSpot normally sends a handful of events per call (batched, not
+  // necessarily one), so processing inline (rather than needing a
   // background-task primitive this deployment target doesn't reliably
   // have) stays well within HubSpot's response-time expectations.
   for (const event of events) {
-    if (event.subscriptionType !== "contact.creation") continue;
+    const [objectName, action] = event.subscriptionType.split(".");
     try {
-      const outcome = await syncHubSpotContactFromWebhook(String(event.objectId));
-      if (outcome.status === "created") {
-        console.log(`HubSpot webhook: created lead "${outcome.leadName}" from contact ${event.objectId}`);
+      if (event.subscriptionType === "contact.creation") {
+        const outcome = await syncHubSpotContactFromWebhook(String(event.objectId));
+        if (outcome.status === "created") {
+          console.log(`HubSpot webhook: created lead "${outcome.leadName}" from contact ${event.objectId}`);
+        }
+      } else if (action === "creation" || action === "propertyChange") {
+        // Engagement types (call/email/meeting/note/task) — new activity
+        // or an edit to activity already synced. Unrecognized object
+        // names (e.g. a future subscription type) are a no-op, not an
+        // error — see ENGAGEMENT_TYPE_BY_WEBHOOK_NAME.
+        const outcome = await syncHubSpotEngagementFromWebhook(objectName, String(event.objectId));
+        if (outcome.status === "synced") {
+          console.log(`HubSpot webhook: synced ${objectName} ${event.objectId} to lead(s) ${outcome.leadIds.join(", ")}`);
+        }
       }
     } catch (err) {
-      console.error(`HubSpot webhook: failed to sync contact ${event.objectId}:`, err);
+      console.error(`HubSpot webhook: failed to process ${event.subscriptionType} ${event.objectId}:`, err);
     }
   }
 

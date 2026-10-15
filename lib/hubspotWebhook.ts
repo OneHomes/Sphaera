@@ -13,6 +13,7 @@ import { flagDuplicatesForLead } from "./duplicateDetection";
 import { maybeCreateOpportunityFromLead } from "./leadToOpportunity";
 import { createNotification } from "./notifications";
 import { logAudit } from "./auditLog";
+import { syncHubSpotActivityForLeads } from "./hubspotActivitySync";
 
 // Real-time counterpart to lib/hubspotSync.ts — instead of an admin
 // periodically clicking "Sync now", HubSpot pushes a webhook event the
@@ -80,6 +81,15 @@ export async function syncHubSpotContactFromWebhook(hubspotContactId: string): P
 
   await maybeCreateOpportunityFromLead(lead.id);
   await flagDuplicatesForLead(lead.id, lead.contact, lead.name);
+
+  // A contact can already have real HubSpot history by the time its
+  // creation webhook fires here (e.g. it existed in HubSpot for a while
+  // before matching Sphaera's import filters, or before today's filter
+  // rules let it through) — pull that in immediately rather than leaving
+  // the lead's timeline empty until the next full sweep.
+  await syncHubSpotActivityForLeads([{ id: lead.id, hubspotId: hubspotContactId }], new Set()).catch((err) =>
+    console.error(`HubSpot webhook: activity pull failed for new lead ${lead.id}:`, err)
+  );
 
   // Notify whoever it's for — the assigned agent if HubSpot's owner
   // resolved to a real Sphaera user, otherwise every Admin so the
