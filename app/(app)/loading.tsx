@@ -1,3 +1,5 @@
+import { ApexGlyph } from "@/components/ui/ApexGlyph";
+
 export default function AppLoading() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black">
@@ -24,14 +26,5 @@ export default function AppLoading() {
         </p>
       </div>
     </div>
-  );
-}
-
-function ApexGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 100 90" fill="none" className={className}>
-      <polygon points="50,4 12,86 42,86" fill="currentColor" />
-      <polygon points="50,4 88,86 58,86" fill="currentColor" />
-    </svg>
   );
 }

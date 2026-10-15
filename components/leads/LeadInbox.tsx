@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Info, Plus, UserPlus, Repeat, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
+import { ApexGlyph } from "@/components/ui/ApexGlyph";
 import { LeadFilterBar, defaultLeadFilters, type LeadFilters } from "./LeadFilterBar";
 import { AddLeadModal } from "./AddLeadModal";
 import {
@@ -62,6 +63,12 @@ export function LeadInbox({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Pagination/filter clicks call router.push with new searchParams on
+  // this same route — wrapping those in a transition gives us `isPending`
+  // to show a loading state while the server component re-fetches, since
+  // (unlike a full navigation into /leads) a searchParams-only change
+  // doesn't reliably surface the route's loading.tsx on its own.
+  const [isPending, startTransition] = useTransition();
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   // The server component re-runs on every filter/page navigation and
   // hands down a new `initialLeads` page — sync local state (which also
@@ -110,7 +117,9 @@ export function LeadInbox({
   function pushFilters(next: LeadFilters) {
     const params = filtersToSearchParams(next);
     const qs = params.toString();
-    router.push(qs ? `/leads?${qs}` : "/leads");
+    startTransition(() => {
+      router.push(qs ? `/leads?${qs}` : "/leads");
+    });
   }
 
   function handleFilterChange(next: LeadFilters) {
@@ -134,7 +143,9 @@ export function LeadInbox({
     const params = filtersToSearchParams(filters);
     if (newPage > 1) params.set("page", String(newPage));
     const qs = params.toString();
-    router.push(qs ? `/leads?${qs}` : "/leads");
+    startTransition(() => {
+      router.push(qs ? `/leads?${qs}` : "/leads");
+    });
   }
 
   const displayFilters: LeadFilters = { ...filters, search: localText.search, tag: localText.tag };
@@ -332,7 +343,16 @@ export function LeadInbox({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto px-6 py-4">
+      <div className="relative flex-1 overflow-auto px-6 py-4">
+        {isPending && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-base-950/85 backdrop-blur-sm">
+            <ApexGlyph className="h-10 w-10 text-white" />
+            <div className="relative h-px w-28 overflow-hidden bg-base-700">
+              <span className="absolute top-0 h-px w-[35%] animate-loadingSweep bg-white" />
+            </div>
+            <p className="text-[10px] tracking-[0.3em] text-ink-500">LOADING LEADS</p>
+          </div>
+        )}
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="text-ink-500">
@@ -499,7 +519,7 @@ export function LeadInbox({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => goToPage(page - 1)}
-                disabled={page <= 1}
+                disabled={page <= 1 || isPending}
                 className="flex items-center gap-1 rounded-lg border border-base-700 px-2.5 py-1.5 text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-40"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
@@ -510,7 +530,7 @@ export function LeadInbox({
               </span>
               <button
                 onClick={() => goToPage(page + 1)}
-                disabled={page >= totalPages}
+                disabled={page >= totalPages || isPending}
                 className="flex items-center gap-1 rounded-lg border border-base-700 px-2.5 py-1.5 text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-40"
               >
                 Next
