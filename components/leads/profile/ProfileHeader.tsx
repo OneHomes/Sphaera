@@ -168,7 +168,9 @@ export function ProfileHeader({
             )}
           </div>
           <p className="mt-1 text-sm text-ink-500">
-            {lead.contact} · {lead.source} · {lead.market}
+            {lead.contact}
+            {lead.email && lead.email !== lead.contact && <> · {lead.email}</>} · {lead.source} ·{" "}
+            {lead.market}
           </p>
           <p className="mt-1 flex items-center gap-1.5 text-xs">
             {lead.assignedUserName ? (

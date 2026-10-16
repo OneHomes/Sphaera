@@ -43,6 +43,12 @@ async function main() {
 
     checked += chunk.length;
     if (checked % 5000 === 0) console.log(`checked ${checked}/${leads.length}, flagged ${idsToRemove.length} so far`);
+
+    // Throttled for the same reason as lib/hubspotBulkImport.ts and
+    // lib/hubspotActivitySync.ts's full sweep — an unthrottled loop this
+    // long hammering Azure SQL + HubSpot concurrently with live traffic
+    // is what caused a real production outage earlier this session.
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   console.log(`\nTotal flagged for removal (missing name/email/phone): ${idsToRemove.length}`);
@@ -56,6 +62,7 @@ async function main() {
     await prisma.opportunity.deleteMany({ where: { leadId: { in: ids } } });
     await prisma.lead.deleteMany({ where: { id: { in: ids } } });
     console.log(`removed batch ${i}-${i + ids.length}`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   console.log("\nDone. Removed:", idsToRemove.length);

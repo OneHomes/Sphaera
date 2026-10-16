@@ -55,6 +55,7 @@ export function toUiLead(
     tags: row.tags?.map((t) => t.tag) ?? [],
     name: row.name,
     contact: row.contact,
+    email: row.email ?? undefined,
     source: row.source,
     market: row.market,
     projectInterest: row.projectInterest,

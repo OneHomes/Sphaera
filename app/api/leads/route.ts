@@ -51,6 +51,7 @@ export async function GET(request: Request) {
     const csv = toCsv(uiLeads, [
       { key: "name", label: "Name" },
       { key: "contact", label: "Contact" },
+      { key: "email", label: "Email" },
       { key: "source", label: "Source" },
       { key: "market", label: "Market" },
       { key: "projectInterest", label: "Project" },

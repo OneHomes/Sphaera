@@ -63,6 +63,7 @@ export async function syncHubSpotContactFromWebhook(hubspotContactId: string): P
       uid,
       name,
       contact: freshContact,
+      email: truthy(p.email) ? p.email : null,
       source: p.leadsource || "Other",
       market: "Unknown",
       projectInterest: p.project__c || "Unspecified",

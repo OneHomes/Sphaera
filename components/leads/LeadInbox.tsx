@@ -398,6 +398,9 @@ export function LeadInbox({
                 <td className="py-2.5 pr-3">
                   <div className="font-medium text-ink-50">{lead.name}</div>
                   <div className="text-ink-500">{lead.contact}</div>
+                  {lead.email && lead.email !== lead.contact && (
+                    <div className="text-ink-500">{lead.email}</div>
+                  )}
                 </td>
                 <td className="py-2.5 pr-3">
                   <div>{lead.source}</div>

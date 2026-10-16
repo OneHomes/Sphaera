@@ -34,7 +34,19 @@ model Lead {
   // generate-and-check-for-collision loop.
   uid                  String?
   name                 String
+  // The original single "primary contact" field — phone/mobile if either
+  // exists, else email (see lib/hubspotContactFilter.ts's `fullName`-style
+  // helpers). Kept as-is since search/duplicate-detection/CSV export
+  // already depend on it; `email` below is additive, not a replacement.
   contact              String
+  // 2026-10-16 — added because `contact` prioritizing phone meant email
+  // was invisible in the UI for ~191,128 of ~191,139 HubSpot-imported
+  // leads whenever a phone number was also present, even though most of
+  // them have a real email in HubSpot. Populated going forward by every
+  // sync path (lib/hubspotWebhook.ts, lib/hubspotBulkImport.ts,
+  // lib/hubspotSync.ts); backfilled for existing leads by
+  // scripts/backfill-lead-emails.ts.
+  email                String?
   source               String
   market               String
   projectInterest      String

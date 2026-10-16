@@ -80,6 +80,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
         id: true,
         name: true,
         contact: true,
+        email: true,
         source: true,
         projectInterest: true,
         hubspotId: true,
@@ -99,6 +100,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
       if (!existing.hubspotId) data.hubspotId = contact.id; // backfill legacy Salesforce-only leads
       if (truthy(p.email) || truthy(fullName(p))) data.name = fullName(p);
       if (freshContact) data.contact = freshContact;
+      if (truthy(p.email)) data.email = p.email;
       if (truthy(p.leadsource)) data.source = p.leadsource;
       if (truthy(p.project__c)) data.projectInterest = p.project__c;
       if (freshValue !== null) data.estimatedValue = freshValue;
@@ -107,6 +109,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
       const meaningfulChange =
         (data.name && data.name !== existing.name) ||
         (data.contact && data.contact !== existing.contact) ||
+        (data.email && data.email !== existing.email) ||
         (data.source && data.source !== existing.source) ||
         (data.projectInterest && data.projectInterest !== existing.projectInterest) ||
         (data.estimatedValue !== undefined && data.estimatedValue !== existing.estimatedValue) ||
@@ -132,6 +135,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
         uid,
         name: fullName(p),
         contact: freshContact || "—",
+        email: truthy(p.email) ? p.email : null,
         source: p.leadsource || "Other",
         market: "Unknown", // HubSpot has no per-contact market/currency field to pull from
         projectInterest: p.project__c || "Unspecified",

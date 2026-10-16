@@ -67,6 +67,7 @@ export type Lead = {
   uid?: string;
   name: string;
   contact: string;
+  email?: string;
   source: string;
   market: string;
   projectInterest: string;

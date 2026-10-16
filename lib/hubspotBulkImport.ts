@@ -93,6 +93,7 @@ export async function bulkImportHubSpotLeads(
       uid: string;
       name: string;
       contact: string;
+      email: string | null;
       source: string;
       market: string;
       projectInterest: string;
@@ -157,6 +158,7 @@ export async function bulkImportHubSpotLeads(
         uid,
         name,
         contact: leadContact,
+        email: truthy(p.email) ? p.email : null,
         source: p.leadsource || "Other",
         market: "Unknown",
         projectInterest: p.project__c || "Unspecified",
