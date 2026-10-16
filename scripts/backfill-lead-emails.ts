@@ -11,6 +11,24 @@ import { batchReadObjects } from "../lib/hubspot";
 const BATCH_SIZE = 100; // matches batchReadObjects' own per-request chunk size
 const PAUSE_MS = 200; // same throttling reasoning as the other full sweeps this session
 
+// Azure SQL serverless cold-start blips (P1001, "Can't reach database
+// server") are transient and expected over a run this long — seen
+// repeatedly elsewhere this session. Without retrying the DB calls
+// themselves (not just the HubSpot ones), one blip kills the whole
+// process instead of just costing a few seconds.
+async function withDbRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, Math.min(15000, 1000 * 2 ** i)));
+    }
+  }
+  throw lastErr;
+}
+
 async function main() {
   const totalLeads = await prisma.lead.count({ where: { hubspotId: { not: null }, email: null } });
   console.log(`Backfilling email for ${totalLeads} leads missing it...`);
@@ -20,13 +38,15 @@ async function main() {
   let cursorId: string | undefined;
 
   for (;;) {
-    const batch = await prisma.lead.findMany({
-      where: { hubspotId: { not: null }, email: null },
-      select: { id: true, hubspotId: true },
-      orderBy: { id: "asc" },
-      take: BATCH_SIZE,
-      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
-    });
+    const batch = await withDbRetry(() =>
+      prisma.lead.findMany({
+        where: { hubspotId: { not: null }, email: null },
+        select: { id: true, hubspotId: true },
+        orderBy: { id: "asc" },
+        take: BATCH_SIZE,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      })
+    );
     if (batch.length === 0) break;
 
     try {
@@ -40,7 +60,7 @@ async function main() {
       for (const lead of batch) {
         const email = emailById.get(lead.hubspotId!);
         if (typeof email === "string" && email.trim()) {
-          await prisma.lead.update({ where: { id: lead.id }, data: { email: email.trim() } });
+          await withDbRetry(() => prisma.lead.update({ where: { id: lead.id }, data: { email: email.trim() } }));
           updated++;
         }
       }
