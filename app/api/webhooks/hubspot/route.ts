@@ -66,7 +66,14 @@ export async function POST(request: Request) {
   for (const event of events) {
     const [objectName, action] = event.subscriptionType.split(".");
     try {
-      if (event.subscriptionType === "contact.creation") {
+      if (objectName === "contact" && (action === "creation" || action === "propertyChange")) {
+        // propertyChange matters here too, not just creation: a contact
+        // missing name/email/phone at creation time is excluded (see
+        // lib/hubspotContactFilter.ts) and stays that way until someone
+        // fills in the missing field — e.g. an agent adds a phone number
+        // weeks later. syncHubSpotContactFromWebhook already no-ops if
+        // the lead exists or the contact still doesn't qualify, so
+        // calling it on every edit is safe, not just on creation.
         const outcome = await syncHubSpotContactFromWebhook(String(event.objectId));
         if (outcome.status === "created") {
           console.log(`HubSpot webhook: created lead "${outcome.leadName}" from contact ${event.objectId}`);
