@@ -86,11 +86,38 @@ export function toUiNote(row: PrismaLeadNote): Note {
   };
 }
 
+// HubSpot stores some engagement bodies (meeting notes especially) as
+// raw HTML rather than plain text — synced verbatim into `summary` (see
+// lib/hubspotActivitySync.ts), so without this the activity timeline
+// showed literal `<html><head>...` markup as visible text. A full HTML
+// parser is overkill for what's just a display cleanup; stripping tags
+// and decoding the handful of entities HubSpot actually emits covers it.
+function cleanSummaryForDisplay(raw: string): string {
+  const stripped = raw
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<\/(p|div|br|li|tr)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return stripped.length > 600 ? `${stripped.slice(0, 600)}…` : stripped;
+}
+
 export function toUiTimelineEvent(row: PrismaTimelineEvent): TimelineEvent {
   return {
     id: row.id,
     type: row.type as TimelineEventType,
     timestamp: formatRelativeTime(row.occurredAt),
-    summary: row.summary,
+    summary: cleanSummaryForDisplay(row.summary),
   };
 }

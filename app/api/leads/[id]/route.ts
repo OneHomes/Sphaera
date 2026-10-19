@@ -28,7 +28,7 @@ export async function GET(
     include: {
       assignedUser: true,
       notes: { orderBy: { createdAt: "desc" } },
-      timelineEvents: { orderBy: { occurredAt: "asc" } },
+      timelineEvents: { orderBy: { occurredAt: "desc" } },
     },
   });
 

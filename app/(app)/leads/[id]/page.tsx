@@ -25,7 +25,11 @@ export default async function LeadProfilePage({
     include: {
       assignedUser: true,
       notes: { orderBy: { createdAt: "desc" } },
-      timelineEvents: { orderBy: { occurredAt: "asc" } },
+      // Newest first — a lead can have well over a thousand imported
+      // HubSpot events (old email threads etc.), and the most useful
+      // thing to see first opening a profile is what happened most
+      // recently, not the oldest history.
+      timelineEvents: { orderBy: { occurredAt: "desc" } },
     },
   });
 
