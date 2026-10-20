@@ -11,7 +11,8 @@ export type NotificationType =
   | "risk_critical"
   | "janus_escalation"
   | "tag_removal_requested"
-  | "hubspot_lead_synced";
+  | "hubspot_lead_synced"
+  | "lead_activity_updated";
 
 export async function createNotification(
   userId: string,

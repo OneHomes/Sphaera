@@ -1,6 +1,9 @@
 import { prisma } from "./prisma";
 import { batchReadObjects, batchReadAssociations } from "./hubspot";
 import { ENGAGEMENT_TYPE_BY_WEBHOOK_NAME } from "./hubspotActivitySync";
+import { createNotification } from "./notifications";
+import { getValidGraphAccessToken } from "./graphTokenStore";
+import { sendMail } from "./graph";
 
 // Real-time counterpart to lib/hubspotActivitySync.ts's bulk sweep —
 // instead of waiting for the next full sync, HubSpot pushes a webhook
@@ -35,7 +38,7 @@ export async function syncHubSpotEngagementFromWebhook(
 
   const leads = await prisma.lead.findMany({
     where: { hubspotId: { in: contactIds } },
-    select: { id: true },
+    select: { id: true, name: true, assignedUserId: true },
   });
   if (leads.length === 0) return { status: "no_matching_lead" };
 
@@ -64,7 +67,51 @@ export async function syncHubSpotEngagementFromWebhook(
         data: { leadId: lead.id, type: config.timelineType, summary, occurredAt, hubspotEngagementId: engagementId },
       });
     }
+
+    // Real-time only (not the bulk sweep) — the assigned user should
+    // hear about new/changed activity on their own lead as it happens,
+    // not get flooded during a historical import. Both best-effort: a
+    // notification/email failure must never break the sync itself.
+    if (lead.assignedUserId) {
+      await notifyAssignedUserOfActivity(lead.assignedUserId, lead.id, lead.name, config.timelineType, summary);
+    }
   }
 
   return { status: "synced", leadIds: leads.map((l) => l.id) };
+}
+
+async function notifyAssignedUserOfActivity(
+  userId: string,
+  leadId: string,
+  leadName: string,
+  activityType: string,
+  summary: string
+): Promise<void> {
+  await createNotification(
+    userId,
+    "lead_activity_updated",
+    "New activity on your lead",
+    `${leadName} — new ${activityType}`,
+    `/leads/${leadId}`
+  );
+
+  try {
+    const [{ accessToken }, user] = await Promise.all([
+      getValidGraphAccessToken(userId),
+      prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    ]);
+    if (!accessToken || !user) return;
+
+    await sendMail(
+      accessToken,
+      user.email,
+      `New activity on ${leadName}`,
+      `<p>There's new activity on <strong>${leadName}</strong>.</p><p>${summary
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/\n/g, "<br>")}</p><p><a href="https://apex.sphaera.tech/leads/${leadId}">View lead</a></p>`
+    );
+  } catch (err) {
+    console.error(`Failed to email-notify user ${userId} of activity on lead ${leadId}:`, err);
+  }
 }

@@ -18,6 +18,7 @@ export type TimelineEvent = {
   id: string;
   type: TimelineEventType;
   timestamp: string;
+  occurredAt: string; // ISO — the HubSpot-style timeline groups by month and needs a real date, not just the relative "timestamp" string
   summary: string;
 };
 

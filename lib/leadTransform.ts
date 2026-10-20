@@ -118,6 +118,7 @@ export function toUiTimelineEvent(row: PrismaTimelineEvent): TimelineEvent {
     id: row.id,
     type: row.type as TimelineEventType,
     timestamp: formatRelativeTime(row.occurredAt),
+    occurredAt: row.occurredAt.toISOString(),
     summary: cleanSummaryForDisplay(row.summary),
   };
 }
