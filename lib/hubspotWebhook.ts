@@ -14,6 +14,7 @@ import { maybeCreateOpportunityFromLead } from "./leadToOpportunity";
 import { createNotification } from "./notifications";
 import { logAudit } from "./auditLog";
 import { syncHubSpotActivityForLeads } from "./hubspotActivitySync";
+import { syncBehavioralEventsForLead } from "./hubspotBehavioralSync";
 
 // Real-time counterpart to lib/hubspotSync.ts — instead of an admin
 // periodically clicking "Sync now", HubSpot pushes a webhook event the
@@ -90,6 +91,9 @@ export async function syncHubSpotContactFromWebhook(hubspotContactId: string): P
   // the lead's timeline empty until the next full sweep.
   await syncHubSpotActivityForLeads([{ id: lead.id, hubspotId: hubspotContactId }], new Set()).catch((err) =>
     console.error(`HubSpot webhook: activity pull failed for new lead ${lead.id}:`, err)
+  );
+  await syncBehavioralEventsForLead(lead.id, hubspotContactId, lead.email, new Set()).catch((err) =>
+    console.error(`HubSpot webhook: behavioral event pull failed for new lead ${lead.id}:`, err)
   );
 
   // Notify whoever it's for — the assigned agent if HubSpot's owner

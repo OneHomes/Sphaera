@@ -59,6 +59,82 @@ async function hubspotPost<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+export type HubSpotBehavioralEvent = {
+  id: string;
+  occurredAt: string;
+  properties: Record<string, string | null>;
+};
+
+/**
+ * Page views / form submissions for one contact — confirmed 2026-10-21
+ * these are the only two standard event types the Events API v3 exposes
+ * (everything else in a contact's on-screen activity timeline, like ad
+ * activity or social interactions, isn't retrievable via API at all).
+ * Requires the business-intelligence scope. No batch mode — one contact
+ * at a time, per HubSpot's own API shape.
+ */
+export async function fetchContactBehavioralEvents(
+  hubspotContactId: string,
+  eventType: "e_visited_page" | "e_submitted_form"
+): Promise<HubSpotBehavioralEvent[]> {
+  const all: HubSpotBehavioralEvent[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const qs = new URLSearchParams({
+      objectType: "contact",
+      objectId: hubspotContactId,
+      eventType,
+      limit: "100",
+      ...(after ? { after } : {}),
+    });
+    const data = await hubspotFetch<{
+      results: { id: string; occurredAt: string; properties: Record<string, string | null> }[];
+      paging?: { next?: { after: string } };
+    }>(`/events/v3/events?${qs.toString()}`);
+    all.push(...data.results.map((r) => ({ id: r.id, occurredAt: r.occurredAt, properties: r.properties })));
+    after = data.paging?.next?.after;
+    if (!after) break;
+  }
+  return all;
+}
+
+export type HubSpotMarketingEmailEvent = {
+  id: string;
+  type: string; // SENT | DELIVERED | PROCESSED | OPEN | CLICK | BOUNCE | ...
+  created: number; // epoch ms
+  subject?: string;
+  emailCampaignId?: number;
+};
+
+/**
+ * Marketing email send/open/click/bounce history for one contact, by
+ * email address (this legacy API is recipient-keyed, not contact-ID-
+ * keyed) — requires the `content` scope. Despite the "legacy" label,
+ * confirmed still live 2026-10-21 (only the separate v1 Marketing Email
+ * CRUD API was sunset, not this events endpoint). No batch mode here
+ * either.
+ */
+export async function fetchMarketingEmailEvents(recipientEmail: string): Promise<HubSpotMarketingEmailEvent[]> {
+  const all: HubSpotMarketingEmailEvent[] = [];
+  let offset: string | undefined;
+  for (;;) {
+    const qs = new URLSearchParams({
+      recipient: recipientEmail,
+      limit: "100",
+      ...(offset ? { offset } : {}),
+    });
+    const data = await hubspotFetch<{
+      hasMore: boolean;
+      offset?: string;
+      events: { id: string; type: string; created: number; subject?: string; emailCampaignId?: number }[];
+    }>(`/email/public/v1/events?${qs.toString()}`);
+    all.push(...data.events);
+    if (!data.hasMore || !data.offset) break;
+    offset = data.offset;
+  }
+  return all;
+}
+
 export type HubSpotPropertyMeta = {
   name: string;
   label: string;
