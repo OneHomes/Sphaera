@@ -92,7 +92,7 @@ const FILTER_GROUPS: { label: string; types: TimelineEventType[] }[] = [
 ];
 
 const ALL_TYPES = Object.keys(typeLabels) as TimelineEventType[];
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 10;
 
 function firstLine(summary: string): string {
   const idx = summary.indexOf("\n");
