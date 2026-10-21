@@ -92,7 +92,7 @@ export async function syncHubSpotContactFromWebhook(hubspotContactId: string): P
   await syncHubSpotActivityForLeads([{ id: lead.id, hubspotId: hubspotContactId }], new Set()).catch((err) =>
     console.error(`HubSpot webhook: activity pull failed for new lead ${lead.id}:`, err)
   );
-  await syncBehavioralEventsForLead(lead.id, hubspotContactId, lead.email, new Set()).catch((err) =>
+  await syncBehavioralEventsForLead(lead.id, lead.name, hubspotContactId, lead.email, new Set()).catch((err) =>
     console.error(`HubSpot webhook: behavioral event pull failed for new lead ${lead.id}:`, err)
   );
 

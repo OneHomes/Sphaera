@@ -19,10 +19,37 @@ function trunc(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  SENT: "Sent",
+  PROCESSED: "Processed",
+  DELIVERED: "Delivered",
+  OPEN: "Opened",
+  CLICK: "Clicked",
+  BOUNCE: "Bounced",
+  DROPPED: "Dropped",
+  DEFERRED: "Deferred",
+  SPAMREPORT: "Marked as spam",
+  SUPPRESSED: "Suppressed",
+  UNSUBSCRIBE: "Unsubscribed",
+  STATUSCHANGE: "Status changed",
+  REPLY: "Replied",
+};
+
+function formatTimestamp(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export type BehavioralSyncResult = { imported: number };
 
 export async function syncBehavioralEventsForLead(
   leadId: string,
+  leadName: string,
   hubspotContactId: string,
   email: string | null,
   existingEngagementIds: Set<string>
@@ -77,23 +104,62 @@ export async function syncBehavioralEventsForLead(
     console.error(`Behavioral sync: form submissions failed for lead ${leadId}:`, err);
   }
 
+  // HubSpot shows marketing email activity as ONE card per send — subject,
+  // an Opens/Clicks/Replies summary line, then the individual statuses
+  // (Sent/Delivered/Opened/Clicked) — not a separate timeline entry per
+  // status. Matched here by grouping all events sharing an
+  // emailCampaignId into a single row, keyed by a synthetic
+  // "campaign-{id}" id (not a real HubSpot engagement id) so a later
+  // sync updates that one row in place — e.g. a fresh Open coming in
+  // tomorrow updates today's card instead of creating a new one.
   if (truthy(email)) {
     try {
       const mailEvents = await fetchMarketingEmailEvents(email);
-      const subjectByCampaign = new Map<number, string>();
+      const byCampaign = new Map<number, typeof mailEvents>();
       for (const e of mailEvents) {
-        if (e.subject && e.emailCampaignId !== undefined) subjectByCampaign.set(e.emailCampaignId, e.subject);
+        const campaignId = e.emailCampaignId ?? -1;
+        const list = byCampaign.get(campaignId) ?? [];
+        list.push(e);
+        byCampaign.set(campaignId, list);
       }
-      for (const e of mailEvents) {
-        if (existingEngagementIds.has(e.id)) continue;
-        const subject = (e.emailCampaignId !== undefined && subjectByCampaign.get(e.emailCampaignId)) || e.subject;
-        rows.push({
-          leadId,
-          type: "marketing_email",
-          summary: `Marketing email ${e.type}${subject ? `: ${trunc(subject, 300)}` : ""}`,
-          occurredAt: new Date(e.created),
-          hubspotEngagementId: e.id,
+
+      for (const [campaignId, campaignEvents] of byCampaign) {
+        const subject = campaignEvents.find((e) => truthy(e.subject))?.subject ?? "(no subject)";
+        const opens = campaignEvents.filter((e) => e.type === "OPEN").length;
+        const clicks = campaignEvents.filter((e) => e.type === "CLICK").length;
+        const replies = campaignEvents.filter((e) => e.type === "REPLY").length;
+        const sentEvent = campaignEvents.find((e) => e.type === "SENT");
+
+        const statusLines = [...campaignEvents]
+          .sort((a, b) => b.created - a.created)
+          .map((e) => `${STATUS_LABELS[e.type] ?? e.type}: ${formatTimestamp(e.created)}`)
+          .join("\n");
+
+        const summary = [
+          `Marketing email sent to ${leadName} <${email}>`,
+          "",
+          subject,
+          "",
+          `Opens: ${opens}  Clicks: ${clicks}  Replies: ${replies}`,
+          "",
+          statusLines,
+        ].join("\n");
+
+        const occurredAt = sentEvent ? new Date(sentEvent.created) : new Date(Math.min(...campaignEvents.map((e) => e.created)));
+        const groupKey = `campaign-${campaignId}`;
+
+        const existing = await prisma.leadTimelineEvent.findFirst({
+          where: { leadId, hubspotEngagementId: groupKey },
+          select: { id: true, summary: true },
         });
+        if (existing) {
+          if (existing.summary !== summary) {
+            await prisma.leadTimelineEvent.update({ where: { id: existing.id }, data: { summary, occurredAt } });
+            imported++;
+          }
+        } else {
+          rows.push({ leadId, type: "marketing_email", summary, occurredAt, hubspotEngagementId: groupKey });
+        }
       }
     } catch (err) {
       console.error(`Behavioral sync: marketing emails failed for lead ${leadId}:`, err);
@@ -110,12 +176,12 @@ export async function syncBehavioralEventsForLead(
 }
 
 export async function syncBehavioralEventsForLeads(
-  leads: { id: string; hubspotId: string; email: string | null }[],
+  leads: { id: string; name: string; hubspotId: string; email: string | null }[],
   existingEngagementIds: Set<string>
 ): Promise<BehavioralSyncResult> {
   let imported = 0;
   for (const lead of leads) {
-    const result = await syncBehavioralEventsForLead(lead.id, lead.hubspotId, lead.email, existingEngagementIds);
+    const result = await syncBehavioralEventsForLead(lead.id, lead.name, lead.hubspotId, lead.email, existingEngagementIds);
     imported += result.imported;
   }
   return { imported };
