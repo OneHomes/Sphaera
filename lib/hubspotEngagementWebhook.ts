@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import { batchReadObjects, batchReadAssociations } from "./hubspot";
-import { ENGAGEMENT_TYPE_BY_WEBHOOK_NAME } from "./hubspotActivitySync";
+import { ENGAGEMENT_TYPE_BY_WEBHOOK_NAME, resolveTimelineType } from "./hubspotActivitySync";
 import { createNotification } from "./notifications";
 import { getValidGraphAccessToken } from "./graphTokenStore";
 import { sendMail } from "./graph";
@@ -47,6 +47,7 @@ export async function syncHubSpotEngagementFromWebhook(
       ? new Date(engagement.properties.hs_timestamp)
       : new Date();
   const summary = config.summarize(engagement.properties);
+  const timelineType = resolveTimelineType(config, engagement.properties);
 
   // One engagement can be associated with more than one contact/lead
   // (rare, but possible) — upsert per lead so each gets its own row.
@@ -64,7 +65,7 @@ export async function syncHubSpotEngagementFromWebhook(
       await prisma.leadTimelineEvent.update({ where: { id: existing.id }, data: { summary, occurredAt } });
     } else {
       await prisma.leadTimelineEvent.create({
-        data: { leadId: lead.id, type: config.timelineType, summary, occurredAt, hubspotEngagementId: engagementId },
+        data: { leadId: lead.id, type: timelineType, summary, occurredAt, hubspotEngagementId: engagementId },
       });
     }
 
@@ -73,7 +74,7 @@ export async function syncHubSpotEngagementFromWebhook(
     // not get flooded during a historical import. Both best-effort: a
     // notification/email failure must never break the sync itself.
     if (lead.assignedUserId) {
-      await notifyAssignedUserOfActivity(lead.assignedUserId, lead.id, lead.name, config.timelineType, summary);
+      await notifyAssignedUserOfActivity(lead.assignedUserId, lead.id, lead.name, timelineType, summary);
     }
   }
 

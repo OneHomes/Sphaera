@@ -13,10 +13,18 @@ import { batchReadAssociations, batchReadObjects, type HubSpotObject } from "./h
 
 export type EngagementConfig = {
   hubspotType: string; // HubSpot object type, e.g. "emails"
-  timelineType: string; // LeadTimelineEvent.type value, e.g. "email"
+  // LeadTimelineEvent.type value. A function for "communications" — one
+  // HubSpot object type covers WhatsApp/LinkedIn/SMS, distinguished only
+  // by hs_communication_channel_type, so it needs to be derived per row
+  // rather than fixed per engagement type.
+  timelineType: string | ((p: Record<string, string | null>) => string);
   properties: string[];
   summarize: (p: Record<string, string | null>) => string;
 };
+
+export function resolveTimelineType(config: EngagementConfig, p: Record<string, string | null>): string {
+  return typeof config.timelineType === "function" ? config.timelineType(p) : config.timelineType;
+}
 
 const truthy = (v: string | null | undefined) => typeof v === "string" && v.trim().length > 0;
 const trunc = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -54,6 +62,30 @@ const ENGAGEMENT_TYPES: EngagementConfig[] = [
     timelineType: "task",
     properties: ["hs_task_subject", "hs_task_status", "hs_timestamp"],
     summarize: (p) => `Task: ${p.hs_task_subject || "Untitled task"}${p.hs_task_status ? ` — ${p.hs_task_status}` : ""}`,
+  },
+  {
+    // One HubSpot object ("communications") covers WhatsApp, LinkedIn
+    // messages, and SMS — see hs_communication_channel_type. Confirmed
+    // 2026-10-21 against the live account: accessible with the scopes
+    // already granted, no new Private App scope needed for this one.
+    hubspotType: "communications",
+    timelineType: (p) => {
+      switch (p.hs_communication_channel_type) {
+        case "WHATS_APP":
+          return "whatsapp";
+        case "LINKEDIN_MESSAGE":
+          return "linkedin";
+        case "SMS":
+          return "sms";
+        default:
+          return "communication";
+      }
+    },
+    properties: ["hs_communication_channel_type", "hs_communication_body", "hs_timestamp"],
+    summarize: (p) => {
+      const channel = p.hs_communication_channel_type || "Message";
+      return `${channel}: ${trunc(p.hs_communication_body || "(empty)", 2000)}`;
+    },
   },
 ];
 
@@ -118,7 +150,7 @@ export async function syncHubSpotActivityForLeads(
             : new Date();
           rows.push({
             leadId,
-            type: config.timelineType,
+            type: resolveTimelineType(config, engagement.properties),
             summary: config.summarize(engagement.properties),
             occurredAt,
             hubspotEngagementId: engagementId,

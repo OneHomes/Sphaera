@@ -12,7 +12,14 @@ export type TimelineEventType =
   | "note"
   | "stage_change"
   | "task"
-  | "handover";
+  | "handover"
+  | "whatsapp"
+  | "linkedin"
+  | "sms"
+  | "communication" // fallback for a HubSpot communication channel type we don't have a specific icon/filter for yet
+  | "page_view"
+  | "form_submission"
+  | "marketing_email";
 
 export type TimelineEvent = {
   id: string;

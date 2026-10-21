@@ -11,14 +11,23 @@ import {
   Repeat,
   ChevronDown,
   ChevronRight,
+  MessageCircle,
+  Linkedin,
+  MessageSquare,
+  Eye,
+  ClipboardList,
+  Megaphone,
 } from "lucide-react";
 import type { TimelineEvent, TimelineEventType } from "@/lib/leadProfileData";
 
 // Matches the interaction pattern of HubSpot's own activity timeline
-// (type filter checkboxes, collapsed-by-default cards you expand for
-// detail, a collapse/expand-all toggle, month section headers) — adapted
-// to our dark theme and scoped to the 7 event types we actually have,
-// not HubSpot's full generic list of ~44.
+// (type filter checkboxes grouped the same way HubSpot groups its own
+// "Communication" / "Contact activity" / "Team activity" filter, collapsed-
+// by-default cards you expand for detail, a collapse/expand-all toggle,
+// month section headers) — adapted to our dark theme. Only lists types we
+// can actually fetch real data for (confirmed against the live HubSpot
+// account, 2026-10-21) — the rest of HubSpot's ~44-option filter isn't
+// retrievable via its public API at all, so it isn't worth showing here.
 
 const iconMap: Record<TimelineEventType, typeof Phone> = {
   call: Phone,
@@ -28,6 +37,13 @@ const iconMap: Record<TimelineEventType, typeof Phone> = {
   stage_change: ArrowRightCircle,
   task: CheckSquare,
   handover: Repeat,
+  whatsapp: MessageCircle,
+  linkedin: Linkedin,
+  sms: MessageSquare,
+  communication: MessageSquare,
+  page_view: Eye,
+  form_submission: ClipboardList,
+  marketing_email: Megaphone,
 };
 
 const colorMap: Record<TimelineEventType, string> = {
@@ -38,6 +54,13 @@ const colorMap: Record<TimelineEventType, string> = {
   stage_change: "text-status-alert bg-status-alert/15",
   task: "text-status-active bg-status-active/15",
   handover: "text-tier-gold bg-tier-gold/15",
+  whatsapp: "text-emerald-400 bg-emerald-500/15",
+  linkedin: "text-sky-500 bg-sky-500/15",
+  sms: "text-amber-400 bg-amber-500/15",
+  communication: "text-amber-400 bg-amber-500/15",
+  page_view: "text-ink-300 bg-base-700",
+  form_submission: "text-violet-400 bg-violet-500/15",
+  marketing_email: "text-pink-400 bg-pink-500/15",
 };
 
 const typeLabels: Record<TimelineEventType, string> = {
@@ -48,7 +71,25 @@ const typeLabels: Record<TimelineEventType, string> = {
   stage_change: "Stage changes",
   task: "Tasks",
   handover: "Handovers",
+  whatsapp: "WhatsApp",
+  linkedin: "LinkedIn messages",
+  sms: "SMS",
+  communication: "Other messages",
+  page_view: "Page views",
+  form_submission: "Form submissions",
+  marketing_email: "Marketing emails",
 };
+
+// Grouped the same way as HubSpot's own filter panel (Communication /
+// Contact activity / Team activity), minus the categories it exposes in
+// its UI but not through the API. "Sphaera" covers our own native event
+// types that HubSpot has no equivalent for.
+const FILTER_GROUPS: { label: string; types: TimelineEventType[] }[] = [
+  { label: "Communication", types: ["call", "email", "whatsapp", "linkedin", "sms", "communication"] },
+  { label: "Contact activity", types: ["page_view", "form_submission", "marketing_email"] },
+  { label: "Team activity", types: ["meeting", "note", "task"] },
+  { label: "Sphaera", types: ["stage_change", "handover"] },
+];
 
 const ALL_TYPES = Object.keys(typeLabels) as TimelineEventType[];
 const PAGE_SIZE = 30;
@@ -105,6 +146,19 @@ export function ActivityTimeline({ events }: { events: TimelineEvent[] }) {
     setVisibleCount(PAGE_SIZE);
   }
 
+  function toggleGroup(types: TimelineEventType[]) {
+    const allOn = types.every((t) => activeTypes.has(t));
+    setActiveTypes((prev) => {
+      const next = new Set(prev);
+      for (const t of types) {
+        if (allOn) next.delete(t);
+        else next.add(t);
+      }
+      return next;
+    });
+    setVisibleCount(PAGE_SIZE);
+  }
+
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -128,21 +182,41 @@ export function ActivityTimeline({ events }: { events: TimelineEvent[] }) {
               {filterOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setFilterOpen(false)} />
-                  <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-base-700 bg-base-800 p-2 shadow-lg">
-                    {ALL_TYPES.map((type) => (
-                      <label
-                        key={type}
-                        className="flex items-center gap-2 rounded px-1.5 py-1 text-xs text-ink-300 hover:bg-base-700"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={activeTypes.has(type)}
-                          onChange={() => toggleType(type)}
-                          className="accent-status-active"
-                        />
-                        {typeLabels[type]}
-                      </label>
-                    ))}
+                  <div className="absolute right-0 z-20 mt-1 max-h-96 w-56 overflow-y-auto rounded-lg border border-base-700 bg-base-800 p-2 shadow-lg">
+                    {FILTER_GROUPS.map((group) => {
+                      const allOn = group.types.every((t) => activeTypes.has(t));
+                      const someOn = !allOn && group.types.some((t) => activeTypes.has(t));
+                      return (
+                        <div key={group.label} className="mb-1.5 last:mb-0">
+                          <label className="flex items-center gap-2 rounded px-1.5 py-1 text-xs font-medium text-ink-50 hover:bg-base-700">
+                            <input
+                              type="checkbox"
+                              checked={allOn}
+                              ref={(el) => {
+                                if (el) el.indeterminate = someOn;
+                              }}
+                              onChange={() => toggleGroup(group.types)}
+                              className="accent-status-active"
+                            />
+                            {group.label}
+                          </label>
+                          {group.types.map((type) => (
+                            <label
+                              key={type}
+                              className="ml-4 flex items-center gap-2 rounded px-1.5 py-1 text-xs text-ink-300 hover:bg-base-700"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={activeTypes.has(type)}
+                                onChange={() => toggleType(type)}
+                                className="accent-status-active"
+                              />
+                              {typeLabels[type]}
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })}
                     <div className="mt-1 flex items-center justify-between border-t border-base-700 pt-1.5">
                       <button
                         onClick={() => setActiveTypes(new Set(ALL_TYPES))}
