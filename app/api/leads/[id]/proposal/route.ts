@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getFreshAuthUser, canAccessRecord } from "@/lib/authz";
 import { getOrCreateCurrentUser } from "@/lib/currentUser";
 import { askJanus } from "@/lib/janus";
 import { uploadDocumentBlob } from "@/lib/blobStorage";
 import { recordJanusAction } from "@/lib/janusPolicy";
+import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // PRD AE16 — Proposal prep. Janus drafts a proposal grounded in the
 // lead's real record and the company's own uploaded reference documents
@@ -110,41 +109,44 @@ export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const authUser = await getFreshAuthUser(session);
-
-  const grounding = await loadGroundingContext(params.id, authUser);
-  if ("error" in grounding) {
-    return NextResponse.json({ error: grounding.error }, { status: grounding.error === "Forbidden" ? 403 : 404 });
-  }
-
   try {
-    const raw = await askJanus([
-      { role: "system", content: PROPOSAL_SYSTEM_PROMPT },
-      { role: "user", content: grounding.context },
-    ]);
+    return await withTenant(async (authUser) => {
+      const grounding = await loadGroundingContext(params.id, authUser);
+      if ("error" in grounding) {
+        return NextResponse.json({ error: grounding.error }, { status: grounding.error === "Forbidden" ? 403 : 404 });
+      }
 
-    let title = `Proposal — ${grounding.lead.name}`;
-    let body = `<p>${grounding.lead.name}, thank you for your interest in ${grounding.lead.projectInterest}.</p>`;
-    try {
-      const cleaned = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
-      const parsed = JSON.parse(cleaned);
-      if (typeof parsed.title === "string" && parsed.title.trim()) title = parsed.title.trim();
-      if (typeof parsed.body === "string" && parsed.body.trim()) body = parsed.body.trim();
-    } catch {
-      body = `<p>${raw.replace(/\n+/g, "</p><p>")}</p>`;
-    }
+      try {
+        const raw = await askJanus([
+          { role: "system", content: PROPOSAL_SYSTEM_PROMPT },
+          { role: "user", content: grounding.context },
+        ]);
 
-    return NextResponse.json({ title, body });
+        let title = `Proposal — ${grounding.lead.name}`;
+        let body = `<p>${grounding.lead.name}, thank you for your interest in ${grounding.lead.projectInterest}.</p>`;
+        try {
+          const cleaned = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
+          const parsed = JSON.parse(cleaned);
+          if (typeof parsed.title === "string" && parsed.title.trim()) title = parsed.title.trim();
+          if (typeof parsed.body === "string" && parsed.body.trim()) body = parsed.body.trim();
+        } catch {
+          body = `<p>${raw.replace(/\n+/g, "</p><p>")}</p>`;
+        }
+
+        return NextResponse.json({ title, body });
+      } catch (err) {
+        console.error("Proposal generation failed:", err);
+        return NextResponse.json(
+          { error: "Janus couldn't draft a proposal right now. Try again in a moment." },
+          { status: 502 }
+        );
+      }
+    });
   } catch (err) {
-    console.error("Proposal generation failed:", err);
-    return NextResponse.json(
-      { error: "Janus couldn't draft a proposal right now. Try again in a moment." },
-      { status: 502 }
-    );
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
   }
 }
 
@@ -152,63 +154,67 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const authUser = await getFreshAuthUser(session);
-  const user = await getOrCreateCurrentUser(session);
-
-  const lead = await prisma.lead.findUnique({
-    where: { id: params.id },
-    include: { assignedUser: true },
-  });
-  if (!lead) {
-    return NextResponse.json({ error: "Lead not found" }, { status: 404 });
-  }
-  if (!canAccessRecord(authUser, lead.assignedUserId, lead.assignedUser?.teamId ?? null)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const body = await request.json();
-  if (!body.title || !body.body) {
-    return NextResponse.json({ error: "title and body are required" }, { status: 400 });
-  }
-
-  const html = `<html><body>${body.body}</body></html>`;
-  const buffer = Buffer.from(html, "utf-8");
-  const blobName = `proposal-${lead.id}-${Date.now()}.html`;
-
   try {
-    await uploadDocumentBlob(blobName, buffer, "text/html");
+    return await withTenant(async (authUser, session) => {
+      const user = await getOrCreateCurrentUser(session);
+
+      const lead = await prisma.lead.findUnique({
+        where: { id: params.id },
+        include: { assignedUser: true },
+      });
+      if (!lead) {
+        return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+      }
+      if (!canAccessRecord(authUser, lead.assignedUserId, lead.assignedUser?.teamId ?? null)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const body = await request.json();
+      if (!body.title || !body.body) {
+        return NextResponse.json({ error: "title and body are required" }, { status: 400 });
+      }
+
+      const html = `<html><body>${body.body}</body></html>`;
+      const buffer = Buffer.from(html, "utf-8");
+      const blobName = `proposal-${lead.id}-${Date.now()}.html`;
+
+      try {
+        await uploadDocumentBlob(blobName, buffer, "text/html");
+      } catch (err) {
+        console.error("Blob upload failed:", err);
+        return NextResponse.json(
+          { error: "Failed to save the proposal to storage. Check Azure Storage configuration." },
+          { status: 502 }
+        );
+      }
+
+      const document = await prisma.document.create({
+        data: {
+          name: `${body.title}.html`,
+          blobName,
+          contentType: "text/html",
+          sizeBytes: buffer.byteLength,
+          docType: "Proposal",
+          relatedTo: lead.name,
+          uploadedById: user.id,
+        },
+        include: { uploadedBy: true },
+      });
+
+      await recordJanusAction(
+        user.id,
+        session.user?.email ?? "unknown",
+        "proposal_generated",
+        document.id,
+        `Saved proposal "${body.title}" for ${lead.name} (reviewed and confirmed before saving)`
+      );
+
+      return NextResponse.json(document, { status: 201 });
+    });
   } catch (err) {
-    console.error("Blob upload failed:", err);
-    return NextResponse.json(
-      { error: "Failed to save the proposal to storage. Check Azure Storage configuration." },
-      { status: 502 }
-    );
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
   }
-
-  const document = await prisma.document.create({
-    data: {
-      name: `${body.title}.html`,
-      blobName,
-      contentType: "text/html",
-      sizeBytes: buffer.byteLength,
-      docType: "Proposal",
-      relatedTo: lead.name,
-      uploadedById: user.id,
-    },
-    include: { uploadedBy: true },
-  });
-
-  await recordJanusAction(
-    user.id,
-    session.user?.email ?? "unknown",
-    "proposal_generated",
-    document.id,
-    `Saved proposal "${body.title}" for ${lead.name} (reviewed and confirmed before saving)`
-  );
-
-  return NextResponse.json(document, { status: 201 });
 }

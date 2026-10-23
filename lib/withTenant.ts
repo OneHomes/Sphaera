@@ -1,6 +1,6 @@
 import { getServerSession, type Session } from "next-auth";
 import { authOptions } from "./auth";
-import { getFreshAuthUser, type AuthUser } from "./authz";
+import { getAuthUser, getFreshAuthUser, type AuthUser } from "./authz";
 import { tenantContext } from "./prisma";
 
 // The one thing every route/page needs to add to become properly
@@ -22,13 +22,27 @@ export class UnauthenticatedError extends Error {
   }
 }
 
-/** For API routes (app/api/**\/route.ts). Throws UnauthenticatedError if there's no session — callers should catch it and return 401. */
-export async function withTenant<T>(handler: (authUser: AuthUser, session: Session) => Promise<T>): Promise<T> {
+/**
+ * For API routes (app/api/**\/route.ts). Throws UnauthenticatedError if
+ * there's no session — callers should catch it and return 401.
+ *
+ * `fresh` (default true) picks which of lib/authz.ts's two resolvers
+ * runs: fresh re-reads role/teamId/canExportData from the DB (needed
+ * wherever a permission change must apply before the user's next
+ * sign-in); `fresh: false` uses the cheaper JWT-cached getAuthUser for
+ * routes that were already using that — same freshness trade-off
+ * authz.ts has always documented, just threaded through here too.
+ */
+export async function withTenant<T>(
+  handler: (authUser: AuthUser, session: Session) => Promise<T>,
+  options?: { fresh?: boolean }
+): Promise<T> {
   const session = await getServerSession(authOptions);
   if (!session) {
     throw new UnauthenticatedError();
   }
-  const authUser = await getFreshAuthUser(session);
+  const authUser =
+    options?.fresh === false ? getAuthUser(session) : await getFreshAuthUser(session);
   return tenantContext.run({ organizationId: authUser.organizationId }, () => handler(authUser, session));
 }
 

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getFreshAuthUser, hasRole } from "@/lib/authz";
+import { hasRole } from "@/lib/authz";
 import { toCsv, csvResponse } from "@/lib/csv";
+import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // PF07 (Audit Trail) + PRD Section 14.12 ("the governance report must
 // show suspicious patterns, rule versions, and manual adjustments") —
@@ -15,70 +14,73 @@ import { toCsv, csvResponse } from "@/lib/csv";
 // ?format=csv exports the full matching set (uncapped) instead of the
 // normal 50-row JSON page.
 export async function GET(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const authUser = await getFreshAuthUser(session);
-
-  if (!hasRole(authUser, ["ADMIN"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const search = searchParams.get("search");
-  const isExport = searchParams.get("format") === "csv";
-
-  // Phase 1 Sales Scope Foundations — "No data can be exported unless you
-  // [have] specific rights": a separate, explicit permission from the
-  // ADMIN role check above, same as every other export surface.
-  if (isExport && !authUser.canExportData) {
-    return NextResponse.json(
-      { error: "You don't have export rights. Ask an admin to grant them." },
-      { status: 403 }
-    );
-  }
-
-  const where = search
-    ? {
-        OR: [
-          { action: { contains: search } },
-          { actorEmail: { contains: search } },
-          { details: { contains: search } },
-        ],
+  try {
+    return await withTenant(async (authUser) => {
+      if (!hasRole(authUser, ["ADMIN"])) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-    : {};
 
-  const entries = await prisma.auditLog.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    ...(isExport ? {} : { take: 50 }),
-  });
+      const { searchParams } = new URL(request.url);
+      const search = searchParams.get("search");
+      const isExport = searchParams.get("format") === "csv";
 
-  if (isExport) {
-    const csv = toCsv(
-      entries.map((e) => ({
-        ...e,
-        createdAt: e.createdAt.toISOString(),
-      })),
-      [
-        { key: "createdAt", label: "Timestamp" },
-        { key: "actorEmail", label: "Actor" },
-        { key: "action", label: "Action" },
-        { key: "targetId", label: "Target ID" },
-        { key: "details", label: "Details" },
-      ]
-    );
-    return csvResponse(csv, `sphaera-audit-log-${new Date().toISOString().slice(0, 10)}.csv`);
+      // Phase 1 Sales Scope Foundations — "No data can be exported unless you
+      // [have] specific rights": a separate, explicit permission from the
+      // ADMIN role check above, same as every other export surface.
+      if (isExport && !authUser.canExportData) {
+        return NextResponse.json(
+          { error: "You don't have export rights. Ask an admin to grant them." },
+          { status: 403 }
+        );
+      }
+
+      const where = search
+        ? {
+            OR: [
+              { action: { contains: search } },
+              { actorEmail: { contains: search } },
+              { details: { contains: search } },
+            ],
+          }
+        : {};
+
+      const entries = await prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        ...(isExport ? {} : { take: 50 }),
+      });
+
+      if (isExport) {
+        const csv = toCsv(
+          entries.map((e) => ({
+            ...e,
+            createdAt: e.createdAt.toISOString(),
+          })),
+          [
+            { key: "createdAt", label: "Timestamp" },
+            { key: "actorEmail", label: "Actor" },
+            { key: "action", label: "Action" },
+            { key: "targetId", label: "Target ID" },
+            { key: "details", label: "Details" },
+          ]
+        );
+        return csvResponse(csv, `sphaera-audit-log-${new Date().toISOString().slice(0, 10)}.csv`);
+      }
+
+      return NextResponse.json(
+        entries.map((e) => ({
+          id: e.id,
+          actorEmail: e.actorEmail,
+          action: e.action,
+          details: e.details,
+          createdAt: e.createdAt.toISOString(),
+        }))
+      );
+    });
+  } catch (err) {
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
   }
-
-  return NextResponse.json(
-    entries.map((e) => ({
-      id: e.id,
-      actorEmail: e.actorEmail,
-      action: e.action,
-      details: e.details,
-      createdAt: e.createdAt.toISOString(),
-    }))
-  );
 }
