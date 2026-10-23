@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getOrCreateCurrentUser } from "@/lib/currentUser";
+import { withTenantPage } from "@/lib/withTenant";
 import { getAgentPerformanceMetrics, type PerformancePeriod } from "@/lib/agentPerformanceMetrics";
 import { getDashboardMetrics } from "@/lib/dashboardMetrics";
 import { HealthCard } from "@/components/performance/HealthCard";
@@ -27,37 +27,38 @@ export default async function PerformancePage({
 
   const period: PerformancePeriod = searchParams.period === "week" ? "week" : "month";
 
-  const user = await getOrCreateCurrentUser(session);
-  const [metrics, dashboardMetrics] = await Promise.all([
-    getAgentPerformanceMetrics(user.id, user.teamId, period),
-    getDashboardMetrics(user.id),
-  ]);
+  return withTenantPage(session, async (authUser) => {
+    const [metrics, dashboardMetrics] = await Promise.all([
+      getAgentPerformanceMetrics(authUser.id, authUser.teamId, period),
+      getDashboardMetrics(authUser.id),
+    ]);
 
-  return (
-    <div className="p-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="mb-1 text-xl font-semibold text-ink-50">Agent Activity</h1>
-          <p className="text-sm text-ink-500">
-            Your personal performance: targets, tier progress, and pipeline activity.
-          </p>
+    return (
+      <div className="p-6">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="mb-1 text-xl font-semibold text-ink-50">Agent Activity</h1>
+            <p className="text-sm text-ink-500">
+              Your personal performance: targets, tier progress, and pipeline activity.
+            </p>
+          </div>
+          <PeriodToggle current={period} />
         </div>
-        <PeriodToggle current={period} />
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <HealthCard stats={metrics.health} />
+          <TierStatusPanel tier={metrics.tier} targets={metrics.targets} />
+          <ProductivityIndexCard />
+
+          {metrics.targets.map((target) => (
+            <WeeklyTargetGauge key={target.id} target={target} />
+          ))}
+
+          <MonthlySalesBreakdownChart data={metrics.monthlyBreakdown} />
+          <PipelineByHourChart data={metrics.pipelineByHour} />
+          <ProductivityByHourChart data={dashboardMetrics.productivityByHour} />
+        </div>
       </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <HealthCard stats={metrics.health} />
-        <TierStatusPanel tier={metrics.tier} targets={metrics.targets} />
-        <ProductivityIndexCard />
-
-        {metrics.targets.map((target) => (
-          <WeeklyTargetGauge key={target.id} target={target} />
-        ))}
-
-        <MonthlySalesBreakdownChart data={metrics.monthlyBreakdown} />
-        <PipelineByHourChart data={metrics.pipelineByHour} />
-        <ProductivityByHourChart data={dashboardMetrics.productivityByHour} />
-      </div>
-    </div>
-  );
+    );
+  });
 }

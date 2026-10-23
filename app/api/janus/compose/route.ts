@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { askJanus } from "@/lib/janus";
-import { getAuthUser, canAccessRecord } from "@/lib/authz";
+import { canAccessRecord } from "@/lib/authz";
+import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // PRD JN08 (Message and Follow-up Composer). Same grounding discipline as
 // meeting-prep and the daily briefing: only real lead data goes in, and
@@ -21,34 +20,30 @@ Rules:
 - Output ONLY the message text, no preamble like "Here's a draft:" and no subject line.`;
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const authUser = getAuthUser(session);
+  try {
+    return await withTenant(async (authUser, session) => {
+      const body = await request.json();
+      const { leadId, objective } = body;
+      if (!leadId) {
+        return NextResponse.json({ error: "leadId is required" }, { status: 400 });
+      }
 
-  const body = await request.json();
-  const { leadId, objective } = body;
-  if (!leadId) {
-    return NextResponse.json({ error: "leadId is required" }, { status: 400 });
-  }
+      const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+        include: {
+          assignedUser: true,
+          notes: { orderBy: { createdAt: "desc" }, take: 5 },
+          timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
+        },
+      });
+      if (!lead) {
+        return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+      }
+      if (!canAccessRecord(authUser, lead.assignedUserId, lead.assignedUser?.teamId ?? null)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
 
-  const lead = await prisma.lead.findUnique({
-    where: { id: leadId },
-    include: {
-      assignedUser: true,
-      notes: { orderBy: { createdAt: "desc" }, take: 5 },
-      timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
-    },
-  });
-  if (!lead) {
-    return NextResponse.json({ error: "Lead not found" }, { status: 404 });
-  }
-  if (!canAccessRecord(authUser, lead.assignedUserId, lead.assignedUser?.teamId ?? null)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const groundingContext = `
+      const groundingContext = `
 Lead: ${lead.name}
 Stage: ${lead.stage}
 Project interest: ${lead.projectInterest || "not recorded"}
@@ -62,22 +57,29 @@ Recent timeline events:
 ${lead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n") || "- No timeline events recorded"}
 `.trim();
 
-  try {
-    const draft = await askJanus([
-      { role: "system", content: COMPOSER_SYSTEM_PROMPT },
-      { role: "system", content: groundingContext },
-      { role: "user", content: "Draft the message." },
-    ]);
+      try {
+        const draft = await askJanus([
+          { role: "system", content: COMPOSER_SYSTEM_PROMPT },
+          { role: "system", content: groundingContext },
+          { role: "user", content: "Draft the message." },
+        ]);
 
-    return NextResponse.json({ draft });
+        return NextResponse.json({ draft });
+      } catch (err) {
+        console.error("Message composition failed:", err);
+        return NextResponse.json(
+          {
+            error: "Janus couldn't draft this message. Try again in a moment.",
+            detail: err instanceof Error ? err.message : String(err),
+          },
+          { status: 502 }
+        );
+      }
+    }, { fresh: false });
   } catch (err) {
-    console.error("Message composition failed:", err);
-    return NextResponse.json(
-      {
-        error: "Janus couldn't draft this message. Try again in a moment.",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 502 }
-    );
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
   }
 }

@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { askJanus } from "@/lib/janus";
 import {
@@ -9,6 +7,7 @@ import {
   getTranscriptContentVtt,
 } from "@/lib/graph";
 import type { Lead, LeadNote, LeadTimelineEvent } from "@prisma/client";
+import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 const MEETING_RECAP_SYSTEM_PROMPT = `You are Janus, summarizing a completed Teams meeting inside Sphaera, One Homes' Intelligent Revenue Platform.
 
@@ -56,117 +55,115 @@ function vttToPlainText(vtt: string): string {
 }
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (!session.accessToken) {
-    return NextResponse.json(
-      { error: "No Microsoft Graph access token on this session." },
-      { status: 400 }
-    );
-  }
-
-  const body = await request.json();
-  const { joinUrl, subject, attendeeEmails, startISO } = body;
-
-  if (!joinUrl || !subject) {
-    return NextResponse.json(
-      { error: "joinUrl and subject are required" },
-      { status: 400 }
-    );
-  }
-
-  let onlineMeetingId: string | null;
   try {
-    onlineMeetingId = await getOnlineMeetingIdFromJoinUrl(session.accessToken, joinUrl);
-  } catch (err) {
-    console.error("Failed to resolve online meeting id:", err);
-    return NextResponse.json(
-      {
-        error: "Couldn't look up this meeting in Microsoft Graph.",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 502 }
-    );
-  }
+    return await withTenant(async (authUser, session) => {
+      if (!session.accessToken) {
+        return NextResponse.json(
+          { error: "No Microsoft Graph access token on this session." },
+          { status: 400 }
+        );
+      }
 
-  if (!onlineMeetingId) {
-    return NextResponse.json(
-      { error: "This event isn't a Teams meeting Graph recognizes." },
-      { status: 404 }
-    );
-  }
+      const body = await request.json();
+      const { joinUrl, subject, attendeeEmails, startISO } = body;
 
-  let transcriptVtt: string;
-  try {
-    const transcripts = await listMeetingTranscripts(session.accessToken, onlineMeetingId);
-    if (transcripts.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            "No transcript found for this meeting. Recording/transcription has to be turned on inside Teams during the call for one to exist.",
-        },
-        { status: 404 }
-      );
-    }
-    // Most recent transcript if a meeting somehow has more than one.
-    const latest = transcripts[transcripts.length - 1];
-    const vtt = await getTranscriptContentVtt(
-      session.accessToken,
-      onlineMeetingId,
-      latest.id
-    );
-    transcriptVtt = vttToPlainText(vtt);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (message.includes("GraphAccessToTranscriptsDisabled")) {
-      return NextResponse.json(
-        {
-          error:
-            "Transcript API access is turned off for this tenant. Ask your Microsoft 365 admin to enable it in Teams Admin Center.",
-        },
-        { status: 403 }
-      );
-    }
-    console.error("Failed to fetch meeting transcript:", err);
-    return NextResponse.json(
-      {
-        error: "Failed to fetch the meeting transcript from Microsoft Graph.",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 502 }
-    );
-  }
+      if (!joinUrl || !subject) {
+        return NextResponse.json(
+          { error: "joinUrl and subject are required" },
+          { status: 400 }
+        );
+      }
 
-  // Same attendee-email-first, subject-name-fallback matching as meeting prep.
-  let matchedLead: MatchedLead | null = null;
-  if (Array.isArray(attendeeEmails) && attendeeEmails.length > 0) {
-    matchedLead = await prisma.lead.findFirst({
-      where: { OR: attendeeEmails.map((email: string) => ({ contact: { contains: email } })) },
-      include: {
-        notes: { orderBy: { createdAt: "desc" }, take: 5 },
-        timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
-      },
-    });
-  }
-  if (!matchedLead) {
-    const allLeads = await prisma.lead.findMany({ select: { id: true, name: true } });
-    const nameMatch = allLeads.find((l) =>
-      subject.toLowerCase().includes(l.name.toLowerCase())
-    );
-    if (nameMatch) {
-      matchedLead = await prisma.lead.findUnique({
-        where: { id: nameMatch.id },
-        include: {
-          notes: { orderBy: { createdAt: "desc" }, take: 5 },
-          timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
-        },
-      });
-    }
-  }
+      let onlineMeetingId: string | null;
+      try {
+        onlineMeetingId = await getOnlineMeetingIdFromJoinUrl(session.accessToken, joinUrl);
+      } catch (err) {
+        console.error("Failed to resolve online meeting id:", err);
+        return NextResponse.json(
+          {
+            error: "Couldn't look up this meeting in Microsoft Graph.",
+            detail: err instanceof Error ? err.message : String(err),
+          },
+          { status: 502 }
+        );
+      }
 
-  const groundingContext = `
+      if (!onlineMeetingId) {
+        return NextResponse.json(
+          { error: "This event isn't a Teams meeting Graph recognizes." },
+          { status: 404 }
+        );
+      }
+
+      let transcriptVtt: string;
+      try {
+        const transcripts = await listMeetingTranscripts(session.accessToken, onlineMeetingId);
+        if (transcripts.length === 0) {
+          return NextResponse.json(
+            {
+              error:
+                "No transcript found for this meeting. Recording/transcription has to be turned on inside Teams during the call for one to exist.",
+            },
+            { status: 404 }
+          );
+        }
+        // Most recent transcript if a meeting somehow has more than one.
+        const latest = transcripts[transcripts.length - 1];
+        const vtt = await getTranscriptContentVtt(
+          session.accessToken,
+          onlineMeetingId,
+          latest.id
+        );
+        transcriptVtt = vttToPlainText(vtt);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        if (message.includes("GraphAccessToTranscriptsDisabled")) {
+          return NextResponse.json(
+            {
+              error:
+                "Transcript API access is turned off for this tenant. Ask your Microsoft 365 admin to enable it in Teams Admin Center.",
+            },
+            { status: 403 }
+          );
+        }
+        console.error("Failed to fetch meeting transcript:", err);
+        return NextResponse.json(
+          {
+            error: "Failed to fetch the meeting transcript from Microsoft Graph.",
+            detail: err instanceof Error ? err.message : String(err),
+          },
+          { status: 502 }
+        );
+      }
+
+      // Same attendee-email-first, subject-name-fallback matching as meeting prep.
+      let matchedLead: MatchedLead | null = null;
+      if (Array.isArray(attendeeEmails) && attendeeEmails.length > 0) {
+        matchedLead = await prisma.lead.findFirst({
+          where: { OR: attendeeEmails.map((email: string) => ({ contact: { contains: email } })) },
+          include: {
+            notes: { orderBy: { createdAt: "desc" }, take: 5 },
+            timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
+          },
+        });
+      }
+      if (!matchedLead) {
+        const allLeads = await prisma.lead.findMany({ select: { id: true, name: true } });
+        const nameMatch = allLeads.find((l) =>
+          subject.toLowerCase().includes(l.name.toLowerCase())
+        );
+        if (nameMatch) {
+          matchedLead = await prisma.lead.findUnique({
+            where: { id: nameMatch.id },
+            include: {
+              notes: { orderBy: { createdAt: "desc" }, take: 5 },
+              timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
+            },
+          });
+        }
+      }
+
+      const groundingContext = `
 Meeting: "${subject}" at ${startISO}
 
 ${matchedLead ? `Matched lead: ${matchedLead.name} (stage: ${matchedLead.stage})` : "No matching lead record found for this meeting's attendees or subject."}
@@ -175,33 +172,40 @@ Transcript:
 ${transcriptVtt}
 `.trim();
 
-  let recap: string;
-  try {
-    recap = await askJanus([
-      { role: "system", content: MEETING_RECAP_SYSTEM_PROMPT },
-      { role: "system", content: groundingContext },
-      { role: "user", content: "Summarize this meeting." },
-    ]);
-  } catch (err) {
-    console.error("Meeting recap generation failed:", err);
-    return NextResponse.json(
-      {
-        error: "Janus couldn't summarize this transcript. Try again in a moment.",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 502 }
-    );
-  }
+      let recap: string;
+      try {
+        recap = await askJanus([
+          { role: "system", content: MEETING_RECAP_SYSTEM_PROMPT },
+          { role: "system", content: groundingContext },
+          { role: "user", content: "Summarize this meeting." },
+        ]);
+      } catch (err) {
+        console.error("Meeting recap generation failed:", err);
+        return NextResponse.json(
+          {
+            error: "Janus couldn't summarize this transcript. Try again in a moment.",
+            detail: err instanceof Error ? err.message : String(err),
+          },
+          { status: 502 }
+        );
+      }
 
-  if (matchedLead) {
-    await prisma.leadTimelineEvent.create({
-      data: {
-        leadId: matchedLead.id,
-        type: "meeting",
-        summary: `Meeting recap — "${subject}"\n\n${recap}`,
-      },
+      if (matchedLead) {
+        await prisma.leadTimelineEvent.create({
+          data: {
+            leadId: matchedLead.id,
+            type: "meeting",
+            summary: `Meeting recap — "${subject}"\n\n${recap}`,
+          },
+        });
+      }
+
+      return NextResponse.json({ recap, matchedLeadId: matchedLead?.id ?? null });
     });
+  } catch (err) {
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
   }
-
-  return NextResponse.json({ recap, matchedLeadId: matchedLead?.id ?? null });
 }

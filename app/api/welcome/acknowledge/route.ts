@@ -1,20 +1,21 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { getAuthUser } from "@/lib/authz";
 import { acknowledgeWelcome } from "@/lib/dailyWelcome";
+import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 export async function POST() {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    return await withTenant(async (authUser, session) => {
+      await acknowledgeWelcome(
+        authUser.id,
+        (session as { signedInAt?: number }).signedInAt
+      );
+
+      return NextResponse.json({ success: true });
+    }, { fresh: false });
+  } catch (err) {
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
   }
-  const authUser = getAuthUser(session);
-
-  await acknowledgeWelcome(
-    authUser.id,
-    (session as { signedInAt?: number }).signedInAt
-  );
-
-  return NextResponse.json({ success: true });
 }

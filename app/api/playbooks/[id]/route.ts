@@ -1,22 +1,25 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getFreshAuthUser, hasRole } from "@/lib/authz";
+import { hasRole } from "@/lib/authz";
+import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const authUser = await getFreshAuthUser(session);
-  if (!hasRole(authUser, ["MANAGER", "ADMIN"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  try {
+    return await withTenant(async (authUser) => {
+      if (!hasRole(authUser, ["MANAGER", "ADMIN"])) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
 
-  await prisma.playbook.delete({ where: { id: params.id } });
-  return NextResponse.json({ success: true });
+      await prisma.playbook.delete({ where: { id: params.id } });
+      return NextResponse.json({ success: true });
+    });
+  } catch (err) {
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
+  }
 }

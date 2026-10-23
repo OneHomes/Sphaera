@@ -6,6 +6,7 @@ import { tierForPoints } from "@/lib/aexTransform";
 import { getAexConfig } from "@/lib/aexConfig";
 import { PeoplePage } from "@/components/people/PeoplePage";
 import type { TeamMember } from "@/lib/peopleData";
+import { withTenantPage } from "@/lib/withTenant";
 
 export const dynamic = "force-dynamic";
 
@@ -15,28 +16,30 @@ export default async function PeopleRoute() {
     redirect("/sign-in");
   }
 
-  const [users, aexConfig] = await Promise.all([
-    prisma.user.findMany({
-      include: {
-        team: true,
-        pointEvents: { select: { points: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
-    getAexConfig(),
-  ]);
+  return withTenantPage(session, async () => {
+    const [users, aexConfig] = await Promise.all([
+      prisma.user.findMany({
+        include: {
+          team: true,
+          pointEvents: { select: { points: true } },
+        },
+        orderBy: { name: "asc" },
+      }),
+      getAexConfig(),
+    ]);
 
-  const teamMembers: TeamMember[] = users.map((u) => {
-    const points = u.pointEvents.reduce((sum, e) => sum + e.points, 0);
-    return {
-      id: u.id,
-      name: u.name,
-      role: u.role,
-      team: u.team?.name ?? "No team",
-      email: u.email,
-      tier: tierForPoints(points, aexConfig.tierThresholds),
-    };
+    const teamMembers: TeamMember[] = users.map((u) => {
+      const points = u.pointEvents.reduce((sum, e) => sum + e.points, 0);
+      return {
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        team: u.team?.name ?? "No team",
+        email: u.email,
+        tier: tierForPoints(points, aexConfig.tierThresholds),
+      };
+    });
+
+    return <PeoplePage teamMembers={teamMembers} />;
   });
-
-  return <PeoplePage teamMembers={teamMembers} />;
 }

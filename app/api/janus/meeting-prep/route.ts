@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { askJanus } from "@/lib/janus";
 import type { Lead, LeadNote, LeadTimelineEvent } from "@prisma/client";
+import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 const MEETING_PREP_SYSTEM_PROMPT = `You are Janus, preparing a sales agent for an upcoming meeting inside Sphaera, One Homes' Intelligent Revenue Platform.
 
@@ -17,57 +16,54 @@ Rules:
 type MatchedLead = Lead & { notes: LeadNote[]; timelineEvents: LeadTimelineEvent[] };
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  try {
+    return await withTenant(async (authUser, session) => {
+      const body = await request.json();
+      const { subject, attendeeEmails, startISO } = body;
 
-  const body = await request.json();
-  const { subject, attendeeEmails, startISO } = body;
+      if (!subject) {
+        return NextResponse.json({ error: "subject is required" }, { status: 400 });
+      }
 
-  if (!subject) {
-    return NextResponse.json({ error: "subject is required" }, { status: 400 });
-  }
+      // Try to match this meeting to a real Lead by attendee email first
+      // (most reliable), falling back to a loose subject-contains-name match.
+      let matchedLead: MatchedLead | null = null;
 
-  // Try to match this meeting to a real Lead by attendee email first
-  // (most reliable), falling back to a loose subject-contains-name match.
-  let matchedLead: MatchedLead | null = null;
+      if (Array.isArray(attendeeEmails) && attendeeEmails.length > 0) {
+        matchedLead = await prisma.lead.findFirst({
+          where: {
+            OR: attendeeEmails.map((email: string) => ({
+              contact: { contains: email },
+            })),
+          },
+          include: {
+            notes: { orderBy: { createdAt: "desc" }, take: 5 },
+            timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
+          },
+        });
+      }
 
-  if (Array.isArray(attendeeEmails) && attendeeEmails.length > 0) {
-    matchedLead = await prisma.lead.findFirst({
-      where: {
-        OR: attendeeEmails.map((email: string) => ({
-          contact: { contains: email },
-        })),
-      },
-      include: {
-        notes: { orderBy: { createdAt: "desc" }, take: 5 },
-        timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
-      },
-    });
-  }
+      if (!matchedLead) {
+        const allLeads = await prisma.lead.findMany({
+          select: { id: true, name: true },
+        });
+        const nameMatch = allLeads.find((l) =>
+          subject.toLowerCase().includes(l.name.toLowerCase())
+        );
+        if (nameMatch) {
+          matchedLead = await prisma.lead.findUnique({
+            where: { id: nameMatch.id },
+            include: {
+              notes: { orderBy: { createdAt: "desc" }, take: 5 },
+              timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
+            },
+          });
+        }
+      }
 
-  if (!matchedLead) {
-    const allLeads = await prisma.lead.findMany({
-      select: { id: true, name: true },
-    });
-    const nameMatch = allLeads.find((l) =>
-      subject.toLowerCase().includes(l.name.toLowerCase())
-    );
-    if (nameMatch) {
-      matchedLead = await prisma.lead.findUnique({
-        where: { id: nameMatch.id },
-        include: {
-          notes: { orderBy: { createdAt: "desc" }, take: 5 },
-          timelineEvents: { orderBy: { occurredAt: "desc" }, take: 10 },
-        },
-      });
-    }
-  }
-
-  let groundingContext: string;
-  if (matchedLead) {
-    groundingContext = `
+      let groundingContext: string;
+      if (matchedLead) {
+        groundingContext = `
 Meeting: "${subject}" at ${startISO}
 
 Matched lead record (this is the ONLY real data available for this lead):
@@ -86,29 +82,36 @@ ${matchedLead.notes.map((n) => `- (${n.author}) ${n.text}`).join("\n") || "- No 
 Recent timeline events:
 ${matchedLead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n") || "- No timeline events recorded"}
 `.trim();
-  } else {
-    groundingContext = `Meeting: "${subject}" at ${startISO}\n\nNo matching lead record was found for this meeting's attendees or subject.`;
-  }
+      } else {
+        groundingContext = `Meeting: "${subject}" at ${startISO}\n\nNo matching lead record was found for this meeting's attendees or subject.`;
+      }
 
-  try {
-    const answer = await askJanus([
-      { role: "system", content: MEETING_PREP_SYSTEM_PROMPT },
-      { role: "system", content: groundingContext },
-      { role: "user", content: "Prepare me for this meeting." },
-    ]);
+      try {
+        const answer = await askJanus([
+          { role: "system", content: MEETING_PREP_SYSTEM_PROMPT },
+          { role: "system", content: groundingContext },
+          { role: "user", content: "Prepare me for this meeting." },
+        ]);
 
-    return NextResponse.json({
-      brief: answer,
-      matchedLeadId: matchedLead?.id ?? null,
+        return NextResponse.json({
+          brief: answer,
+          matchedLeadId: matchedLead?.id ?? null,
+        });
+      } catch (err) {
+        console.error("Meeting prep failed:", err);
+        return NextResponse.json(
+          {
+            error: "Janus couldn't prepare this meeting brief. Try again in a moment.",
+            detail: err instanceof Error ? err.message : String(err),
+          },
+          { status: 502 }
+        );
+      }
     });
   } catch (err) {
-    console.error("Meeting prep failed:", err);
-    return NextResponse.json(
-      {
-        error: "Janus couldn't prepare this meeting brief. Try again in a moment.",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 502 }
-    );
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
   }
 }

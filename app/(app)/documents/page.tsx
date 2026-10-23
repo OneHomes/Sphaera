@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/authz";
 import { toUiDocument } from "@/lib/documentsData";
+import { withTenantPage } from "@/lib/withTenant";
 import { DocumentsPage as DocumentsPageComponent } from "@/components/documents/DocumentsPage";
 
 export const dynamic = "force-dynamic";
@@ -13,25 +13,26 @@ export default async function DocumentsPage() {
   if (!session) {
     redirect("/sign-in");
   }
-  const authUser = getAuthUser(session);
 
-  // "Replace"/"retire" keep the old version as history rather than
-  // deleting it — the main list only shows what's currently active.
-  const rows = await prisma.document.findMany({
-    where: { status: "active" },
-    include: { uploadedBy: true },
-    orderBy: { createdAt: "desc" },
+  return withTenantPage(session, async (authUser) => {
+    // "Replace"/"retire" keep the old version as history rather than
+    // deleting it — the main list only shows what's currently active.
+    const rows = await prisma.document.findMany({
+      where: { status: "active" },
+      include: { uploadedBy: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const documents = rows.map(toUiDocument);
+    const documentOwnerIds = new Map(rows.map((r) => [r.id, r.uploadedById]));
+
+    return (
+      <DocumentsPageComponent
+        initialDocuments={documents}
+        documentOwnerIds={Object.fromEntries(documentOwnerIds)}
+        currentUserId={authUser.id}
+        canManageAll={authUser.role === "MANAGER" || authUser.role === "ADMIN"}
+      />
+    );
   });
-
-  const documents = rows.map(toUiDocument);
-  const documentOwnerIds = new Map(rows.map((r) => [r.id, r.uploadedById]));
-
-  return (
-    <DocumentsPageComponent
-      initialDocuments={documents}
-      documentOwnerIds={Object.fromEntries(documentOwnerIds)}
-      currentUserId={authUser.id}
-      canManageAll={authUser.role === "MANAGER" || authUser.role === "ADMIN"}
-    />
-  );
 }
