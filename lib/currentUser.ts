@@ -1,6 +1,21 @@
 import type { Session } from "next-auth";
 import { prisma } from "./prisma";
 
+// One Homes is the only Entra ID (Microsoft 365) tenant Sphaera signs in
+// today — new multi-tenant orgs use email+password instead (see
+// lib/auth.ts's Credentials provider), so every Entra sign-in resolves
+// to this one Organization specifically, rather than needing real
+// per-request tenant resolution (subdomain, invite binding, etc.) for
+// this sign-in path. Cached after the first lookup per process.
+const ONE_HOMES_SLUG = "one-homes";
+let cachedOneHomesOrgId: string | undefined;
+async function getOneHomesOrganizationId(): Promise<string> {
+  if (cachedOneHomesOrgId) return cachedOneHomesOrgId;
+  const org = await prisma.organization.findUniqueOrThrow({ where: { slug: ONE_HOMES_SLUG } });
+  cachedOneHomesOrgId = org.id;
+  return org.id;
+}
+
 // Core lookup/creation logic, usable both from server components (which
 // have a full Session) and from the NextAuth jwt callback (which only has
 // email/name/oid, not a full Session object) — see lib/auth.ts.
@@ -12,8 +27,10 @@ export async function getOrCreateUserByEmail(
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return existing;
 
+  const organizationId = await getOneHomesOrganizationId();
   const user = await prisma.user.create({
     data: {
+      organizationId,
       email,
       name: name ?? email.split("@")[0],
       entraId: entraId ?? undefined,

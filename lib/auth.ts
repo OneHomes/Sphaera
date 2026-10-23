@@ -1,6 +1,9 @@
 import type { NextAuthOptions } from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
+import CredentialsProvider from "next-auth/providers/credentials";
+import bcrypt from "bcryptjs";
 import { getOrCreateUserByEmail } from "./currentUser";
+import { prisma } from "./prisma";
 import { logAudit, SYSTEM_ACTOR } from "./auditLog";
 import { setLastAuthError } from "./debugAuthState"; // TEMPORARY, see that file
 import { saveGraphToken, getValidGraphAccessToken } from "./graphTokenStore";
@@ -16,10 +19,13 @@ import { saveGraphToken, getValidGraphAccessToken } from "./graphTokenStore";
 // Registration in the Azure portal, or the token Microsoft issues won't
 // actually carry them.
 //
-// HARDENING NOTE: the temporary email/password Credentials provider that
-// existed during development has been removed. Microsoft Entra ID is now
-// the ONLY sign-in method, matching PRD PF01 (Entra ID is the sole
-// production auth method).
+// HARDENING NOTE (historical): an earlier, temporary dev-only email/
+// password provider was removed in favor of Entra-only sign-in. The
+// Credentials provider below is NOT that — it's a real, permanent sign-in
+// path added 2026-10-23 for multi-tenant SaaS customers who aren't One
+// Homes and don't have their own Microsoft 365/Entra tenant to sign in
+// with. Passwords are bcrypt-hashed (User.passwordHash); One Homes itself
+// keeps using Entra ID exactly as before, untouched by this addition.
 const GRAPH_SCOPES =
   "openid profile email offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite OnlineMeetings.Read OnlineMeetingTranscript.Read.All";
 
@@ -31,6 +37,45 @@ export const authOptions: NextAuthOptions = {
       tenantId: process.env.AZURE_AD_TENANT_ID as string,
       authorization: {
         params: { scope: GRAPH_SCOPES },
+      },
+    }),
+    CredentialsProvider({
+      id: "credentials",
+      name: "Email and password",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+        // Set by the sign-in page's org picker when the same email
+        // matches more than one organization (Slack/Notion-style
+        // multi-workspace membership) — see User's composite
+        // [organizationId, email] uniqueness.
+        organizationId: { label: "Organization", type: "text" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials.password) return null;
+
+        const matches = await prisma.user.findMany({
+          where: { email: credentials.email },
+        });
+        const candidates = credentials.organizationId
+          ? matches.filter((u) => u.organizationId === credentials.organizationId)
+          : matches;
+
+        // Zero matches (unknown email), or more than one match with no
+        // organizationId narrowing it down yet — both fail here. The
+        // sign-in page is responsible for re-prompting with an org
+        // picker in the >1 case rather than guessing which account.
+        if (candidates.length !== 1) return null;
+
+        const user = candidates[0];
+        // Entra-provisioned accounts (One Homes) have no passwordHash —
+        // this path simply can't authenticate them, which is correct.
+        if (!user.passwordHash) return null;
+
+        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
+        if (!valid) return null;
+
+        return { id: user.id, email: user.email, name: user.name };
       },
     }),
   ],
@@ -47,12 +92,28 @@ export const authOptions: NextAuthOptions = {
     // schema.prisma) — that used to bloat the session cookie enough to
     // trip an HTTP 431 in production. Refresh now happens lazily in the
     // session() callback via lib/graphTokenStore.ts.
-    async jwt({ token, account, profile }) {
+    async jwt({ token, account, profile, user }) {
       if (account) {
         if (profile) {
           token.oid = (profile as { oid?: string }).oid;
         }
-        if (token.email) {
+
+        // Credentials sign-in already resolved to one exact User row in
+        // authorize() — just load it, no find-or-create (that's only
+        // meaningful for Entra's "first sign-in provisions the account"
+        // flow below).
+        if (account.provider === "credentials" && user?.id) {
+          try {
+            const dbUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+            token.userId = dbUser.id;
+            token.organizationId = dbUser.organizationId;
+            token.role = dbUser.role as "AGENT" | "MANAGER" | "ADMIN";
+            token.teamId = dbUser.teamId;
+          } catch (err) {
+            console.error("jwt callback: credentials user lookup failed —", err);
+            throw err;
+          }
+        } else if (token.email) {
           // NextAuth collapses any error thrown in this callback into a
           // generic ?error=Callback on the sign-in page with no detail —
           // this is the only place the real cause (e.g. the database
@@ -64,6 +125,7 @@ export const authOptions: NextAuthOptions = {
               token.oid as string | undefined
             );
             token.userId = dbUser.id;
+            token.organizationId = dbUser.organizationId;
             token.role = dbUser.role as "AGENT" | "MANAGER" | "ADMIN";
             token.teamId = dbUser.teamId;
           } catch (err) {
@@ -123,6 +185,9 @@ export const authOptions: NextAuthOptions = {
           | string
           | undefined;
         (session.user as { id?: string }).id = token.userId as
+          | string
+          | undefined;
+        (session.user as { organizationId?: string }).organizationId = token.organizationId as
           | string
           | undefined;
         (session.user as { role?: string }).role = token.role as

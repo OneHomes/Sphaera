@@ -9,6 +9,7 @@ import { getOrCreateCurrentUser } from "./currentUser";
 
 export type AuthUser = {
   id: string;
+  organizationId: string;
   role: Role;
   teamId: string | null;
   // Not carried in the JWT session (see getAuthUser below) — always false
@@ -21,15 +22,19 @@ export type AuthUser = {
 /** Extracts the scoping-relevant fields from a NextAuth session. */
 export function getAuthUser(session: Session): AuthUser {
   const user = session.user as
-    | { id?: string; role?: string; teamId?: string | null }
+    | { id?: string; organizationId?: string; role?: string; teamId?: string | null }
     | undefined;
 
   if (!user?.id) {
     throw new Error("Session is missing a resolved user id");
   }
+  if (!user.organizationId) {
+    throw new Error("Session is missing a resolved organizationId");
+  }
 
   return {
     id: user.id,
+    organizationId: user.organizationId,
     role: (user.role as Role) ?? "AGENT",
     teamId: user.teamId ?? null,
     canExportData: false,
@@ -48,6 +53,7 @@ export async function getFreshAuthUser(session: Session): Promise<AuthUser> {
   const user = await getOrCreateCurrentUser(session);
   return {
     id: user.id,
+    organizationId: user.organizationId!,
     role: user.role as Role,
     teamId: user.teamId,
     canExportData: user.canExportData,
