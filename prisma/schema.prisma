@@ -22,8 +22,98 @@ generator client {
 // real values arrive. Once the status list is confirmed, add validation at
 // the API layer (or a CHECK constraint) rather than a hard Prisma enum.
 
+// ===========================================================================
+// MULTI-TENANCY (2026-10-23) — Sphaera is becoming a multi-company SaaS
+// product, not a single-customer (One Homes) build. Organization is the
+// tenant boundary; every customer-data model below carries an
+// `organizationId`. It's a plain indexed scalar, not a declared Prisma
+// `@relation`, on every child model — same pragmatic pattern this schema
+// already uses for hubspotId/salesforceId/supersedesId ("nullable +
+// indexed, integrity enforced in app code, not a DB-level FK") — a formal
+// relation on all ~30 models would also force a matching back-relation
+// array field on Organization for every single one of them, for no real
+// benefit here. Enforcement is centralized instead: see
+// lib/tenantContext.ts + the Prisma Client Extension in lib/prisma.ts,
+// which auto-injects `organizationId` into every query for these models
+// when a request has gone through lib/withTenant.ts.
+//
+// Rollout is intentionally incremental, not a one-shot rewrite of the
+// ~321 existing query call sites: the extension is a no-op (behaves
+// exactly as before) for any route that hasn't been wrapped in
+// withTenant() yet. Only the leads flow + auth are wired in this pass,
+// proving the pattern end-to-end; the remaining routes migrate
+// mechanically afterward, one `withTenant()` wrap at a time, without
+// this ever being a breaking change for the existing single tenant (One
+// Homes) in the meantime.
+//
+// `organizationId` is String? (nullable) during this migration step —
+// every existing row is backfilled to the "One Homes" Organization by
+// scripts/backfill-organization-id.ts, after which it's flipped to
+// required in a follow-up schema push. Same nullable -> backfill ->
+// required pattern already used for Lead.email this session.
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  // URL/invite-link-safe identifier — not used for subdomain routing in
+  // this phase (onboarding is invite-link based, not subdomain based,
+  // per product decision 2026-10-23), but kept unique now since every
+  // invite link embeds it and changing it later would break old links.
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscription Subscription?
+  invites      OrganizationInvite[]
+
+  @@map("organizations")
+}
+
+// Billing shape only — no Stripe wiring yet (that's a separate, later
+// phase). Exists now so the Organization model and its consumers don't
+// need a second schema change when billing is actually built.
+model Subscription {
+  id                   String       @id @default(cuid())
+  organizationId       String       @unique
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                 String       @default("trial") // trial | starter | pro | enterprise
+  status               String       @default("trialing") // trialing | active | past_due | canceled
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  seatsLimit           Int?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@map("subscriptions")
+}
+
+// Powers invite-link onboarding (the chosen tenant-onboarding path,
+//2026-10-23) — a prospective org admin receives a link containing
+// `token`, accepts it via app/api/invites/accept/route.ts, which creates
+// their User row scoped to `organizationId` with a hashed password.
+model OrganizationInvite {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  token           String       @unique
+  // If set, only this exact address can accept the invite. Null = an
+  // open/shareable invite link for the org (e.g. a generic "invite your
+  // team" link), accepted by whoever has it.
+  email           String?
+  role            String       @default("AGENT")
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdByUserId String?
+  createdAt       DateTime     @default(now())
+
+  @@index([organizationId])
+  @@map("organization_invites")
+}
+
 model Lead {
   id                   String    @id @default(cuid())
+  organizationId       String?
   // Phase 1 Sales Scope — "Unique client ID (UID)": generated once at
   // lead creation, shown to the salesperson, used as the reference across
   // payments and the outbound Onyx handoff, and can never change.
@@ -101,6 +191,7 @@ model Lead {
   duplicateFlagsAsNew      DuplicateLeadFlag[] @relation("DuplicateFlagLead")
   duplicateFlagsAsOriginal DuplicateLeadFlag[] @relation("DuplicateFlagDuplicateOf")
 
+  @@index([organizationId])
   @@index([assignedUserId])
   @@index([salesforceId])
   @@index([hubspotId])
@@ -119,13 +210,15 @@ model Lead {
 }
 
 model LeadNote {
-  id        String   @id @default(cuid())
-  leadId    String
-  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  author    String
-  text      String
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  leadId         String
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  author         String
+  text           String
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@index([leadId])
   @@map("lead_notes")
 }
@@ -137,17 +230,19 @@ model LeadNote {
 // model's own "author as a plain string" precedent (LeadNote above)
 // rather than a full User relation.
 model LeadTag {
-  id            String    @id @default(cuid())
-  leadId        String
-  lead          Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  tag           String
-  addedByName   String
-  createdAt     DateTime  @default(now())
-  removedAt     DateTime?
-  removedByName String?
+  id             String    @id @default(cuid())
+  organizationId String?
+  leadId         String
+  lead           Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag            String
+  addedByName    String
+  createdAt      DateTime  @default(now())
+  removedAt      DateTime?
+  removedByName  String?
 
   removalRequests TagRemovalRequest[]
 
+  @@index([organizationId])
   @@index([leadId])
   @@index([tag])
   @@map("lead_tags")
@@ -159,6 +254,7 @@ model LeadTag {
 // DuplicateLeadFlag's pending/resolved shape.
 model TagRemovalRequest {
   id              String    @id @default(cuid())
+  organizationId  String?
   leadTagId       String
   leadTag         LeadTag   @relation(fields: [leadTagId], references: [id], onDelete: Cascade)
   reason          String
@@ -168,6 +264,7 @@ model TagRemovalRequest {
   resolvedAt      DateTime?
   createdAt       DateTime  @default(now())
 
+  @@index([organizationId])
   @@index([leadTagId])
   @@index([status])
   @@map("tag_removal_requests")
@@ -175,6 +272,7 @@ model TagRemovalRequest {
 
 model LeadTimelineEvent {
   id                  String   @id @default(cuid())
+  organizationId      String?
   leadId              String
   lead                Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   type                String // call | email | meeting | note | stage_change | task
@@ -190,6 +288,7 @@ model LeadTimelineEvent {
   // changes, etc.), which already land here through their own routes.
   hubspotEngagementId String?
 
+  @@index([organizationId])
   @@index([leadId])
   @@index([hubspotEngagementId])
   @@map("lead_timeline_events")
@@ -202,6 +301,7 @@ model LeadTimelineEvent {
 // confirmed yet per the Fabric audit.
 model Opportunity {
   id              String    @id @default(cuid())
+  organizationId  String?
   leadName        String
   contact         String
   value           Int
@@ -218,6 +318,7 @@ model Opportunity {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  @@index([organizationId])
   @@index([leadId])
   @@index([assignedUserId])
   @@map("opportunities")
@@ -239,33 +340,45 @@ model Opportunity {
 // without a schema migration.
 
 model Team {
-  id        String   @id @default(cuid())
-  name      String
-  managerId String?
-  manager   User?    @relation("TeamManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  members   User[]   @relation("TeamMembers")
-  targets   Target[]
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  managerId      String?
+  manager        User?    @relation("TeamManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  members        User[]   @relation("TeamMembers")
+  targets        Target[]
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@map("teams")
 }
 
 model User {
-  id            String   @id @default(cuid())
-  entraId       String?  @unique
-  name          String
-  email         String   @unique
-  role          String   @default("AGENT")
-  teamId        String?
-  team          Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
-  managedTeams  Team[]   @relation("TeamManager")
+  id             String   @id @default(cuid())
+  organizationId String?
+  entraId        String?  @unique
+  name           String
+  // TEMPORARY: still a plain @unique on email alone — the composite
+  // ([organizationId, email]) swap is staged as a separate db push (see
+  // scripts/migrate-to-composite-uniques.md) since it requires
+  // --accept-data-loss, which needs to be run by hand rather than by me.
+  // Safe to apply: every existing email is already globally unique today.
+  email          String   @unique
+  // Set only for email+password accounts (new, non-Entra orgs) — hashed
+  // with bcrypt, see lib/auth.ts's Credentials provider. Null for every
+  // Entra ID sign-in (One Homes today), which never uses a password.
+  passwordHash   String?
+  role           String   @default("AGENT")
+  teamId         String?
+  team           Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  managedTeams   Team[]   @relation("TeamManager")
   // Phase 1 Sales Scope Foundations — "No data can be exported unless you
   // [have] specific rights": an explicit, Admin-grantable permission,
   // deliberately separate from role. Being an Admin does not imply this —
   // it must be turned on per user, including for Admins themselves.
-  canExportData Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  canExportData  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // PRD AE01 (Sign In and Welcome Sequence) — Agents (not Admins) see a
   // daily "Welcome back" target-review screen before the rest of the
@@ -301,6 +414,7 @@ model User {
   paymentPlansCreated   PaymentPlan[]
   unitsCreated          Unit[]
 
+  @@index([organizationId])
   @@index([teamId])
   @@map("users")
 }
@@ -312,31 +426,38 @@ model User {
 // dedicated CRO/Director tier yet — a known simplification, same as
 // elsewhere in this build, flagged for a real business decision later.
 model Project {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  organizationId String?
+  // TEMPORARY: still plain @unique — same staged-separately reasoning as
+  // User.email above (composite [organizationId, name] needs
+  // --accept-data-loss).
+  name           String   @unique
+  createdById    String
+  createdBy      User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   units        Unit[]
   paymentPlans PaymentPlan[]
 
+  @@index([organizationId])
   @@map("projects")
 }
 
 model PaymentPlan {
-  id          String   @id @default(cuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name        String
-  description String?  @db.NVarChar(Max)
-  createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt   DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?  @db.NVarChar(Max)
+  createdById    String
+  createdBy      User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt      DateTime @default(now())
 
   units Unit[]
 
+  @@index([organizationId])
   @@index([projectId])
   @@map("payment_plans")
 }
@@ -347,6 +468,7 @@ model PaymentPlan {
 // able to present a unit that doesn't actually meet the requirement.
 model Unit {
   id             String       @id @default(cuid())
+  organizationId String?
   projectId      String
   project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   unitNumber     String
@@ -370,19 +492,22 @@ model Unit {
   updatedAt      DateTime     @updatedAt
 
   @@unique([projectId, unitNumber])
+  @@index([organizationId])
   @@index([projectId])
   @@map("units")
 }
 
-// PRD AV10 — AEX governance config. Singleton row (single-tenant, same
-// pattern as WhatsAppConfig): tier thresholds, Productivity Index
-// weights, allocation caps, and the tier-gating/Daily-Club thresholds
-// below are all still PLACEHOLDER defaults pending business sign-off
-// (same governance note as lib/aexTransform.ts etc.) — the point of this
-// table is that an Admin can now change them without a code deploy,
+// PRD AV10 — AEX governance config. Was a true singleton row
+// (single-tenant) — now one row per organization instead, same pattern
+// as WhatsAppConfig. Tier thresholds, Productivity Index weights,
+// allocation caps, and the tier-gating/Daily-Club thresholds below are
+// all still PLACEHOLDER defaults pending business sign-off (same
+// governance note as lib/aexTransform.ts etc.) — the point of this
+// table is that an Admin can change them per-org without a code deploy,
 // not that the numbers themselves are final.
 model AexConfig {
   id                              String   @id @default(cuid())
+  organizationId                  String?
   tierSilverMinPoints             Int      @default(500)
   tierGoldMinPoints               Int      @default(2000)
   piWeightSpeedToLead             Float    @default(0.25)
@@ -403,6 +528,7 @@ model AexConfig {
   updatedById                     String?
   updatedAt                       DateTime @updatedAt
 
+  @@index([organizationId])
   @@map("aex_config")
 }
 
@@ -410,15 +536,17 @@ model AexConfig {
 // zero rows (no invented playbook content) — Admin/Manager author real
 // ones from Admin, Agents read them from the feed.
 model Playbook {
-  id          String   @id @default(cuid())
-  title       String
-  category    String
-  body        String   @db.NVarChar(Max)
-  createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  organizationId String?
+  title          String
+  category       String
+  body           String   @db.NVarChar(Max)
+  createdById    String
+  createdBy      User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
+  @@index([organizationId])
   @@index([category])
   @@map("playbooks")
 }
@@ -427,21 +555,23 @@ model Playbook {
 // over a fixed period, judged on points earned during that window.
 // Replaces the earlier cosmetic-only ChallengePicker stub.
 model Challenge {
-  id           String    @id @default(cuid())
-  challengerId String
-  challenger   User      @relation("ChallengesSent", fields: [challengerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  opponentId   String
-  opponent     User      @relation("ChallengesReceived", fields: [opponentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  metric       String    @default("points") // only metric AEX can currently judge head-to-head
-  periodStart  DateTime
-  periodEnd    DateTime
+  id             String    @id @default(cuid())
+  organizationId String?
+  challengerId   String
+  challenger     User      @relation("ChallengesSent", fields: [challengerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  opponentId     String
+  opponent       User      @relation("ChallengesReceived", fields: [opponentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  metric         String    @default("points") // only metric AEX can currently judge head-to-head
+  periodStart    DateTime
+  periodEnd      DateTime
   // Pending (awaiting opponent) -> Active (accepted) | Declined, then
   // Active resolves to ChallengerWon | OpponentWon | Draw once periodEnd
   // passes and points earned during the window are compared.
-  status       String    @default("Pending")
-  createdAt    DateTime  @default(now())
-  resolvedAt   DateTime?
+  status         String    @default("Pending")
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
 
+  @@index([organizationId])
   @@index([challengerId])
   @@index([opponentId])
 }
@@ -453,25 +583,28 @@ model Challenge {
 // is a free-form tag like "briefing", "leadSummary:<leadId>",
 // "coaching", or "command:<messageId>" for a specific chat turn.
 model JanusFeedback {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  context   String
-  useful    Boolean
-  note      String?  @db.NVarChar(Max)
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  context        String
+  useful         Boolean
+  note           String?  @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@index([userId])
   @@index([context])
 }
 
 // Company-level WhatsApp Business Account (WABA) configuration. One row
-// per organization — in the current single-tenant build this is
-// effectively a singleton (One Homes), but modeling it as its own table
-// (rather than env vars) is what lets a future multi-tenant version add
-// a new company's WABA without any schema change — just a new row.
+// per organization — call sites (app/api/whatsapp/connect,verify) still
+// need updating to filter by organizationId instead of grabbing whichever
+// row exists first; tracked as Phase 2 follow-up per the multi-tenancy
+// plan, not done in this pass.
 model WhatsAppConfig {
   id              String   @id @default(cuid())
+  organizationId  String?
   wabaId          String // WhatsApp Business Account ID from Meta
   metaAppId       String // Meta App ID
   systemUserToken String // Permanent access token (System User)
@@ -482,6 +615,7 @@ model WhatsAppConfig {
 
   numbers WhatsAppNumber[]
 
+  @@index([organizationId])
   @@map("whatsapp_configs")
 }
 
@@ -490,19 +624,21 @@ model WhatsAppConfig {
 // session — see the build discussion on why QR-based unofficial clients
 // were deliberately avoided (ToS / ban risk).
 model WhatsAppNumber {
-  id            String         @id @default(cuid())
-  userId        String         @unique
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  configId      String
-  config        WhatsAppConfig @relation(fields: [configId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  phoneNumber   String         @unique
-  phoneNumberId String         @unique // Meta's internal phone_number_id, needed for send calls
-  displayName   String?
-  verifiedAt    DateTime?
-  createdAt     DateTime       @default(now())
+  id             String         @id @default(cuid())
+  organizationId String?
+  userId         String         @unique
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  configId       String
+  config         WhatsAppConfig @relation(fields: [configId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  phoneNumber    String         @unique
+  phoneNumberId  String         @unique // Meta's internal phone_number_id, needed for send calls
+  displayName    String?
+  verifiedAt     DateTime?
+  createdAt      DateTime       @default(now())
 
   conversations WhatsAppConversation[]
 
+  @@index([organizationId])
   @@map("whatsapp_numbers")
 }
 
@@ -510,24 +646,27 @@ model WhatsAppNumber {
 // matches how WhatsApp itself groups messages into a single thread per
 // contact.
 model WhatsAppConversation {
-  id            String         @id @default(cuid())
-  agentNumberId String
-  agentNumber   WhatsAppNumber @relation(fields: [agentNumberId], references: [id], onDelete: Cascade)
-  clientPhone   String
-  clientName    String?
-  leadId        String?
-  lastMessageAt DateTime       @default(now())
-  createdAt     DateTime       @default(now())
+  id             String         @id @default(cuid())
+  organizationId String?
+  agentNumberId  String
+  agentNumber    WhatsAppNumber @relation(fields: [agentNumberId], references: [id], onDelete: Cascade)
+  clientPhone    String
+  clientName     String?
+  leadId         String?
+  lastMessageAt  DateTime       @default(now())
+  createdAt      DateTime       @default(now())
 
   messages WhatsAppMessage[]
 
   @@unique([agentNumberId, clientPhone])
+  @@index([organizationId])
   @@index([agentNumberId])
   @@map("whatsapp_conversations")
 }
 
 model WhatsAppMessage {
   id             String               @id @default(cuid())
+  organizationId String?
   conversationId String
   conversation   WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   direction      String // "inbound" | "outbound"
@@ -536,43 +675,50 @@ model WhatsAppMessage {
   status         String               @default("sent") // sent | delivered | read | failed
   createdAt      DateTime             @default(now())
 
+  @@index([organizationId])
   @@index([conversationId])
   @@map("whatsapp_messages")
 }
 
 model AexPointEvent {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  label     String
-  points    Int
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label          String
+  points         Int
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@index([userId])
   @@map("aex_point_events")
 }
 
 model UserBadge {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name        String
-  description String
-  earnedAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  description    String
+  earnedAt       DateTime @default(now())
 
+  @@index([organizationId])
   @@index([userId])
   @@map("aex_user_badges")
 }
 
 model UserStreak {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  label        String
-  currentCount Int      @default(0)
-  resetRule    String
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label          String
+  currentCount   Int      @default(0)
+  resetRule      String
+  updatedAt      DateTime @updatedAt
 
+  @@index([organizationId])
   @@index([userId])
   @@map("aex_user_streaks")
 }
@@ -580,14 +726,16 @@ model UserStreak {
 // PF07 (Audit Trail) requirement: permission and role changes must be
 // logged with actor, timestamp, and before/after context.
 model AuditLog {
-  id         String   @id @default(cuid())
-  actorId    String
-  actorEmail String
-  action     String
-  targetId   String?
-  details    String
-  createdAt  DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  actorId        String
+  actorEmail     String
+  action         String
+  targetId       String?
+  details        String
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@map("audit_logs")
 }
 
@@ -598,23 +746,24 @@ model AuditLog {
 // original mock data modeled it, to keep this MVP simple; tightening it
 // into a real relation is a reasonable future enhancement.
 model Document {
-  id            String   @id @default(cuid())
-  name          String
-  blobName      String
-  contentType   String
-  sizeBytes     Int
-  docType       String   @default("Brochure")
-  relatedTo     String?
-  uploadedById  String
-  uploadedBy    User     @relation(fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt     DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  blobName       String
+  contentType    String
+  sizeBytes      Int
+  docType        String   @default("Brochure")
+  relatedTo      String?
+  uploadedById   String
+  uploadedBy     User     @relation(fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt      DateTime @default(now())
   // Phase 1 Sales Scope — "Janus company knowledge": extracted at upload
   // time (lib/documentTextExtraction.ts) so Janus can ground answers in
   // the actual content, not just the file's existence. Null for formats
   // extraction doesn't support yet (images, .docx, .pptx) -- those
   // documents still upload/browse fine, they're just not usable as
   // Janus grounding material.
-  extractedText String?  @db.NVarChar(Max)
+  extractedText  String?  @db.NVarChar(Max)
 
   // Doc: "An authorised content owner must be able to add, replace and
   // retire documents." Replacing uploads a new version row (supersedesId
@@ -635,6 +784,7 @@ model Document {
   // replace route only ever setting supersedesId once, at creation.
   supersededBy Document[] @relation("DocumentVersionChain")
 
+  @@index([organizationId])
   @@index([uploadedById])
   @@index([status])
   @@index([supersedesId])
@@ -647,19 +797,21 @@ model Document {
 // created/assigned the task without a second User FK — avoids the same
 // multi-relation cascade complexity we hit with Team/Opportunity earlier.
 model Task {
-  id           String    @id @default(cuid())
-  title        String
-  relatedTo    String?
-  leadId       String?
-  dueAt        DateTime?
-  completed    Boolean   @default(false)
-  source       String    @default("User created")
-  assignedToId String
-  assignedTo   User      @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
-  createdById  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  organizationId String?
+  title          String
+  relatedTo      String?
+  leadId         String?
+  dueAt          DateTime?
+  completed      Boolean   @default(false)
+  source         String    @default("User created")
+  assignedToId   String
+  assignedTo     User      @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
+  @@index([organizationId])
   @@index([assignedToId])
   @@map("tasks")
 }
@@ -669,21 +821,23 @@ model Task {
 // Manager/Admin override in the API layer for this one — access is
 // always author-only, by design.
 model JournalEntry {
-  id         String    @id @default(cuid())
-  authorId   String
-  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  folder     String    @default("Work")
-  title      String
+  id             String    @id @default(cuid())
+  organizationId String?
+  authorId       String
+  author         User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  folder         String    @default("Work")
+  title          String
   // Unbounded: rich-text HTML from the journal editor (incl. inline
   // images as data URIs) easily exceeds SQL Server's default
   // NVARCHAR(1000) for a plain String column.
-  body       String    @db.NVarChar(Max)
-  isFavorite Boolean   @default(false)
-  archivedAt DateTime?
-  deletedAt  DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  body           String    @db.NVarChar(Max)
+  isFavorite     Boolean   @default(false)
+  archivedAt     DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
+  @@index([organizationId])
   @@index([authorId])
   @@map("journal_entries")
 }
@@ -707,19 +861,22 @@ model JournalEntry {
 // implemented here; company terminology/playbooks/user-preference memory
 // are a separate, not-yet-built layer.
 model JanusConversation {
-  id        String         @id @default(cuid())
-  userId    String
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  messages  JanusMessage[]
+  id             String         @id @default(cuid())
+  organizationId String?
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  messages       JanusMessage[]
 
+  @@index([organizationId])
   @@index([userId])
   @@map("janus_conversations")
 }
 
 model JanusMessage {
   id             String            @id @default(cuid())
+  organizationId String?
   conversationId String
   conversation   JanusConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           String // "user" | "assistant"
@@ -729,6 +886,7 @@ model JanusMessage {
   content        String            @db.NVarChar(Max)
   createdAt      DateTime          @default(now())
 
+  @@index([organizationId])
   @@index([conversationId])
   @@map("janus_messages")
 }
@@ -736,32 +894,36 @@ model JanusMessage {
 // avoid a half-finished access-control surface for sensitive wellbeing
 // data; only the private capture side ships in this pass.
 model MindStateCheckIn {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  moodScore Int // 1 (struggling) .. 5 (great)
-  mood      String // human label for moodScore, kept alongside for display without a lookup table
-  note      String?
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moodScore      Int // 1 (struggling) .. 5 (great)
+  mood           String // human label for moodScore, kept alongside for display without a lookup table
+  note           String?
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@index([userId])
   @@map("mindstate_checkins")
 }
 
 model Target {
-  id          String   @id @default(cuid())
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  teamId      String?
-  team        Team?    @relation(fields: [teamId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  metric      String // "revenue" | "calls" | "meetings"
-  periodStart DateTime
-  periodEnd   DateTime
-  targetValue Float
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teamId         String?
+  team           Team?    @relation(fields: [teamId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  metric         String // "revenue" | "calls" | "meetings"
+  periodStart    DateTime
+  periodEnd      DateTime
+  targetValue    Float
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
+  @@index([organizationId])
   @@index([userId])
   @@index([teamId])
   @@map("targets")
@@ -778,16 +940,18 @@ model Target {
 // Trigger, would let this fire even when nobody has the app open, which
 // this on-read approach can't).
 model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String // lead_assigned | opportunity_assigned | task_assigned | whatsapp_message | challenge_update | risk_critical
-  title     String
-  body      String
-  href      String?
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String // lead_assigned | opportunity_assigned | task_assigned | whatsapp_message | challenge_update | risk_critical
+  title          String
+  body           String
+  href           String?
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@index([userId])
   @@map("notifications")
 }
@@ -801,17 +965,19 @@ model Notification {
 // silently change allocation, targets, or campaign focus from an
 // ambiguous prompt") — see app/api/focus/route.ts.
 model TeamFocus {
-  id        String   @id @default(cuid())
-  setById   String
-  setBy     User     @relation(fields: [setById], references: [id], onDelete: Cascade)
-  teamId    String? // null = company-wide (Admin only)
-  dimension String // "market" | "projectInterest" | "source"
-  value     String // e.g. "AED", "Diyar", "Referral"
-  reason    String
-  startsAt  DateTime @default(now())
-  endsAt    DateTime
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  setById        String
+  setBy          User     @relation(fields: [setById], references: [id], onDelete: Cascade)
+  teamId         String? // null = company-wide (Admin only)
+  dimension      String // "market" | "projectInterest" | "source"
+  value          String // e.g. "AED", "Diyar", "Referral"
+  reason         String
+  startsAt       DateTime @default(now())
+  endsAt         DateTime
+  createdAt      DateTime @default(now())
 
+  @@index([organizationId])
   @@index([teamId])
   @@index([endsAt])
   @@map("team_focuses")
@@ -828,14 +994,16 @@ model TeamFocus {
 // lib/auth.ts's session() callback for how callers still get a plain
 // `session.accessToken` with no change to their own code.
 model GraphToken {
-  id           String   @id @default(cuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accessToken  String   @db.NVarChar(Max)
-  refreshToken String   @db.NVarChar(Max)
-  expiresAt    DateTime
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken    String   @db.NVarChar(Max)
+  refreshToken   String   @db.NVarChar(Max)
+  expiresAt      DateTime
+  updatedAt      DateTime @updatedAt
 
+  @@index([organizationId])
   @@map("graph_tokens")
 }
 
@@ -846,6 +1014,7 @@ model GraphToken {
 // possible duplicate, a Manager/Admin reviews and resolves it after.
 model DuplicateLeadFlag {
   id             String    @id @default(cuid())
+  organizationId String?
   leadId         String
   lead           Lead      @relation("DuplicateFlagLead", fields: [leadId], references: [id], onDelete: Cascade)
   duplicateOfId  String
@@ -856,6 +1025,7 @@ model DuplicateLeadFlag {
   resolvedAt     DateTime?
   createdAt      DateTime  @default(now())
 
+  @@index([organizationId])
   @@index([leadId])
   @@index([duplicateOfId])
   @@index([status])
@@ -866,6 +1036,8 @@ model DuplicateLeadFlag {
 // handed over by the boss's team (Cloudflare D1 + Drizzle originally).
 // Same three-table shape, ported onto our own Azure SQL via Prisma per
 // request so this runs on our database rather than a separate D1 store.
+// Deliberately NOT tenant-scoped — shared benchmark reference data, not
+// customer data (see the multi-tenancy plan's note on this).
 model IntelligenceDataset {
   key       String   @id // "snapshot" | "index" | "forecast"
   version   String
