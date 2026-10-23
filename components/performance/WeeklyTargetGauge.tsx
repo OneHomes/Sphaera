@@ -4,7 +4,7 @@ import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer } from "
 import { Gauge } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { formatCurrency } from "@/lib/dashboardData";
-import { TARGET_METRICS } from "@/lib/targetTracker";
+import { TARGET_METRICS } from "@/lib/targetMetrics";
 import type { TargetGaugeData } from "@/lib/agentPerformanceMetrics";
 
 const STATUS_COLORS = {

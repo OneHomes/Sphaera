@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Target as TargetIcon } from "lucide-react";
-import { TARGET_METRICS } from "@/lib/targetTracker";
+import { TARGET_METRICS } from "@/lib/targetMetrics";
 
 type TeamOption = { id: string; name: string };
 

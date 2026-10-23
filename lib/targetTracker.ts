@@ -1,12 +1,9 @@
 import { prisma } from "./prisma";
 
-export type TargetMetric = "revenue" | "calls" | "meetings";
-
-export const TARGET_METRICS: { key: TargetMetric; label: string }[] = [
-  { key: "revenue", label: "Revenue (Closed Won)" },
-  { key: "calls", label: "Calls Logged" },
-  { key: "meetings", label: "Meetings Logged" },
-];
+// Re-exported for every existing server-side importer of these two
+// names from this file — see lib/targetMetrics.ts for why they moved.
+export { type TargetMetric, TARGET_METRICS } from "./targetMetrics";
+import type { TargetMetric } from "./targetMetrics";
 
 export type TargetWithProgress = {
   id: string;
