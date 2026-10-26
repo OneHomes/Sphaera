@@ -17,6 +17,12 @@ export type AuthUser = {
   // an export permission is security-sensitive enough that a stale "true"
   // from before it was revoked is worse than an extra DB read.
   canExportData: boolean;
+  // Sphaera Finance module access — same staleness reasoning as
+  // canExportData (always false from the cached JWT path, real value only
+  // from getFreshAuthUser). canAccessFinancePayroll additionally gates
+  // People Costs/payroll-category data within the module.
+  canAccessFinance: boolean;
+  canAccessFinancePayroll: boolean;
 };
 
 /** Extracts the scoping-relevant fields from a NextAuth session. */
@@ -38,6 +44,8 @@ export function getAuthUser(session: Session): AuthUser {
     role: (user.role as Role) ?? "AGENT",
     teamId: user.teamId ?? null,
     canExportData: false,
+    canAccessFinance: false,
+    canAccessFinancePayroll: false,
   };
 }
 
@@ -57,6 +65,8 @@ export async function getFreshAuthUser(session: Session): Promise<AuthUser> {
     role: user.role as Role,
     teamId: user.teamId,
     canExportData: user.canExportData,
+    canAccessFinance: user.canAccessFinance,
+    canAccessFinancePayroll: user.canAccessFinancePayroll,
   };
 }
 

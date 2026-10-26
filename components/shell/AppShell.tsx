@@ -9,14 +9,16 @@ export function AppShell({
   children,
   session,
   leaderboard,
+  canAccessFinance,
 }: {
   children: React.ReactNode;
   session?: Session | null;
   leaderboard: RevenueLeaderboardEntry[];
+  canAccessFinance?: boolean;
 }) {
   return (
     <div className="flex h-screen w-full bg-base-950">
-      <LeftRail role={session?.user?.role} />
+      <LeftRail role={session?.user?.role} canAccessFinance={canAccessFinance} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopLeaderboardBar session={session} leaderboard={leaderboard} />
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>

@@ -60,7 +60,11 @@ export default async function AppLayout({
       .slice(0, 10);
 
     return (
-      <AppShell session={session} leaderboard={leaderboard}>
+      <AppShell
+        session={session}
+        leaderboard={leaderboard}
+        canAccessFinance={dbUser.canAccessFinance}
+      >
         {children}
       </AppShell>
     );

@@ -6,12 +6,19 @@ import { navItems } from "@/lib/nav";
 
 type Role = "AGENT" | "MANAGER" | "ADMIN";
 
-export function LeftRail({ role }: { role?: Role }) {
+export function LeftRail({
+  role,
+  canAccessFinance,
+}: {
+  role?: Role;
+  canAccessFinance?: boolean;
+}) {
   const pathname = usePathname();
 
   const visibleItems = navItems.filter((item) => {
     if (item.adminOnly && role !== "ADMIN") return false;
     if (item.managerAndAbove && role === "AGENT") return false;
+    if (item.financeAccess && !canAccessFinance) return false;
     return true;
   });
 

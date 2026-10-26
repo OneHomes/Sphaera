@@ -372,6 +372,13 @@ model User {
   // deliberately separate from role. Being an Admin does not imply this —
   // it must be turned on per user, including for Admins themselves.
   canExportData  Boolean  @default(false)
+  // Sphaera Finance module access — same Admin-grantable, role-independent
+  // pattern as canExportData above. canAccessFinancePayroll is a separate,
+  // stricter flag gating People Costs, salary-category entries, and
+  // backup/restore specifically (mirrors the source app's two distinct
+  // Entra app-roles, OneHomesDashboard.Access / ...Payroll).
+  canAccessFinance        Boolean  @default(false)
+  canAccessFinancePayroll Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -1070,4 +1077,758 @@ model IndexSeries {
 
   @@index([city, segment, purpose, size])
   @@map("index_series")
+}
+
+// ===========================================================================
+// SPHAERA FINANCE (2026-10-26) — ported from the standalone "Sphaera
+// Finance" Python/SQLite tool (One Homes overhead/cost-allocation,
+// treasury, credit-cycle, merchant-reconciliation, financial-planning).
+// A generic Sphaera product feature, not hardcoded to One Homes — every
+// model is tenant-scoped exactly like the rest of the app (organizationId
+// added to TENANT_SCOPED_MODELS in lib/prisma.ts, including pure child/
+// junction tables, per this schema's own established multi-tenancy
+// principle above: every table filterable by organizationId on its own,
+// never relying on a join being present). Money amounts are Float (USD),
+// matching the source SQLite REAL columns exactly — a direct port, not a
+// precision redesign. File attachments (invoices, budget XLSX) reuse the
+// existing Document model + lib/blobStorage.ts rather than local BLOB
+// columns — see documentId fields below. The source's flat `audit` table
+// is NOT re-ported; Finance mutations use the existing AuditLog/logAudit
+// instead. `change_journal` IS ported (FinanceChangeJournal) since its
+// before/after-snapshot undo mechanic is genuinely distinct functionality.
+// ===========================================================================
+
+model FinanceTransaction {
+  id             String   @id @default(cuid())
+  organizationId String?
+  fingerprint    String
+  occurrence     Int      @default(1)
+  month          String // 'YYYY-MM'
+  paymentDate    DateTime
+  description    String   @db.NVarChar(Max)
+  originalCentre String?
+  originalHead   String?
+  country        String?
+  amountUsd      Float
+  sourceSheet    String?
+  sourceRow      Int?
+  sourceFile     String?
+  reviewGroup    String   @default("Routine")
+  importedAt     DateTime @default(now())
+
+  allocation             FinanceAllocation?
+  disputedCharge         FinanceDisputedCharge?
+  paymentTrace           FinancePaymentTrace?
+  paymentCostSplit       FinancePaymentCostSplit?
+  overheadOverride       FinanceOverheadPaymentOverride?
+  merchantReview         FinanceMerchantReview?
+  personCostAllocations  FinancePersonCostAllocation[]
+  merchantInvoiceLinks   FinanceMerchantInvoiceLink[]
+  erpStagingMatches      FinanceErpSyncStaging[]
+
+  @@unique([organizationId, fingerprint, occurrence])
+  @@index([organizationId, month])
+  @@index([organizationId, originalHead, originalCentre])
+  @@map("finance_transactions")
+}
+
+model FinanceAllocation {
+  id             String             @id @default(cuid())
+  organizationId String?
+  transactionId  String             @unique
+  transaction    FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  head           String?
+  centre         String?
+  department     String?
+  costHead       String?
+  debtPeriod     String             @default("current") // current | 2024-25 | older
+  reviewed       Boolean            @default(false)
+  note           String?            @db.NVarChar(Max)
+  updatedAt      DateTime           @updatedAt
+
+  @@index([organizationId])
+  @@map("finance_allocations")
+}
+
+model FinanceLegacyMapping {
+  id             String   @id @default(cuid())
+  organizationId String?
+  legacyHead     String
+  legacyCentre   String
+  department     String?
+  costHead       String?
+  source         String   @default("suggested")
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, legacyHead, legacyCentre])
+  @@map("finance_legacy_mappings")
+}
+
+model FinanceManagementDepartment {
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, name])
+  @@map("finance_management_departments")
+}
+
+model FinanceManagementCostHead {
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, name])
+  @@map("finance_management_cost_heads")
+}
+
+model FinanceCostHead {
+  id             String @id @default(cuid())
+  organizationId String?
+  head           String
+  centre         String
+
+  @@unique([organizationId, head, centre])
+  @@map("finance_cost_heads_legacy")
+}
+
+model FinanceMonthly {
+  id               String   @id @default(cuid())
+  organizationId   String?
+  month            String // 'YYYY-MM'
+  collections      Float    @default(0)
+  collectionsPrior Float    @default(0)
+  collectionsPlan  Float    @default(0)
+  salesPlan        Float    @default(0)
+  opexBudget       Float    @default(0)
+  updatedAt        DateTime @updatedAt
+
+  @@unique([organizationId, month])
+  @@map("finance_monthly")
+}
+
+model FinanceImport {
+  id             String   @id @default(cuid())
+  organizationId String?
+  filename       String
+  addedCount     Int      @default(0)
+  skippedCount   Int      @default(0)
+  invalidCount   Int      @default(0)
+  addedAmount    Float    @default(0)
+  detailsJson    String?  @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@map("finance_imports")
+}
+
+model FinanceDisputedCharge {
+  id             String             @id @default(cuid())
+  organizationId String?
+  transactionId  String             @unique
+  transaction    FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  status         String             @default("Open") // Open | Under review | Resolved
+  reason         String?            @db.NVarChar(Max)
+  financeOwner   String?
+  notes          String?            @db.NVarChar(Max)
+  resolution     String?            @db.NVarChar(Max)
+  openedAt       DateTime           @default(now())
+  resolvedAt     DateTime?
+  updatedAt      DateTime           @updatedAt
+
+  @@index([organizationId])
+  @@map("finance_disputed_charges")
+}
+
+// Reversible-change log (distinct from the app-wide AuditLog, which is a
+// flat append-only record) — stores before/after row snapshots so a
+// change can be undone with an optimistic-concurrency check (see
+// lib/finance/changeJournal.ts). Mirrors the source's `change_journal`.
+model FinanceChangeJournal {
+  id             String    @id @default(cuid())
+  organizationId String?
+  auditId        String? // optional cross-reference to AuditLog.id
+  action         String
+  description    String    @db.NVarChar(Max)
+  actorId        String
+  actorEmail     String
+  beforeJson     String    @db.NVarChar(Max) // array of {table,id,row}
+  afterJson      String    @db.NVarChar(Max)
+  changedAt      DateTime  @default(now())
+  undoneAt       DateTime?
+  undoneBy       String?
+
+  @@index([organizationId])
+  @@map("finance_change_journal")
+}
+
+model FinancePaymentSource {
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  kind           String // Bank account | Company card | Other
+  legalEntity    String?
+  institution    String?
+  currency       String?
+  lastFour       String?
+  note           String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  paymentTraces        FinancePaymentTrace[]
+  creditInvoices       FinanceCreditInvoice[]
+  creditRecurring      FinanceCreditRecurring[]
+  creditCardRules      FinanceCreditCardRule[]
+  creditBankLink       FinanceCreditBankLink?
+  treasuryBankAccounts FinanceBankAccount[]
+
+  @@unique([organizationId, name])
+  @@map("finance_payment_sources")
+}
+
+model FinanceSubscription {
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  vendor         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users             FinanceSubscriptionUser[]
+  paymentTraces     FinancePaymentTrace[]
+  paymentCostSplits FinancePaymentCostSplit[]
+
+  @@index([organizationId])
+  @@map("finance_subscriptions")
+}
+
+model FinanceSubscriptionUser {
+  id              String              @id @default(cuid())
+  organizationId  String?
+  subscriptionId  String
+  subscription    FinanceSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  userEmail       String
+  licenceType     String?
+  licenceCost     Float?
+  licenceQuantity Int?                @default(1)
+
+  @@unique([subscriptionId, userEmail])
+  @@index([organizationId])
+  @@map("finance_subscription_users")
+}
+
+model FinancePaymentTrace {
+  id               String               @id @default(cuid())
+  organizationId   String?
+  transactionId    String               @unique
+  transaction      FinanceTransaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  paymentReference String?
+  erpPaymentId     String?
+  erpInvoiceId     String?
+  erpSourceId      String?
+  supplier         String?
+  purpose          String?              @db.NVarChar(Max)
+  paymentMethod    String?
+  paymentSourceId  String?
+  paymentSource    FinancePaymentSource? @relation(fields: [paymentSourceId], references: [id], onDelete: SetNull)
+  subscriptionId   String?
+  subscription     FinanceSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  sourceCurrency   String?
+  sourceAmount     Float?
+  reviewed         Boolean              @default(false)
+  updatedAt        DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@map("finance_payment_trace")
+}
+
+model FinanceErpSyncStaging {
+  id                   String              @id @default(cuid())
+  organizationId       String?
+  receivedAt           DateTime            @default(now())
+  externalId           String
+  rawJson              String              @db.NVarChar(Max)
+  matchedTransactionId String?
+  matchedTransaction   FinanceTransaction? @relation(fields: [matchedTransactionId], references: [id], onDelete: SetNull)
+  status               String              @default("pending") // pending | matched | ignored
+  sourceId             String
+  source               FinanceErpSource    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, externalId])
+  @@index([organizationId])
+  @@map("finance_erp_sync_staging")
+}
+
+model FinancePaymentCostSplit {
+  id               String               @id @default(cuid())
+  organizationId   String?
+  transactionId    String               @unique
+  transaction      FinanceTransaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  subscriptionId   String?
+  subscription     FinanceSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  breakdownJson    String               @db.NVarChar(Max)
+  seatSnapshotJson String?              @db.NVarChar(Max)
+  sourceAmountUsd  Float
+  licenceCount     Int?
+  costHead         String?
+  approvedBy       String?
+  approvedAt       DateTime?
+  updatedAt        DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@map("finance_payment_cost_splits")
+}
+
+model FinanceOverheadHeadRule {
+  id             String   @id @default(cuid())
+  organizationId String?
+  costHead       String
+  costNature     String // overhead | direct | balance | review
+  costBehaviour  String // fixed | variable | mixed | oneoff | na
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, costHead])
+  @@map("finance_overhead_head_rules")
+}
+
+model FinanceOverheadPaymentOverride {
+  id             String             @id @default(cuid())
+  organizationId String?
+  transactionId  String             @unique
+  transaction    FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  costNature     String
+  costBehaviour  String
+  updatedAt      DateTime           @updatedAt
+
+  @@index([organizationId])
+  @@map("finance_overhead_payment_overrides")
+}
+
+model FinancePerson {
+  id             String   @id @default(cuid())
+  organizationId String?
+  fullName       String
+  department     String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  costAllocations FinancePersonCostAllocation[]
+
+  @@index([organizationId])
+  @@map("finance_people")
+}
+
+model FinancePersonCostAllocation {
+  id                 String             @id @default(cuid())
+  organizationId     String?
+  transactionId      String
+  transaction        FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  personId           String
+  person             FinancePerson      @relation(fields: [personId], references: [id], onDelete: Cascade)
+  costType           String // Salary | Commission | Bonus | Employer taxes | Benefits | Other personnel
+  amountUsd          Float
+  departmentSnapshot String? // point-in-time, never re-derived — see lib/finance/peopleOverheadsData.ts
+  reference          String?
+  note               String?            @db.NVarChar(Max)
+  updatedAt          DateTime           @updatedAt
+
+  @@index([organizationId])
+  @@index([transactionId])
+  @@map("finance_person_cost_allocations")
+}
+
+model FinancePlan {
+  id             String   @id @default(cuid())
+  organizationId String?
+  fyStart        Int // fiscal year start (November), e.g. 2026
+  version        Int      @default(1)
+  name           String?
+  status         String   @default("Draft") // Draft | Approved
+  createdAt      DateTime @default(now())
+  approvedAt     DateTime?
+
+  lines   FinancePlanLine[]
+  targets FinancePlanTarget[]
+
+  @@unique([organizationId, fyStart, version])
+  @@map("finance_plans")
+}
+
+model FinancePlanLine {
+  id             String      @id @default(cuid())
+  organizationId String?
+  planId         String
+  plan           FinancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  month          String // 'YYYY-MM'
+  department     String
+  costHead       String
+  budgetUsd      Float       @default(0)
+
+  @@unique([planId, month, department, costHead])
+  @@index([organizationId])
+  @@map("finance_plan_lines")
+}
+
+model FinancePlanTarget {
+  id                   String      @id @default(cuid())
+  organizationId       String?
+  planId               String
+  plan                 FinancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  month                String // 'YYYY-MM'
+  salesTargetUsd       Float       @default(0)
+  collectionsTargetUsd Float       @default(0)
+
+  @@unique([planId, month])
+  @@index([organizationId])
+  @@map("finance_plan_targets")
+}
+
+model FinanceErpBankBalance {
+  id                String   @id @default(cuid())
+  organizationId    String?
+  externalAccountId String
+  asOf              DateTime
+  institution       String?
+  accountLabel      String?
+  legalEntity       String?
+  currency          String?
+  ledgerBalance     Float?
+  availableBalance  Float?
+  erpReference      String?
+  receivedAt        DateTime @default(now())
+
+  @@unique([externalAccountId, asOf])
+  @@index([organizationId])
+  @@map("finance_erp_bank_balances")
+}
+
+// One Homes runs three separate regional ERP installs (Pakistan/UAE/UK &
+// USA — same vendor, independent deployments). `region` is the
+// authoritative source identity for disambiguating inbound records, not
+// a fund or department.
+model FinanceErpSource {
+  id              String   @id @default(cuid())
+  organizationId  String?
+  name            String
+  department      String? // legacy field, retained for compatibility
+  legalEntity     String?
+  environment     String?
+  integrationMode String?
+  endpointUrl     String?
+  region          String? // Pakistan | UAE | UK & USA
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  stagingRecords FinanceErpSyncStaging[]
+  bankAccounts   FinanceBankAccount[]
+
+  @@index([organizationId])
+  @@map("finance_erp_sources")
+}
+
+model FinanceBankAccount {
+  id               String                @id @default(cuid())
+  organizationId   String?
+  label            String
+  bank             String?
+  maskedAccount    String?
+  country          String?
+  legalEntity      String?
+  currency         String?
+  erpAccountId     String?               @unique
+  paymentSourceId  String?
+  paymentSource    FinancePaymentSource? @relation(fields: [paymentSourceId], references: [id], onDelete: SetNull)
+  usdPerUnit       Float?
+  fxAsOf           DateTime?
+  erpSourceId      String?
+  erpSource        FinanceErpSource?     @relation(fields: [erpSourceId], references: [id], onDelete: SetNull)
+  erpAccountNumber String?
+  active           Boolean               @default(true)
+  updatedAt        DateTime              @updatedAt
+
+  ledgerEntries   FinanceTreasuryLedger[]
+  settlements     FinanceTreasurySettlement[]
+  creditBankLinks FinanceCreditBankLink[]
+
+  @@unique([erpSourceId, erpAccountNumber])
+  @@index([organizationId])
+  @@map("finance_bank_accounts")
+}
+
+model FinanceTreasuryLedger {
+  id              String             @id @default(cuid())
+  organizationId  String?
+  sourceUid       String             @unique
+  bankAccountId   String
+  bankAccount     FinanceBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  txnDate         DateTime
+  transactionType String?
+  amount          Float
+  currency        String
+  reference       String?
+  description     String?            @db.NVarChar(Max)
+  note            String?            @db.NVarChar(Max)
+  approvedBy      String?
+  createdAt       DateTime           @default(now())
+
+  allocations FinanceTreasuryAllocation[]
+  settlement  FinanceTreasurySettlement?
+
+  @@index([organizationId])
+  @@map("finance_treasury_ledger")
+}
+
+model FinanceTreasuryAllocation {
+  id             String                @id @default(cuid())
+  organizationId String?
+  ledgerId       String
+  ledger         FinanceTreasuryLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  fund           String // S&M | Development | Unallocated
+  amount         Float
+
+  @@unique([ledgerId, fund])
+  @@index([organizationId])
+  @@map("finance_treasury_allocations")
+}
+
+model FinanceTreasurySettlement {
+  id                 String                 @id @default(cuid())
+  organizationId     String?
+  provider           String // Stripe | Trust Payments
+  payoutId           String
+  merchantAccount    String?
+  legalEntity        String?
+  bankAccountId      String?
+  bankAccount        FinanceBankAccount?    @relation(fields: [bankAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  currency           String?
+  gross              Float?
+  fees               Float?
+  refunds            Float?
+  disputes           Float?
+  reserve            Float?
+  otherAdjustments   Float?
+  net                Float?
+  expectedDate       DateTime?
+  actualDate         DateTime?
+  status             String                 @default("pending")
+  fund               String?
+  reconciledLedgerId String?                @unique
+  reconciledLedger   FinanceTreasuryLedger? @relation(fields: [reconciledLedgerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  note               String?
+  source             String?
+  updatedAt          DateTime               @updatedAt
+
+  @@unique([provider, payoutId])
+  @@index([organizationId])
+  @@map("finance_treasury_settlements")
+}
+
+model FinanceCreditInvoice {
+  id              String                @id @default(cuid())
+  organizationId  String?
+  vendor          String
+  invoiceNumber   String?
+  issueDate       DateTime?
+  dueDate         DateTime?
+  amount          Float
+  currency        String                @default("USD")
+  department      String?
+  costHead        String?
+  country         String?
+  paymentSourceId String?
+  paymentSource   FinancePaymentSource? @relation(fields: [paymentSourceId], references: [id], onDelete: SetNull)
+  status          String                @default("Unpaid") // Unpaid | Scheduled | Paid | Cancelled
+  paidDate        DateTime?
+  reference       String?
+  notes           String?               @db.NVarChar(Max)
+  documentId      String? // FK to Document (blob storage), not a local BLOB column
+  documentHash    String?
+  createdAt       DateTime              @default(now())
+
+  @@index([organizationId])
+  @@map("finance_credit_invoices")
+}
+
+model FinanceCreditRecurring {
+  id              String                @id @default(cuid())
+  organizationId  String?
+  title           String
+  category        String // Salary | Rent | Tax | Loan | Utility | Subscription | Other
+  beneficiary     String?
+  country         String?
+  currency        String                @default("USD")
+  amount          Float
+  paymentSourceId String?
+  paymentSource   FinancePaymentSource? @relation(fields: [paymentSourceId], references: [id], onDelete: SetNull)
+  recurrenceRule  String // month_end | last_business_day | month_start | day_of_month | nth_weekday | last_weekday | weekly
+  dayOfMonth      Int?
+  weekday         Int?
+  ordinal         Int?
+  startDate       DateTime?
+  endDate         DateTime?
+  active          Boolean               @default(true)
+  notes           String?               @db.NVarChar(Max)
+
+  @@index([organizationId])
+  @@map("finance_credit_recurring")
+}
+
+model FinanceCreditCardRule {
+  id               String                @id @default(cuid())
+  organizationId   String?
+  paymentAccountId String?
+  paymentSource    FinancePaymentSource? @relation(fields: [paymentAccountId], references: [id], onDelete: SetNull)
+  statementDay     Int
+  dueOffsetDays    Int
+  settlement       String                @default("Full statement") // Full statement | Statement minimum
+
+  statements FinanceCreditCardStatement[]
+
+  @@index([organizationId])
+  @@map("finance_credit_card_rules")
+}
+
+model FinanceCreditCardStatement {
+  id             String                @id @default(cuid())
+  organizationId String?
+  cardRuleId     String
+  cardRule       FinanceCreditCardRule @relation(fields: [cardRuleId], references: [id], onDelete: Cascade)
+  closingDate    DateTime
+  amount         Float
+  minimumDue     Float?
+  amountPaid     Float                 @default(0)
+  status         String                @default("Open") // Open | Paid | Disputed
+
+  charges FinanceCreditCardCharge[]
+
+  @@index([organizationId])
+  @@map("finance_credit_card_statements")
+}
+
+model FinanceCreditCardCharge {
+  id             String                     @id @default(cuid())
+  organizationId String?
+  statementId    String
+  statement      FinanceCreditCardStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  merchant       String?
+  amount         Float
+  currency       String                     @default("USD")
+  reference      String?
+  createdAt      DateTime                   @default(now())
+
+  @@index([organizationId])
+  @@map("finance_credit_card_charges")
+}
+
+model FinanceCreditBankLink {
+  id              String              @id @default(cuid())
+  organizationId  String?
+  paymentSourceId String              @unique
+  paymentSource   FinancePaymentSource @relation(fields: [paymentSourceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bankAccountId   String?
+  bankAccount     FinanceBankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  openingBalance  Float?
+  openingAsOf     DateTime?
+
+  @@index([organizationId])
+  @@map("finance_credit_bank_links")
+}
+
+model FinanceCreditInvoiceImport {
+  id             String   @id @default(cuid())
+  organizationId String?
+  filename       String
+  addedCount     Int      @default(0)
+  skippedCount   Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@map("finance_credit_invoice_imports")
+}
+
+model FinanceMerchantBatch {
+  id             String   @id @default(cuid())
+  organizationId String?
+  merchant       String?
+  costHead       String?
+  fyStart        Int?
+  status         String   @default("open") // open | exported | committed
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@map("finance_merchant_batches")
+}
+
+model FinanceMerchantReview {
+  id             String             @id @default(cuid())
+  organizationId String?
+  transactionId  String             @unique
+  transaction    FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  supplier       String?
+  product        String?
+  owner          String?
+  users          String?
+  department     String?
+  costHead       String?
+  updatedAt      DateTime           @updatedAt
+
+  @@index([organizationId])
+  @@map("finance_merchant_reviews")
+}
+
+model FinanceMerchantInvoice {
+  id             String    @id @default(cuid())
+  organizationId String?
+  supplier       String?
+  documentId     String? // FK to Document (blob storage)
+  extractedText  String?   @db.NVarChar(Max)
+  amount         Float?
+  currency       String?
+  invoiceDate    DateTime?
+  createdAt      DateTime  @default(now())
+
+  links FinanceMerchantInvoiceLink[]
+
+  @@index([organizationId])
+  @@map("finance_merchant_invoices")
+}
+
+model FinanceMerchantInvoiceLink {
+  id             String                 @id @default(cuid())
+  organizationId String?
+  invoiceId      String
+  invoice        FinanceMerchantInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  transactionId  String
+  transaction    FinanceTransaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, transactionId])
+  @@index([organizationId])
+  @@map("finance_merchant_invoice_links")
+}
+
+model FinanceMerchantProvider {
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  createdAt      DateTime @default(now())
+
+  aliases FinanceMerchantAlias[]
+
+  @@unique([organizationId, name])
+  @@map("finance_merchant_providers")
+}
+
+model FinanceMerchantAlias {
+  id             String                  @id @default(cuid())
+  organizationId String?
+  alias          String
+  providerId     String
+  provider       FinanceMerchantProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, alias])
+  @@map("finance_merchant_aliases")
 }
