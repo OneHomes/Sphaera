@@ -256,6 +256,23 @@ export async function applySuggestedOverheads(params: {
   return { ok: true, applied: 0, changeId: null };
 }
 
+/**
+ * Listing helper for the Overhead Analysis screen — there is no
+ * equivalent read in the source app's server.py beyond what fetch_state
+ * already returns for transactions, so this is a small addition (not a
+ * port) that simply surfaces every FinanceOverheadHeadRule row keyed by
+ * cost head, for pairing against FinanceState.managementCostHeads client-side.
+ */
+export async function listOverheadHeadRules() {
+  const rules = await prisma.financeOverheadHeadRule.findMany({ orderBy: { costHead: "asc" } });
+  return rules.map((r) => ({
+    costHead: r.costHead,
+    costNature: r.costNature,
+    costBehaviour: r.costBehaviour,
+    updatedAt: r.updatedAt,
+  }));
+}
+
 // --- Personnel cost attribution ----------------------------------------
 
 export const PERSON_COST_TYPES = [
