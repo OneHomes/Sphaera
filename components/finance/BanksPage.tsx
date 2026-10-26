@@ -88,7 +88,6 @@ function Tile({ label, value }: { label: string; value: string }) {
 
 export function BanksPage({ state: initialState }: { state: TreasuryState }) {
   const [state, setState] = useState<TreasuryState>(initialState);
-  const [view, setView] = useState<"accounts" | "funds">("accounts");
   const [modalBank, setModalBank] = useState<BankRow | "new" | null>(null);
   const [reloading, setReloading] = useState(false);
 
@@ -111,33 +110,19 @@ export function BanksPage({ state: initialState }: { state: TreasuryState }) {
     <div className="p-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-ink-50">Banks</h1>
+          <h1 className="text-xl font-semibold text-ink-50">Banks &amp; Accounts</h1>
           <p className="mt-1 text-sm text-ink-500">
-            {state.banks.length.toLocaleString()} treasury bank account{state.banks.length === 1 ? "" : "s"}
+            One row per real bank account. Click an account for its physical balance, fund allocations, and
+            commitments.
             {!state.integrationConnected && " · No live processor/ERP feed connected"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-lg border border-base-700 bg-base-900 p-0.5">
-            {(["accounts", "funds"] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition ${
-                  view === v ? "bg-base-800 text-ink-50" : "text-ink-500 hover:text-ink-300"
-                }`}
-              >
-                {v === "accounts" ? "Bank Accounts" : "Treasury Funds"}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => setModalBank("new")}
-            className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
-          >
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Register bank account
-          </button>
-        </div>
+        <button
+          onClick={() => setModalBank("new")}
+          className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> + Add bank account
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -153,8 +138,9 @@ export function BanksPage({ state: initialState }: { state: TreasuryState }) {
       </div>
 
       <div className="mt-4">
-        {view === "accounts" ? (
-          <WidgetCard title="Bank Accounts" icon={Landmark}>
+        <WidgetCard title="Bank register" icon={Landmark}
+          action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{state.banks.length} accounts</span>}
+        >
             <div className="overflow-x-auto rounded-xl border border-base-700">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -224,35 +210,6 @@ export function BanksPage({ state: initialState }: { state: TreasuryState }) {
             </div>
             {reloading && <p className="mt-2 text-[11px] text-ink-500">Refreshing…</p>}
           </WidgetCard>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            {state.funds.map((fund) => (
-              <WidgetCard key={fund.fund} title={fund.fund} icon={Wallet}>
-                <div className="space-y-2">
-                  <Tile
-                    label={fund.fxComplete ? "USD total (all banks FX-verified)" : `USD total (${fund.pendingFX} bank(s) missing FX)`}
-                    value={fund.usdTotal !== null ? formatAmount(fund.usdTotal, "USD") : "Incomplete"}
-                  />
-                  <div className="space-y-1.5">
-                    {fund.banks.map((b) => (
-                      <div key={b.bankId} className="rounded-lg border border-base-700 bg-base-800/40 p-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-ink-50">{b.label}</span>
-                          <span className="text-xs text-ink-300">{formatAmount(b.amount, b.currency)}</span>
-                        </div>
-                        <div className="mt-0.5 flex items-center justify-between text-[11px] text-ink-500">
-                          <span>{b.bank ?? "—"}</span>
-                          <span>{b.usdEquivalent !== null ? formatAmount(b.usdEquivalent, "USD") : "No FX quote"}</span>
-                        </div>
-                      </div>
-                    ))}
-                    {fund.banks.length === 0 && <p className="text-xs text-ink-500">No allocations yet.</p>}
-                  </div>
-                </div>
-              </WidgetCard>
-            ))}
-          </div>
-        )}
       </div>
 
       {modalBank && (
