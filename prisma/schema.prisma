@@ -1289,12 +1289,24 @@ model FinancePaymentSource {
 }
 
 model FinanceSubscription {
-  id             String   @id @default(cuid())
-  organizationId String?
-  name           String
-  vendor         String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(cuid())
+  organizationId  String?
+  supplier        String
+  service         String
+  purpose         String?
+  department      String?
+  costHead        String?
+  owner           String?
+  billingCycle    String?
+  expectedAmount  Float?
+  currency        String?
+  renewalDate     String?
+  status          String   @default("Active")
+  vendorReference String?
+  licenceCount    Int?
+  notes           String?  @db.NVarChar(Max)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   users             FinanceSubscriptionUser[]
   paymentTraces     FinancePaymentTrace[]
@@ -1310,6 +1322,8 @@ model FinanceSubscriptionUser {
   subscriptionId  String
   subscription    FinanceSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   userEmail       String
+  userName        String?
+  team            String?
   licenceType     String?
   licenceCost     Float?
   licenceQuantity Int?                @default(1)
