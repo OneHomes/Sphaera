@@ -358,12 +358,7 @@ model User {
   organizationId String?
   entraId        String?  @unique
   name           String
-  // TEMPORARY: still a plain @unique on email alone — the composite
-  // ([organizationId, email]) swap is staged as a separate db push (see
-  // scripts/migrate-to-composite-uniques.md) since it requires
-  // --accept-data-loss, which needs to be run by hand rather than by me.
-  // Safe to apply: every existing email is already globally unique today.
-  email          String   @unique
+  email          String
   // Set only for email+password accounts (new, non-Entra orgs) — hashed
   // with bcrypt, see lib/auth.ts's Credentials provider. Null for every
   // Entra ID sign-in (One Homes today), which never uses a password.
@@ -414,6 +409,7 @@ model User {
   paymentPlansCreated   PaymentPlan[]
   unitsCreated          Unit[]
 
+  @@unique([organizationId, email])
   @@index([organizationId])
   @@index([teamId])
   @@map("users")
@@ -428,10 +424,7 @@ model User {
 model Project {
   id             String   @id @default(cuid())
   organizationId String?
-  // TEMPORARY: still plain @unique — same staged-separately reasoning as
-  // User.email above (composite [organizationId, name] needs
-  // --accept-data-loss).
-  name           String   @unique
+  name           String
   createdById    String
   createdBy      User     @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   createdAt      DateTime @default(now())
@@ -440,6 +433,7 @@ model Project {
   units        Unit[]
   paymentPlans PaymentPlan[]
 
+  @@unique([organizationId, name])
   @@index([organizationId])
   @@map("projects")
 }

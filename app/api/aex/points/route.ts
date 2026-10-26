@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateCurrentUser } from "@/lib/currentUser";
 import { checkPointAwardAllowed, logSuspiciousActivity } from "@/lib/aexGovernance";
+import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // Generic point-award endpoint. Other modules (Pipeline stage changes,
@@ -45,6 +46,14 @@ export async function POST(request: Request) {
           label: body.label,
           points: body.points,
         },
+      });
+
+      await logAudit({
+        actorId: user.id,
+        actorEmail: session.user?.email ?? "unknown",
+        action: "aex_points_awarded",
+        targetId: event.id,
+        details: `${body.points} point(s) awarded for "${body.label}"`,
       });
 
       return NextResponse.json(event, { status: 201 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
+import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 export async function GET() {
@@ -34,7 +35,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    return await withTenant(async (authUser) => {
+    return await withTenant(async (authUser, session) => {
       if (!hasRole(authUser, ["ADMIN"])) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
@@ -49,6 +50,14 @@ export async function POST(request: Request) {
 
       const team = await prisma.team.create({
         data: { name: body.name.trim() },
+      });
+
+      await logAudit({
+        actorId: authUser.id,
+        actorEmail: session.user?.email ?? "unknown",
+        action: "team_created",
+        targetId: team.id,
+        details: `Created team "${team.name}"`,
       });
 
       return NextResponse.json(team, { status: 201 });

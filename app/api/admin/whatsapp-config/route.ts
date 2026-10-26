@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
+import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // Company-level WhatsApp Business Account setup — done once by an Admin
@@ -52,7 +53,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    return await withTenant(async (authUser) => {
+    return await withTenant(async (authUser, session) => {
       if (!hasRole(authUser, ["ADMIN"])) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
@@ -83,6 +84,16 @@ export async function POST(request: Request) {
         : await prisma.whatsAppConfig.create({
             data: { wabaId, metaAppId, systemUserToken, businessName, isVerified: true },
           });
+
+      // Security-sensitive integration credentials — never log the token
+      // itself, just that it was set/rotated and by whom.
+      await logAudit({
+        actorId: authUser.id,
+        actorEmail: session.user?.email ?? "unknown",
+        action: existing ? "whatsapp_config_updated" : "whatsapp_config_created",
+        targetId: config.id,
+        details: `${existing ? "Updated" : "Created"} WhatsApp Business config for "${businessName}"`,
+      });
 
       return NextResponse.json({ id: config.id, businessName: config.businessName });
     });

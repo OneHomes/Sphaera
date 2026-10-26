@@ -7,6 +7,7 @@ import { getAexConfig } from "@/lib/aexConfig";
 import { createNotification } from "@/lib/notifications";
 import { awardBadgeIfNew } from "@/lib/badges";
 import { awardPoints } from "@/lib/awardPoints";
+import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 const patchableFields = [
   "stage",
@@ -20,7 +21,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    return await withTenant(async (authUser) => {
+    return await withTenant(async (authUser, session) => {
       const body = await request.json();
       const existing = await prisma.opportunity.findUnique({
         where: { id: params.id },
@@ -112,6 +113,19 @@ export async function PATCH(
         data,
         include: { assignedUser: true },
       });
+
+      // Revenue/forecast-relevant: record every stage transition, not just
+      // Closed Won/Lost — this is what pipeline/forecast reporting and
+      // dispute resolution rely on being able to reconstruct later.
+      if (data.stage && data.stage !== existing.stage) {
+        await logAudit({
+          actorId: authUser.id,
+          actorEmail: session.user?.email ?? "unknown",
+          action: "opportunity_stage_changed",
+          targetId: updated.id,
+          details: `${existing.leadName}: ${existing.stage} -> ${data.stage}${data.lossReason ? ` (${data.lossReason})` : ""}`,
+        });
+      }
 
       // PRD AEX 14.1/14.8 — real trigger: this opportunity just became
       // Closed Won. Points scale with deal value (PLACEHOLDER rate, not

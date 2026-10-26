@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateCurrentUser } from "@/lib/currentUser";
 import { verifyPhoneNumberCode } from "@/lib/whatsapp";
+import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // Step 2 of the self-service "Connect WhatsApp" flow: agent submits the
@@ -39,6 +40,16 @@ export async function POST(request: Request) {
         const updated = await prisma.whatsAppNumber.update({
           where: { userId: user.id },
           data: { verifiedAt: new Date() },
+        });
+
+        // This is the moment the number becomes a live, usable channel on
+        // behalf of the org — the security-relevant event, not step 1.
+        await logAudit({
+          actorId: user.id,
+          actorEmail: session.user?.email ?? "unknown",
+          action: "whatsapp_number_verified",
+          targetId: updated.id,
+          details: `Verified and connected WhatsApp number ${updated.phoneNumber}`,
         });
 
         return NextResponse.json({

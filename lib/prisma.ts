@@ -126,10 +126,15 @@ export const prisma = base.$extends({
             a.data = a.data.map((row: Record<string, unknown>) => ({ organizationId, ...row }));
           }
         } else if (operation === "upsert") {
-          a.where = { ...a.where, organizationId };
+          // organizationId first, `...where`/`...create` spread after — an
+          // explicit organizationId already present in either (e.g. a
+          // public route like invites/accept that isn't inside a
+          // withTenant() context and names a specific org by hand) wins
+          // over the ambient/fallback value, same as `create` below.
+          a.where = { organizationId, ...a.where };
           a.create = { organizationId, ...a.create };
         } else if (WHERE_FILTERED_OPERATIONS.has(operation)) {
-          a.where = { ...a.where, organizationId };
+          a.where = { organizationId, ...a.where };
         }
 
         return query(a);

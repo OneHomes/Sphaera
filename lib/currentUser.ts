@@ -24,7 +24,11 @@ export async function getOrCreateUserByEmail(
   name?: string | null,
   entraId?: string | null
 ) {
-  const existing = await prisma.user.findUnique({ where: { email } });
+  // email alone is no longer a unique selector (User.email's uniqueness
+  // is now composite on [organizationId, email]) — findFirst instead of
+  // findUnique. This path is Entra-only/One Homes-only (see comment
+  // above), so there's only ever one real match in practice.
+  const existing = await prisma.user.findFirst({ where: { email } });
   if (existing) return existing;
 
   const organizationId = await getOneHomesOrganizationId();

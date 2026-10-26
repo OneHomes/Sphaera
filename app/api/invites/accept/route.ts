@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { logAudit } from "@/lib/auditLog";
 
 // Public endpoint by necessity (no session exists yet — this IS how a
 // new organization's first/next user gets one) — see
@@ -61,6 +62,16 @@ export async function POST(request: Request) {
       data: { acceptedAt: new Date() },
     }),
   ]);
+
+  // Identity-relevant: a new account was just created via invite — logged
+  // against the new user's own id since they're the one who took the action.
+  await logAudit({
+    actorId: user.id,
+    actorEmail: user.email,
+    action: "user_invite_accepted",
+    targetId: user.id,
+    details: `Account created via invite (role: ${user.role})`,
+  });
 
   return NextResponse.json({ userId: user.id, email: user.email }, { status: 201 });
 }

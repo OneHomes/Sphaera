@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
 import { getOrCreateCurrentUser } from "@/lib/currentUser";
 import { getVisibleTargets, TARGET_METRICS } from "@/lib/targetTracker";
+import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 export async function GET() {
@@ -71,6 +72,14 @@ export async function POST(request: Request) {
           targetValue: Number(targetValue),
           createdById: currentUser.id,
         },
+      });
+
+      await logAudit({
+        actorId: currentUser.id,
+        actorEmail: session.user?.email ?? "unknown",
+        action: "target_set",
+        targetId: target.id,
+        details: `Set ${metric} target of ${targetValue} for ${userId ? `user ${userId}` : `team ${teamId}`} (${periodStart} to ${periodEnd})`,
       });
 
       return NextResponse.json(target, { status: 201 });
