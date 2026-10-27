@@ -103,12 +103,12 @@ export function DisputedChargesPage({ transactions }: { transactions: FinanceLed
             <tbody>
               {filtered.map((t) => (
                 <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0 hover:bg-base-800/60">
-                  <td className="whitespace-nowrap px-3 py-2">{t.date ? new Date(t.date).toLocaleDateString() : t.month}</td>
+                  <td className="whitespace-nowrap px-3 py-2">{t.date ? new Date(t.date).toISOString().slice(0, 10) : t.month}</td>
                   <td className="max-w-[260px] px-3 py-2">
                     <div className="truncate font-semibold text-ink-50" title={t.description}>
                       {t.description}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-ink-500">#{t.id}</div>
+                    <div className="mt-0.5 text-[11px] text-ink-500">{t.id}</div>
                   </td>
                   <td className="max-w-[260px] px-3 py-2">
                     <div className="truncate" title={t.dispute?.reason ?? ""}>

@@ -153,7 +153,7 @@ export function MerchantReconciliationPage({
   const [headPickerOpen, setHeadPickerOpen] = useState(false);
   const [headFilter, setHeadFilter] = useState("");
 
-  const [fyStart, setFyStart] = useState("");
+  const [fyStart, setFyStart] = useState("2025");
   const [exportScope, setExportScope] = useState<"all" | "unidentified">("all");
 
   // True once the merchant/cost-head/year/scope selection has changed since
@@ -290,7 +290,7 @@ export function MerchantReconciliationPage({
 
   // --- Supplier-name suggestions ("smart panel") --------------------------
   const [suggestionsState, setSuggestionsState] = useState<SupplierSuggestion[]>(supplierSuggestions);
-  const [smartOpen, setSmartOpen] = useState(false);
+  const [smartOpen, setSmartOpen] = useState(true);
   const [suggestionFilter, setSuggestionFilter] = useState("");
   const [suggestionLimit, setSuggestionLimit] = useState(SUGGESTION_PAGE_SIZE);
   const [suggestionSelections, setSuggestionSelections] = useState<Record<string, string[]>>({});
