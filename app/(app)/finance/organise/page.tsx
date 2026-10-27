@@ -15,11 +15,6 @@ export default async function FinanceOrganiseRoute() {
 
   return withTenantPage(session, async () => {
     const state = await getFinanceState();
-    return (
-      <OrganiseCostsPage
-        initialDepartments={state.departments}
-        initialCostHeads={state.managementCostHeads}
-      />
-    );
+    return <OrganiseCostsPage state={state} />;
   });
 }

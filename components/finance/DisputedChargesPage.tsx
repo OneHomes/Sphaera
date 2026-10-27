@@ -2,126 +2,154 @@
 
 import { useMemo, useState } from "react";
 import { Pencil } from "lucide-react";
+import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { DisputeModal } from "./DisputeModal";
 
-const STATUS_FILTERS = ["all", "Open", "Under review", "Resolved"] as const;
-
-function formatUsd(value: number): string {
-  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+function usd(value: number): string {
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
-function Tile({ label, value }: { label: string; value: string }) {
+function Kpi({
+  title,
+  value,
+  detail,
+  color,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  color?: "amber";
+}) {
+  const colorClass = color === "amber" ? "text-status-alert" : "text-ink-50";
   return (
-    <div className="rounded-lg border border-base-700 bg-base-800 p-3">
-      <p className="text-[11px] text-ink-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-ink-50">{value}</p>
+    <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+      <h4 className="text-[11px] text-ink-500">{title}</h4>
+      <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
+      <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
 }
 
 function statusBadgeClass(status: string): string {
-  if (status === "Resolved") return "bg-status-active/15 text-status-active";
-  if (status === "Under review") return "bg-status-alert/15 text-status-alert";
-  return "bg-status-inactive/15 text-status-inactive";
+  return status === "Resolved"
+    ? "bg-status-active/15 text-status-active"
+    : "bg-status-inactive/15 text-status-inactive";
 }
 
 export function DisputedChargesPage({ transactions }: { transactions: FinanceLedgerRow[] }) {
   const [rows, setRows] = useState(transactions);
-  const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
+  const [includeResolved, setIncludeResolved] = useState(false);
   const [target, setTarget] = useState<FinanceLedgerRow | null>(null);
 
-  const filtered = useMemo(() => {
-    if (statusFilter === "all") return rows;
-    return rows.filter((r) => r.dispute?.status === statusFilter);
-  }, [rows, statusFilter]);
+  const openRows = useMemo(() => rows.filter((r) => r.dispute && r.dispute.status !== "Resolved"), [rows]);
+  const resolvedRows = useMemo(() => rows.filter((r) => r.dispute?.status === "Resolved"), [rows]);
+  const valueUnderReview = useMemo(() => openRows.reduce((s, r) => s + r.amount, 0), [openRows]);
 
-  const openCount = rows.filter((r) => r.dispute?.status === "Open").length;
-  const underReviewCount = rows.filter((r) => r.dispute?.status === "Under review").length;
-  const resolvedCount = rows.filter((r) => r.dispute?.status === "Resolved").length;
+  const filtered = includeResolved ? rows : openRows;
 
   return (
     <div className="p-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-ink-50">Disputed Charges</h1>
-          <p className="mt-1 text-sm text-ink-500">{rows.length.toLocaleString()} payment(s) under dispute</p>
-        </div>
+      <div className="mb-5">
+        <h2 className="text-xl font-semibold text-ink-50">Disputed charges</h2>
+        <p className="mt-1 text-sm text-ink-500">
+          Central review queue for payments to investigate with Finance. A dispute flag does not remove a charge
+          from the accounts.
+        </p>
       </div>
 
-      <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Tile label="Open" value={openCount.toLocaleString()} />
-        <Tile label="Under review" value={underReviewCount.toLocaleString()} />
-        <Tile label="Resolved" value={resolvedCount.toLocaleString()} />
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi
+          title="Open and under review"
+          value={openRows.length.toLocaleString()}
+          detail="Awaiting a Finance decision"
+          color="amber"
+        />
+        <Kpi title="Value under review" value={usd(valueUnderReview)} detail="Sum of charges not yet resolved" />
+        <Kpi
+          title="Resolved investigations"
+          value={resolvedRows.length.toLocaleString()}
+          detail="Closed with a recorded outcome"
+        />
+        <Kpi title="Dispute total" value={rows.length.toLocaleString()} detail="All flagged payments, open or resolved" />
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {STATUS_FILTERS.map((s) => (
+      <WidgetCard
+        title="Finance investigation queue"
+        action={
           <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`rounded-full px-3 py-1 text-xs ${
-              statusFilter === s ? "bg-ink-50 text-base-950" : "border border-base-700 text-ink-500 hover:text-ink-300"
-            }`}
+            onClick={() => setIncludeResolved((v) => !v)}
+            className="rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50"
           >
-            {s === "all" ? "All" : s}
+            {includeResolved ? "Show open only" : "Include resolved"}
           </button>
-        ))}
-      </div>
-
-      <div className="overflow-x-auto rounded-xl border border-base-700">
-        <table className="w-full text-left text-xs">
-          <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-            <tr>
-              <th className="px-3 py-2">Date</th>
-              <th className="px-3 py-2">Description</th>
-              <th className="px-3 py-2">Amount</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Reason</th>
-              <th className="px-3 py-2">Finance owner</th>
-              <th className="px-3 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((t) => (
-              <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0 hover:bg-base-800/60">
-                <td className="px-3 py-2">{new Date(t.date).toLocaleDateString()}</td>
-                <td className="max-w-[240px] truncate px-3 py-2 text-ink-50" title={t.description}>
-                  {t.description}
-                </td>
-                <td className="px-3 py-2">{formatUsd(t.amount)}</td>
-                <td className="px-3 py-2">
-                  {t.dispute && (
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadgeClass(t.dispute.status)}`}>
-                      {t.dispute.status}
-                    </span>
-                  )}
-                </td>
-                <td className="max-w-[260px] truncate px-3 py-2" title={t.dispute?.reason ?? ""}>
-                  {t.dispute?.reason ?? "—"}
-                </td>
-                <td className="px-3 py-2">{t.dispute?.financeOwner ?? "—"}</td>
-                <td className="px-3 py-2">
-                  <button
-                    onClick={() => setTarget(t)}
-                    className="flex items-center gap-1 rounded-md border border-base-700 px-2 py-0.5 text-[10px] text-ink-300 hover:text-ink-50"
-                  >
-                    <Pencil className="h-3 w-3" strokeWidth={1.75} />
-                    Update
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
+        }
+      >
+        <p className="mb-3 text-xs text-ink-500">
+          Click any payment to add evidence notes, set a Finance owner or record a resolution.
+        </p>
+        <div className="overflow-x-auto rounded-xl border border-base-700">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-base-700 bg-base-900 text-ink-500">
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-ink-500">
-                  No disputes match this filter.
-                </td>
+                <th className="px-3 py-2">Date</th>
+                <th className="px-3 py-2">Supplier &amp; charge</th>
+                <th className="px-3 py-2">Reason &amp; Finance owner</th>
+                <th className="px-3 py-2">Amount</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2" />
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filtered.map((t) => (
+                <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0 hover:bg-base-800/60">
+                  <td className="whitespace-nowrap px-3 py-2">{new Date(t.date).toLocaleDateString()}</td>
+                  <td className="max-w-[260px] px-3 py-2">
+                    <div className="truncate font-semibold text-ink-50" title={t.description}>
+                      {t.description}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-ink-500">#{t.id}</div>
+                  </td>
+                  <td className="max-w-[260px] px-3 py-2">
+                    <div className="truncate" title={t.dispute?.reason ?? ""}>
+                      {t.dispute?.reason ?? "—"}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-ink-500">
+                      Finance: {t.dispute?.financeOwner ?? "Not assigned"}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">{usd(t.amount)}</td>
+                  <td className="px-3 py-2">
+                    {t.dispute && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadgeClass(t.dispute.status)}`}
+                      >
+                        {t.dispute.status}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => setTarget(t)}
+                      className="flex items-center gap-1 rounded-md border border-base-700 px-2 py-0.5 text-[10px] text-ink-300 hover:text-ink-50"
+                    >
+                      <Pencil className="h-3 w-3" strokeWidth={1.75} />
+                      Investigate
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-ink-500">
+                    No open disputes. Open any payment and select Flag as disputed to add it here.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </WidgetCard>
 
       {target && (
         <DisputeModal

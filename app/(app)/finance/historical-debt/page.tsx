@@ -15,18 +15,6 @@ export default async function FinanceHistoricalDebtRoute() {
 
   return withTenantPage(session, async () => {
     const state = await getFinanceState();
-    const debtTransactions = state.transactions
-      .filter((t) => t.debtPeriod !== "current")
-      .map((t) => ({
-        id: t.id,
-        date: t.date.toISOString(),
-        description: t.description,
-        managementDepartment: t.managementDepartment,
-        managementCostHead: t.managementCostHead,
-        amount: t.amount,
-        debtPeriod: t.debtPeriod,
-        reviewed: t.reviewed,
-      }));
-    return <HistoricalDebtPage transactions={debtTransactions} />;
+    return <HistoricalDebtPage state={state} />;
   });
 }

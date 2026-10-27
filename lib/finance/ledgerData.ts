@@ -504,3 +504,20 @@ export async function updateMonth(params: {
     });
   }
 }
+
+// --- Ledger import history ----------------------------------------------
+// FinanceImport tracks each committed "Upload New Months" ledger import
+// (filename, added/skipped/invalid counts, added USD). Nothing writes to
+// this table yet — POST /api/finance/ledger/import/commit is still a
+// deliberate 501 stub (no XLSX-parsing backend exists). These two readers
+// are wired for real so the Upload New Months screen's "Recent import
+// history" table reflects actual rows the moment that backend lands,
+// rather than a hardcoded empty array.
+
+export async function listRecentFinanceImports(limit = 20) {
+  return prisma.financeImport.findMany({ orderBy: { createdAt: "desc" }, take: limit });
+}
+
+export async function countFinanceImports(): Promise<number> {
+  return prisma.financeImport.count();
+}

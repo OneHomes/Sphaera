@@ -1,11 +1,24 @@
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { withTenantPage } from "@/lib/withTenant";
+import { listRecentFinanceImports } from "@/lib/finance/ledgerData";
 import { UploadNewMonthsPage } from "@/components/finance/UploadNewMonthsPage";
 
 export const dynamic = "force-dynamic";
 
-// No server-side data fetch here: this screen has no backend import logic
-// yet (see lib/finance's lack of a ledger-XLSX-import module and the two
-// stub routes this page calls). Finance access is already gated by
-// app/(app)/finance/layout.tsx for the whole /finance/** tree.
-export default function FinanceUploadRoute() {
-  return <UploadNewMonthsPage />;
+// Ledger-XLSX-import parsing itself still has no backend (see the two
+// stub routes this screen calls), but the import-history table is real:
+// FinanceImport has no writers yet, so this honestly renders empty until
+// that backend lands, rather than hardcoding an empty array client-side.
+export default async function FinanceUploadRoute() {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    redirect("/sign-in");
+  }
+
+  return withTenantPage(session, async () => {
+    const importHistory = await listRecentFinanceImports();
+    return <UploadNewMonthsPage importHistory={importHistory} />;
+  });
 }

@@ -1,148 +1,171 @@
 "use client";
 
-import { useMemo } from "react";
-import { FileClock, DollarSign, Inbox, AlertTriangle, TrendingUp, Building2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 
-const UNCLASSIFIED = "Unclassified";
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function formatUsd(value: number): string {
-  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+// Duplicated locally rather than imported from
+// lib/finance/financialPlanningData.ts — that file imports `prisma` and
+// `exceljs` at module scope, which must never end up in a client bundle
+// (confirmed: importing it here alone ballooned this page's JS from ~3KB
+// to ~389KB). Same precaution the Financial Planning screen's own
+// client component already takes for these exact two pure functions.
+function financeFiscalYearStart(date: Date): number {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  return month >= 11 ? year : year - 1;
+}
+function financeFyName(fyStart: number): string {
+  return `FY${fyStart}/${String((fyStart + 1) % 100).padStart(2, "0")}`;
 }
 
-function Tile({ label, value, tone }: { label: string; value: string; tone?: "active" | "inactive" | "alert" }) {
-  const toneClass =
-    tone === "active" ? "text-status-active" : tone === "inactive" ? "text-status-inactive" : tone === "alert" ? "text-status-alert" : "text-ink-50";
-  return (
-    <div className="rounded-lg border border-base-700 bg-base-800 p-3">
-      <p className="text-[11px] text-ink-500">{label}</p>
-      <p className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</p>
-    </div>
-  );
+function usd(value: number): string {
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
 export function WeeklyCeoBriefPage({ state }: { state: FinanceState }) {
-  const { weekTotal, weekStart, weekEnd, monthTotal, currentMonthKey, topDepartments, needsAllocation, disputed, latestMonth } =
-    useMemo(() => {
-      const dates = state.transactions.map((t) => new Date(t.date).getTime()).filter((n) => !Number.isNaN(n));
-      const asOf = dates.length > 0 ? new Date(Math.max(...dates)) : new Date();
-      const weekStart = new Date(asOf.getTime() - 6 * DAY_MS);
+  const [showReport, setShowReport] = useState(false);
 
-      const monthKey = `${asOf.getUTCFullYear()}-${String(asOf.getUTCMonth() + 1).padStart(2, "0")}`;
+  const fyLabel = useMemo(() => financeFyName(financeFiscalYearStart(new Date())), []);
 
-      let weekTotal = 0;
-      let monthTotal = 0;
-      const byDept = new Map<string, number>();
+  const summary = useMemo(() => {
+    // Same "operating spend" definition as the overview screen: a payment
+    // with a current-year, active-department classification.
+    const activeDepartments = new Set(state.departments);
+    const isOperating = (t: FinanceState["transactions"][number]) =>
+      Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
+    const operating = state.transactions.filter(isOperating);
+    const opex = operating.reduce((s, t) => s + t.amount, 0);
 
-      for (const t of state.transactions) {
-        const d = new Date(t.date);
-        if (!Number.isNaN(d.getTime()) && d.getTime() >= weekStart.getTime() && d.getTime() <= asOf.getTime()) {
-          weekTotal += t.amount;
-        }
-        if (t.month === monthKey) {
-          monthTotal += t.amount;
-          const key = t.managementDepartment ?? UNCLASSIFIED;
-          byDept.set(key, (byDept.get(key) ?? 0) + t.amount);
-        }
+    const debtRows = state.transactions.filter((t) => t.debtPeriod !== "current");
+    const debt = debtRows.reduce((s, t) => s + t.amount, 0);
+
+    const unresolvedAllocations = state.transactions.filter((t) => !t.managementDepartment).length;
+
+    const latestMonth = state.monthly[state.monthly.length - 1] ?? null;
+    const byDept = new Map<string, number>();
+    if (latestMonth) {
+      for (const t of operating) {
+        if (t.month !== latestMonth.month) continue;
+        const key = t.managementDepartment!;
+        byDept.set(key, (byDept.get(key) ?? 0) + t.amount);
       }
+    }
+    const budgetByDepartment = Array.from(byDept.entries())
+      .map(([department, actual]) => ({ department, actual }))
+      .sort((a, b) => b.actual - a.actual);
 
-      const topDepartments = Array.from(byDept.entries())
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
+    return {
+      opex,
+      debt,
+      unresolvedAllocations,
+      currentMonth: latestMonth?.month ?? null,
+      currentMonthBudget: latestMonth?.opexBudget ?? null,
+      budgetByDepartment,
+    };
+  }, [state]);
 
-      const needsAllocation = state.transactions.filter((t) => !t.managementDepartment).length;
-      const disputed = state.transactions.filter((t) => t.dispute && t.dispute.status !== "Resolved").length;
-      const latestMonth = state.monthly[state.monthly.length - 1];
-
-      return {
-        weekTotal,
-        weekStart,
-        weekEnd: asOf,
-        monthTotal,
-        currentMonthKey: monthKey,
-        topDepartments,
-        needsAllocation,
-        disputed,
-        latestMonth,
-      };
-    }, [state.transactions, state.monthly]);
-
-  const dateFmt = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const collectionsVariance = latestMonth ? latestMonth.collections - latestMonth.collectionsPlan : 0;
+  function handleDownload() {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      fiscalYear: fyLabel,
+      currentOperatingSpend: summary.opex,
+      historicalDebtCleared: summary.debt,
+      unresolvedAllocations: summary.unresolvedAllocations,
+      currentMonth: summary.currentMonth,
+      currentMonthApprovedBudget: summary.currentMonthBudget,
+      budgetByDepartment: summary.budgetByDepartment,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `weekly-ceo-brief-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="p-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-ink-50">Weekly CEO Brief</h1>
-          <p className="mt-1 text-sm text-ink-500">
-            As of data through {weekEnd.toLocaleDateString()} — a 30-second snapshot of spend and collections
-          </p>
+      <div className="mb-5">
+        <h2 className="text-xl font-semibold text-ink-50">Weekly CEO financial brief</h2>
+        <p className="mt-1 text-sm text-ink-500">
+          Generate a report from transactions and the approved annual plan for {fyLabel}.
+        </p>
+      </div>
+
+      <div className="mb-4 rounded-xl border border-status-alert/40 bg-status-alert/10 p-3 text-xs text-status-alert">
+        Automatic weekly delivery requires an always-running hosted server and company mail integration. This local
+        version prepares the report on demand and does not email anyone yet.
+      </div>
+
+      <WidgetCard title="Get your weekly report">
+        <p className="text-xs text-ink-500">
+          Includes classified actual payments, historical debt cleared, unresolved allocations, and approved
+          budgets by department. All sourced directly from SQLite.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowReport((v) => !v)}
+            className="rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
+          >
+            {showReport ? "Hide readable CEO report" : "Open readable CEO report ↗"}
+          </button>
+          <button
+            onClick={handleDownload}
+            className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50"
+          >
+            Download report data (JSON)
+          </button>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <WidgetCard title="This Week" icon={DollarSign}>
-          <Tile label={`${dateFmt(weekStart)} – ${dateFmt(weekEnd)}`} value={formatUsd(weekTotal)} />
-        </WidgetCard>
-        <WidgetCard title="This Month" icon={TrendingUp}>
-          <Tile label={`Spend in ${currentMonthKey}`} value={formatUsd(monthTotal)} />
-        </WidgetCard>
-        <WidgetCard title="Needs Allocation" icon={Inbox}>
-          <Tile label="Unclassified payments" value={needsAllocation.toLocaleString()} tone={needsAllocation > 0 ? "alert" : "active"} />
-        </WidgetCard>
-        <WidgetCard title="Disputed" icon={AlertTriangle}>
-          <Tile label="Open or under review" value={disputed.toLocaleString()} tone={disputed > 0 ? "inactive" : "active"} />
-        </WidgetCard>
-      </div>
+        {showReport && (
+          <div className="mt-4 rounded-lg border border-base-700 bg-base-800 p-4 text-xs text-ink-300">
+            <h4 className="mb-3 text-sm font-medium text-ink-50">Weekly CEO report — {fyLabel}</h4>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <p className="text-[11px] text-ink-500">Current operating spend</p>
+                <p className="mt-1 text-base font-semibold text-ink-50">{usd(summary.opex)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-ink-500">Historical debt cleared</p>
+                <p className="mt-1 text-base font-semibold text-ink-50">{usd(summary.debt)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-ink-500">Unresolved allocations</p>
+                <p className="mt-1 text-base font-semibold text-status-alert">{summary.unresolvedAllocations}</p>
+              </div>
+            </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <WidgetCard title="Top 5 Departments This Month" icon={Building2}>
-          {topDepartments.length === 0 ? (
-            <p className="text-xs text-ink-500">No spend recorded for {currentMonthKey}.</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {topDepartments.map((d, i) => {
-                const max = topDepartments[0].value || 1;
-                const pct = Math.round((d.value / max) * 100);
-                return (
-                  <div key={d.name}>
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="text-ink-300">
-                        {i + 1}. {d.name}
-                      </span>
-                      <span className="text-ink-500">{formatUsd(d.value)}</span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-base-800">
-                      <div className="h-full rounded-full bg-status-active" style={{ width: `${pct}%` }} />
-                    </div>
+            <h5 className="mb-1.5 mt-4 text-xs font-medium text-ink-50">
+              Budget by department{summary.currentMonth ? ` · ${summary.currentMonth}` : ""}
+            </h5>
+            {summary.budgetByDepartment.length === 0 ? (
+              <p className="text-[11px] text-ink-500">No classified spend recorded for the current month.</p>
+            ) : (
+              <div>
+                {summary.budgetByDepartment.map((d) => (
+                  <div
+                    key={d.department}
+                    className="flex items-center justify-between border-b border-base-700 py-1"
+                  >
+                    <span className="text-ink-300">{d.department}</span>
+                    <span className="font-medium text-ink-50">{usd(d.actual)}</span>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </WidgetCard>
-
-        <WidgetCard title="Latest Monthly Collections vs Plan" icon={FileClock}>
-          {latestMonth ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Tile label={`Collections (${latestMonth.month})`} value={formatUsd(latestMonth.collections)} />
-              <Tile label="Collections Plan" value={formatUsd(latestMonth.collectionsPlan)} />
-              <Tile label="Sales Plan" value={formatUsd(latestMonth.salesPlan)} />
-              <Tile
-                label="Variance vs Plan"
-                value={`${collectionsVariance >= 0 ? "+" : ""}${formatUsd(collectionsVariance)}`}
-                tone={collectionsVariance >= 0 ? "active" : "inactive"}
-              />
-            </div>
-          ) : (
-            <p className="text-xs text-ink-500">No monthly figures recorded yet.</p>
-          )}
-        </WidgetCard>
-      </div>
+                ))}
+                {summary.currentMonthBudget !== null && (
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-ink-500">
+                    <span>Total approved budget, {summary.currentMonth}</span>
+                    <span>{usd(summary.currentMonthBudget)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </WidgetCard>
     </div>
   );
 }

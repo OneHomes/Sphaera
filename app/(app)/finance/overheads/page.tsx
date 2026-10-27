@@ -21,7 +21,11 @@ export default async function FinanceOverheadsRoute() {
         costHeads={state.managementCostHeads}
         transactions={state.transactions.map((t) => ({
           id: t.id,
+          date: t.date,
+          month: t.month,
+          description: t.description,
           amount: t.amount,
+          managementDepartment: t.managementDepartment,
           managementCostHead: t.managementCostHead,
           overheadOverride: t.overheadOverride,
         }))}

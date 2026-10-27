@@ -15,10 +15,9 @@ export default async function FinanceNeedsAllocationRoute() {
 
   return withTenantPage(session, async () => {
     const state = await getFinanceState();
-    const unallocated = state.transactions.filter((t) => !t.managementDepartment);
     return (
       <NeedsAllocationPage
-        transactions={unallocated}
+        transactions={state.transactions}
         departments={state.departments}
         managementCostHeads={state.managementCostHeads}
         costHeads={state.costHeads}

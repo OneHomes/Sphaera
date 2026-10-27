@@ -223,6 +223,12 @@ export async function resolveReportingSupplier(
   return { label, approved };
 }
 
+/** Cost-head names for the Merchant Reconciliation filter toolbar's cost-head picker — a lighter read than ledgerData.ts's full getFinanceState() mega-join. */
+export async function listManagementCostHeadNames(): Promise<string[]> {
+  const rows = await prisma.financeManagementCostHead.findMany({ orderBy: { name: "asc" } });
+  return rows.map((r) => r.name);
+}
+
 /** Selectable exact source names plus existing approved provider groups. Direct port of merchant_catalog() (merchant_reconcile.py:159-171). */
 export async function merchantCatalog(): Promise<{
   providers: Array<{ key: string; id: string; name: string; aliases: string[] }>;

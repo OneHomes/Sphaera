@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
+import { getFinanceState, countFinanceImports } from "@/lib/finance/ledgerData";
 import { DataBackupsPage } from "@/components/finance/DataBackupsPage";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export default async function FinanceBackupsRoute() {
       );
     }
 
-    return <DataBackupsPage />;
+    const [state, importedFilesCount] = await Promise.all([getFinanceState(), countFinanceImports()]);
+    return <DataBackupsPage state={state} importedFilesCount={importedFilesCount} />;
   });
 }

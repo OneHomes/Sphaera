@@ -7,7 +7,11 @@ import { AllPaymentsPage } from "@/components/finance/AllPaymentsPage";
 
 export const dynamic = "force-dynamic";
 
-export default async function FinancePaymentsRoute() {
+export default async function FinancePaymentsRoute({
+  searchParams,
+}: {
+  searchParams: { department?: string };
+}) {
   const session = await getServerSession(authOptions);
   if (!session) {
     redirect("/sign-in");
@@ -21,6 +25,7 @@ export default async function FinancePaymentsRoute() {
         departments={state.departments}
         managementCostHeads={state.managementCostHeads}
         costHeads={state.costHeads}
+        initialDepartmentFilter={searchParams.department ?? null}
       />
     );
   });

@@ -15,7 +15,6 @@ export default async function FinanceCostHeadsRoute() {
 
   return withTenantPage(session, async () => {
     const state = await getFinanceState();
-    const costHeads = state.costHeads.map((c) => ({ id: c.id, head: c.head, centre: c.centre }));
-    return <CostHeadsPage costHeads={costHeads} />;
+    return <CostHeadsPage state={state} />;
   });
 }
