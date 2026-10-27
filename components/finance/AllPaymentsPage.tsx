@@ -122,11 +122,12 @@ export function AllPaymentsPage({
     if (mode === "unidentified") out = out.filter(isUnidentified);
     if (mode === "review") out = out.filter((x) => x.reviewGroup === "Accounting review");
     if (mode === "nonoperating") out = out.filter((x) => !isOperating(x, departments));
-    if (drillDepartment) out = out.filter((x) => x.managementDepartment === drillDepartment);
+    if (drillDepartment) out = out.filter((x) => (x.managementDepartment || "Unallocated") === drillDepartment);
     if (drillCostHead) out = out.filter((x) => (x.managementCostHead || "Needs allocation") === drillCostHead);
     if (drillDescription) out = out.filter((x) => x.description === drillDescription);
     if (drillMonth) out = out.filter((x) => x.month === drillMonth);
-    return out;
+    const dateKey = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+    return [...out].sort((a, b) => b.month.localeCompare(a.month) || dateKey(b.date).localeCompare(dateKey(a.date)) || b.amount - a.amount);
   }, [rows, mode, drillDepartment, drillCostHead, drillDescription, drillMonth, departments]);
 
   async function handleLinkSubmit() {
