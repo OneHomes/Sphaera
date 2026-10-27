@@ -1,7 +1,14 @@
 import type { FinanceLedgerRow } from "./ledgerData";
-import { fyOf } from "./ledgerData";
 
-export { fyOf };
+// Duplicated from ledgerData.ts rather than imported — that module has a
+// module-scope `import { prisma } from "../prisma"`, which pulls Node's
+// `async_hooks` into the client bundle of any "use client" component that
+// transitively imports this file (the Finance filter bar is one). Same
+// client/server bundle-leakage fix pattern used elsewhere in this port.
+export function fyOf(month: string): number {
+  const [y, m] = month.split("-").map(Number);
+  return m >= 11 ? y : y - 1;
+}
 
 // Direct equivalent of the source app's global filter bar (renderTop() +
 // filt()) — Financial year / From month / To month / Department / Country
