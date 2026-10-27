@@ -78,7 +78,7 @@ export function SpendingExplorerPage({ state: rawState }: { state: FinanceState 
   const [paymentView, setPaymentView] = useState<PaymentView>("operating");
   const searchParams = useSearchParams();
   const [department, setDepartment] = useState<string | null>(() => searchParams.get("department"));
-  const [centre, setCentre] = useState<string | null>(null);
+  const [centre, setCentre] = useState<string | null>(() => searchParams.get("centre"));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
 

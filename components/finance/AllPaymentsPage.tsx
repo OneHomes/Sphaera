@@ -76,12 +76,16 @@ export function AllPaymentsPage({
   managementCostHeads,
   costHeads,
   initialDepartmentFilter,
+  initialMonthFilter,
+  initialMode,
 }: {
   transactions: FinanceLedgerRow[];
   departments: string[];
   managementCostHeads: string[];
   costHeads: FinanceState["costHeads"];
   initialDepartmentFilter?: string | null;
+  initialMonthFilter?: string | null;
+  initialMode?: string | null;
 }) {
   // Scoped by the global Finance filter bar — paymentPage() in the source
   // app resolves its rows via txSelection(), which calls filt() first.
@@ -90,8 +94,11 @@ export function AllPaymentsPage({
   useEffect(() => {
     setRows(transactions);
   }, [transactions]);
-  const [mode, setMode] = useState<ShowMode>("all");
+  const [mode, setMode] = useState<ShowMode>(
+    (["all", "operating", "debt", "unidentified", "review", "nonoperating"] as const).find((m) => m === initialMode) ?? "all"
+  );
   const [drillDepartment, setDrillDepartment] = useState<string | null>(initialDepartmentFilter ?? null);
+  const [drillMonth, setDrillMonth] = useState<string | null>(initialMonthFilter ?? null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pageIds, setPageIds] = useState<string[]>([]);
   const [classifyTarget, setClassifyTarget] = useState<FinanceLedgerRow | null>(null);
@@ -114,9 +121,10 @@ export function AllPaymentsPage({
     if (mode === "review") out = out.filter((x) => x.reviewGroup === "Accounting review");
     if (mode === "nonoperating") out = out.filter((x) => !isOperating(x));
     if (drillDepartment) out = out.filter((x) => x.managementDepartment === drillDepartment);
+    if (drillMonth) out = out.filter((x) => x.month === drillMonth);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, mode, drillDepartment]);
+  }, [rows, mode, drillDepartment, drillMonth]);
 
   async function handleLinkSubmit() {
     if (isLinking || !subscriptionId.trim() || selected.size === 0) return;
@@ -167,12 +175,15 @@ export function AllPaymentsPage({
             ))}
           </select>
         </label>
-        {drillDepartment && (
+        {(drillDepartment || drillMonth) && (
           <button
-            onClick={() => setDrillDepartment(null)}
+            onClick={() => {
+              setDrillDepartment(null);
+              setDrillMonth(null);
+            }}
             className="rounded-full border border-base-700 px-3 py-1 text-xs text-ink-300 hover:text-ink-50"
           >
-            Drilldown: {drillDepartment} ×
+            Drilldown: {[drillMonth, drillDepartment].filter(Boolean).join(" · ")} ×
           </button>
         )}
         <button

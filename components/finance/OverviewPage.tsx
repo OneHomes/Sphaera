@@ -13,10 +13,13 @@ import {
   PieChart,
   Pie,
   Cell,
+  Sector,
 } from "recharts";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
+import { fyOf } from "@/lib/finance/financeFilters";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 
 type OverheadRule = { costHead: string; costNature: string; costBehaviour: string };
@@ -27,6 +30,26 @@ function usd(value: number, compact = false): string {
   if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
   return `$${Math.round(value).toLocaleString()}`;
+}
+
+// Port of the source's `.donut-plot .segment:hover` thicker-ring rule.
+function renderDonutSector(
+  props: { cx?: number; cy?: number; innerRadius?: number; outerRadius?: number; startAngle?: number; endAngle?: number; fill?: string; index: number; isActive: boolean },
+  hoveredIndex: number | undefined
+) {
+  const lifted = props.isActive || props.index === hoveredIndex;
+  return (
+    <Sector
+      cx={props.cx}
+      cy={props.cy}
+      innerRadius={props.innerRadius}
+      outerRadius={(props.outerRadius ?? 0) + (lifted ? 6 : 0)}
+      startAngle={props.startAngle}
+      endAngle={props.endAngle}
+      fill={props.fill}
+      style={lifted ? { filter: "brightness(1.06)" } : undefined}
+    />
+  );
 }
 
 // Direct structural/content port of the source app's overview() (server
@@ -90,6 +113,13 @@ export function OverviewPage({
   // be reliably matched to the company-wide monthly budget figures.
   const budgetOk = filters.country === "all" && !filters.query.trim();
   const [fixedDept, setFixedDept] = useState<string>("all");
+  const [hoveredDonutIndex, setHoveredDonutIndex] = useState<number | undefined>(undefined);
+  const router = useRouter();
+  // Source: clicking a month group opens All Payments drilled to that month.
+  const openMonth = (data: unknown) => {
+    const month = (data as { month?: string; payload?: { month?: string } })?.payload?.month ?? (data as { month?: string })?.month;
+    if (month) router.push(`/finance/payments?month=${encodeURIComponent(month)}`);
+  };
 
   const activeDepartments = new Set(state.departments);
   const isOperating = (t: FinanceState["transactions"][number]) =>
@@ -100,30 +130,57 @@ export function OverviewPage({
   const unidentified = state.transactions.filter((t) => !t.managementDepartment);
   const opex = operating.reduce((s, t) => s + t.amount, 0);
   const debt = debtRows.reduce((s, t) => s + t.amount, 0);
-  const cash = state.monthly.reduce((s, m) => s + m.collections, 0);
   const allMovements = state.transactions.reduce((s, t) => s + t.amount, 0);
-  const cashGap = cash - opex;
 
-  const monthRows = state.monthly.map((m) => {
-    const monthOpex = operating.filter((t) => t.month === m.month).reduce((s, t) => s + t.amount, 0);
-    const hasBudget = m.opexBudget > 0;
+  // Direct port of relevantMonths() + monthlyNumbers(): the chart and the
+  // collections/budget KPIs follow the global FY / From / To filters, and a
+  // budget is only comparable when no department/country/keyword filter is
+  // narrowing actual spend (the stored budget is company-wide).
+  const monthSet = new Set([
+    ...rawState.monthly.map((m) => m.month),
+    ...rawState.transactions.map((t) => t.month),
+  ]);
+  const relevantMonths = Array.from(monthSet)
+    .sort()
+    .filter(
+      (m) =>
+        (filters.fy === "all" || String(fyOf(m)) === filters.fy) &&
+        (filters.start === "all" || m >= filters.start) &&
+        (filters.end === "all" || m <= filters.end)
+    );
+  const budgetComparable = budgetOk && filters.department === "all";
+  const monthRows = relevantMonths.map((month) => {
+    const m = rawState.monthly.find((x) => x.month === month);
+    const monthOpex = operating.filter((t) => t.month === month).reduce((s, t) => s + t.amount, 0);
+    const hasActual = rawState.transactions.some((t) => t.month === month);
+    const budget = budgetComparable && m && m.opexBudget > 0 ? m.opexBudget : null;
     return {
-      month: m.month,
+      month,
       opex: monthOpex,
-      budget: m.opexBudget,
-      collections: m.collections,
-      variance: hasBudget ? monthOpex - m.opexBudget : null,
+      budget: budget ?? 0,
+      collections: m?.collections ?? 0,
+      variance: budget !== null && hasActual ? monthOpex - budget : null,
     };
   });
+  const cash = monthRows.reduce((s, m) => s + m.collections, 0);
+  const cashGap = cash - opex;
   const budgetedMonths = monthRows.filter((m) => m.variance !== null);
   const actualForBudget = budgetedMonths.reduce((s, m) => s + m.opex, 0);
   const budgetTotal = budgetedMonths.reduce((s, m) => s + m.budget, 0);
   const variance = actualForBudget - budgetTotal;
   const overBudgetCount = budgetedMonths.filter((m) => (m.variance ?? 0) > 0).length;
 
+  // Source: at the top level the donut groups by department; once a
+  // department filter is set it drills one level to that department's cost
+  // heads (donutWidget stage 'head' vs 'centre').
+  const donutByCentre = filters.department !== "all";
+  const donutHref = (name: string) =>
+    donutByCentre
+      ? `/finance/explorer?department=${encodeURIComponent(filters.department)}&centre=${encodeURIComponent(name)}`
+      : `/finance/explorer?department=${encodeURIComponent(name)}`;
   const spendByDepartment = new Map<string, { value: number; count: number }>();
   for (const t of operating) {
-    const key = t.managementDepartment!;
+    const key = donutByCentre ? t.managementCostHead ?? "Needs allocation" : t.managementDepartment!;
     const entry = spendByDepartment.get(key) ?? { value: 0, count: 0 };
     entry.value += t.amount;
     entry.count += 1;
@@ -140,7 +197,7 @@ export function OverviewPage({
   const remainingCosts = positiveCosts.slice(8);
   const otherCost = remainingCosts.length
     ? {
-        name: "Other heads",
+        name: donutByCentre ? "Other cost centres" : "Other heads",
         value: remainingCosts.reduce((s, c) => s + c.value, 0),
         count: remainingCosts.reduce((s, c) => s + c.count, 0),
         other: true,
@@ -187,12 +244,12 @@ export function OverviewPage({
           title="Classified current-year spending"
           value={usd(opex, true)}
           detail="Excludes anything you mark as historical debt"
-          href="/finance/payments"
+          href="/finance/payments?mode=operating"
         />
         <Kpi
           title="Cash collections reported"
           value={usd(cash, true)}
-          detail={`${state.monthly.filter((m) => m.collections > 0).length} months of collection figures available`}
+          detail={`${monthRows.filter((m) => m.collections > 0).length} months of collection figures available`}
           color="teal"
           href="/finance/budget"
         />
@@ -258,9 +315,9 @@ export function OverviewPage({
                 formatter={(value) => [`$${Number(value ?? 0).toLocaleString()}`]}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="collections" name="Collections" fill="#a8a29e" />
-              <Bar dataKey="opex" name="Current-year operating spend" fill="#18181b" />
-              <Bar dataKey="budget" name="Operating budget" fill="#71717a" />
+              <Bar dataKey="collections" name="Collections" fill="#a8a29e" cursor="pointer" onClick={openMonth} />
+              <Bar dataKey="opex" name="Current-year operating spend" fill="#f4f4f5" cursor="pointer" onClick={openMonth} />
+              <Bar dataKey="budget" name="Operating budget" fill="#71717a" cursor="pointer" onClick={openMonth} />
             </BarChart>
           </ResponsiveContainer>
           <p className="mt-2 text-[11px] text-ink-500">
@@ -286,7 +343,21 @@ export function OverviewPage({
               <div className="relative shrink-0 sm:w-[45%]">
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
+                    <Pie
+                      data={donutData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={55}
+                      outerRadius={85}
+                      shape={(p) => renderDonutSector(p, hoveredDonutIndex)}
+                      onMouseEnter={(_, i) => setHoveredDonutIndex(i)}
+                      onMouseLeave={() => setHoveredDonutIndex(undefined)}
+                      onClick={(_, i) => {
+                        const item = donutData[i];
+                        if (item && !item.other) router.push(donutHref(item.name));
+                      }}
+                      cursor="pointer"
+                    >
                       {donutData.map((_, i) => (
                         <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                       ))}
@@ -322,14 +393,21 @@ export function OverviewPage({
                     </>
                   );
                   return item.other ? (
-                    <div key={item.name} className="flex items-start gap-2 rounded-lg px-2 py-1.5">
+                    <div
+                      key={item.name}
+                      onMouseEnter={() => setHoveredDonutIndex(i)}
+                      onMouseLeave={() => setHoveredDonutIndex(undefined)}
+                      className="flex items-start gap-2 rounded-lg px-2 py-1.5"
+                    >
                       {row}
                     </div>
                   ) : (
                     <Link
                       key={item.name}
-                      href={`/finance/explorer?department=${encodeURIComponent(item.name)}`}
-                      className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-base-800"
+                      href={donutHref(item.name)}
+                      onMouseEnter={() => setHoveredDonutIndex(i)}
+                      onMouseLeave={() => setHoveredDonutIndex(undefined)}
+                      className={`flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-base-800 ${hoveredDonutIndex === i ? "bg-base-800" : ""}`}
                     >
                       {row}
                     </Link>
