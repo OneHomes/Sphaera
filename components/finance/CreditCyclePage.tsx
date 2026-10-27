@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   RefreshCw,
   AlertTriangle,
@@ -195,6 +196,16 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
+function CcKpi({ title, value, detail, small }: { title: string; value: string; detail: string; small?: boolean }) {
+  return (
+    <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+      <h4 className="text-[11px] text-ink-500">{title}</h4>
+      <div className={`mt-1 font-semibold text-ink-50 ${small ? "text-base" : "text-xl"}`}>{value}</div>
+      <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   const style =
     status === "Paid"
@@ -245,6 +256,8 @@ export function CreditCyclePage({
   forecast: initialForecast,
   cardRules: initialCardRules,
   cardCharges: initialCardCharges,
+  statements: initialStatements,
+  paymentSources,
   canAccessFinancePayroll,
 }: {
   invoices: InvoiceRow[];
@@ -252,8 +265,26 @@ export function CreditCyclePage({
   forecast: ProjectionResult;
   cardRules: CardRule[];
   cardCharges: CardCharge[];
+  statements: CardStatement[];
+  paymentSources: PaymentSource[];
   canAccessFinancePayroll: boolean;
 }) {
+  const [statements, setStatements] = useState<CardStatement[]>(initialStatements);
+  const [showStatementModal, setShowStatementModal] = useState(false);
+  const [showChargeModal, setShowChargeModal] = useState(false);
+  const [editingBankLink, setEditingBankLink] = useState<string | "new" | null>(null);
+  const sourceById = useMemo(() => new Map(paymentSources.map((s) => [s.id, s])), [paymentSources]);
+  const sourceName = (id: string | null | undefined) => (id ? sourceById.get(id)?.name ?? null : null);
+  const sourceCurrency = (id: string | null | undefined) => (id ? sourceById.get(id)?.currency ?? "" : "");
+  function cardName(ruleId: string): string {
+    const rule = cardRules.find((r) => r.id === ruleId);
+    return sourceName(rule?.paymentAccountId) ?? `Card cycle ${ruleId.slice(0, 8)}`;
+  }
+  async function reloadStatementsAndCharges() {
+    const [s, c] = await Promise.all([fetch("/api/finance/credit/card-statements"), fetch("/api/finance/credit/card-charges")]);
+    if (s.ok) setStatements((await s.json()).statements ?? []);
+    if (c.ok) setCardCharges((await c.json()).charges ?? []);
+  }
   const [invoices, setInvoices] = useState<InvoiceRow[]>(initialInvoices);
   const [recurring, setRecurring] = useState<RecurringRow[]>(initialRecurring);
   const [forecast, setForecast] = useState<ProjectionResult>(initialForecast);
@@ -358,60 +389,48 @@ export function CreditCyclePage({
         salary records must be verified before relying on the forecast.
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <WidgetCard title="Scheduled cash outflows" icon={CreditCard}>
-          <p className="mb-2 text-[11px] text-ink-500">Selected projection window, separated by currency</p>
-          {currencyEntries.length > 0 ? (
-            <div className="grid grid-cols-1 gap-2">
-              {currencyEntries.map(([currency, amount]) => (
-                <Tile key={currency} label={currency} value={fmt(amount, currency)} />
-              ))}
-            </div>
-          ) : (
-            <Tile label="Total" value="0" />
-          )}
-        </WidgetCard>
-        <WidgetCard title="Unpaid invoices" icon={Receipt}>
-          <Tile label={`${overdueInvoiceCount} overdue`} value={unpaidInvoices.length.toLocaleString()} />
-        </WidgetCard>
-        <WidgetCard title="Recurring obligations" icon={Repeat}>
-          <Tile label="Employee salaries, rent, utilities and other rules" value={activeRecurringCount.toLocaleString()} />
-        </WidgetCard>
-        <WidgetCard title="Configured card cycles" icon={CreditCard}>
-          <Tile label="Statement cutoff, payment due and settlement account" value={cardRules.length.toLocaleString()} />
-        </WidgetCard>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <CcKpi
+          title="Scheduled cash outflows"
+          value={currencyEntries.map(([c, n]) => fmt(n, c)).join(" · ") || "No scheduled payments yet"}
+          detail="Selected projection window, separated by currency"
+          small
+        />
+        <CcKpi title="Unpaid invoices" value={String(unpaidInvoices.length)} detail={`${forecast.overdue.length} overdue commitments`} />
+        <CcKpi title="Recurring obligations" value={String(activeRecurringCount)} detail="Employee salaries, rent, utilities and other rules" />
+        <CcKpi title="Configured card cycles" value={String(cardRules.length)} detail="Statement cutoff, payment due and settlement account" />
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex flex-wrap rounded-lg border border-base-700 bg-base-900 p-0.5">
+      <div className="mt-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="flex flex-wrap gap-1.5">
           {TABS.map((t) => (
             <button
               key={t.value}
               onClick={() => setTab(t.value)}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition ${
-                tab === t.value ? "bg-base-800 text-ink-50" : "text-ink-500 hover:text-ink-300"
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                tab === t.value ? "border-ink-50 bg-ink-50 text-base-950" : "border-base-700 text-ink-300 hover:text-ink-50"
               }`}
             >
               {t.label}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-[11px] text-ink-500">
+        <div className="flex items-end gap-2">
+          <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-ink-500">
             Forecast from
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
+              className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs normal-case text-ink-50 outline-none"
             />
           </label>
-          <label className="flex items-center gap-1.5 text-[11px] text-ink-500">
+          <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-ink-500">
             Forecast horizon
             <select
               value={months}
               onChange={(e) => setMonths(Number(e.target.value))}
-              className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
+              className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs normal-case text-ink-50 outline-none"
             >
               {MONTH_OPTIONS.map((m) => (
                 <option key={m} value={m}>
@@ -433,18 +452,29 @@ export function CreditCyclePage({
       <div className="mt-4">
         {tab === "calendar" && (
           <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-ink-50">Upcoming cash calendar</h2>
+                <p className="mt-1 text-xs text-ink-500">What is due, when it falls due and which bank account is expected to pay.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingInvoice(null);
+                  setShowInvoiceModal(true);
+                }}
+                className="flex items-center gap-1 rounded-lg border border-status-active/50 px-3 py-1.5 text-xs font-medium text-status-active hover:bg-status-active/10"
+              >
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add invoice
+              </button>
+            </div>
             {forecast.overdue.length > 0 && (
-              <div className="rounded-lg border border-status-inactive/40 bg-status-inactive/10 p-3 text-[11px] text-status-inactive">
-                <p className="mb-1 flex items-center gap-1 font-medium">
-                  <AlertTriangle className="h-3 w-3" strokeWidth={1.75} /> {forecast.overdue.length} overdue commitment(s)
-                </p>
-                <ul className="max-h-28 space-y-0.5 overflow-y-auto">
-                  {forecast.overdue.slice(0, 10).map((e, i) => (
-                    <li key={i}>
-                      {fmtDate(e.date)} · {e.label} · {fmt(e.amount, e.currency)}
-                    </li>
-                  ))}
-                </ul>
+              <div className="rounded-lg border border-status-inactive/40 bg-status-inactive/10 p-3 text-xs text-status-inactive">
+                <b>{forecast.overdue.length} overdue commitments</b> require attention.{" "}
+                {Object.entries(
+                  forecast.overdue.reduce<Record<string, number>>((a, e) => ((a[e.currency] = (a[e.currency] ?? 0) + e.amount), a), {})
+                )
+                  .map(([k, v]) => fmt(v, k))
+                  .join(" · ")}
               </div>
             )}
 
@@ -478,40 +508,56 @@ export function CreditCyclePage({
                   </div>
                 );
               })}
-              {monthGroups.length === 0 && (
-                <p className="text-xs text-ink-500">No scheduled outflows in this window.</p>
-              )}
             </div>
+            {monthGroups.length === 0 && (
+              <div className="rounded-xl border border-base-700 bg-base-900 p-4 text-sm text-ink-300">
+                No confirmed cash payments scheduled yet. Add bills and payroll rules to build your projection.
+              </div>
+            )}
 
-            <WidgetCard title="CEO cash-cycle observations" icon={AlertTriangle}>
-              <ul className="space-y-1.5 text-xs text-ink-300">
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              <h3 className="mb-2 text-sm font-medium text-ink-50">CEO cash-cycle observations</h3>
+              <div className="space-y-2 text-xs">
                 {forecast.overdue.length > 0 && (
-                  <li>• {forecast.overdue.length} commitment(s) are already overdue and unresolved.</li>
+                  <p className="rounded-lg border border-status-inactive/40 bg-status-inactive/10 p-2 text-status-inactive">
+                    Prioritise settling or disputing {forecast.overdue.length} overdue obligations.
+                  </p>
                 )}
                 {forecast.unassignedCount > 0 && (
-                  <li>• {forecast.unassignedCount} commitment(s) have no paying bank assigned yet.</li>
+                  <p className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-2 text-status-alert">
+                    Assign paying bank accounts for {forecast.unassignedCount} scheduled outflows before relying on
+                    bank-level liquidity.
+                  </p>
                 )}
                 {needsStatementCycles.length > 0 && (
-                  <li>• {needsStatementCycles.length} card cycle(s) need an actual statement before their amount is reliable.</li>
+                  <p className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-2 text-status-alert">
+                    Some Amex/card payment amounts cannot be established. Upload or enter their statements before
+                    treating the forecast as a full cash plan.
+                  </p>
                 )}
                 {negativeAccounts.length > 0 && (
-                  <li>• {negativeAccounts.length} bank account(s) are projected to go negative in this window.</li>
+                  <p className="rounded-lg border border-status-inactive/40 bg-status-inactive/10 p-2 text-status-inactive">
+                    Some accounts could fall below zero from the <b>known</b> commitments alone. Finance should check
+                    the timing of supplier payments and expected collections.
+                  </p>
                 )}
-                {forecast.overdue.length === 0 &&
-                  forecast.unassignedCount === 0 &&
-                  needsStatementCycles.length === 0 &&
-                  negativeAccounts.length === 0 && <li>No outstanding observations for the selected window.</li>}
-              </ul>
-            </WidgetCard>
+                {forecast.overdue.length === 0 && forecast.unassignedCount === 0 && needsStatementCycles.length === 0 && (
+                  <p className="text-[11px] text-ink-500">
+                    Check upcoming supplier payments against collections timing and preserve headroom ahead of card
+                    statement due dates.
+                  </p>
+                )}
+              </div>
+            </div>
 
-            <WidgetCard title="Upcoming bills" icon={CalendarDays}>
+            <WidgetCard title="All upcoming bills and payments, drill into dates and amounts" icon={CalendarDays}>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                     <tr>
                       <th className="px-3 py-2">Due date</th>
                       <th className="px-3 py-2">Commitment</th>
-                      <th className="px-3 py-2">Reference</th>
+                      <th className="px-3 py-2">Reference / notes</th>
                       <th className="px-3 py-2">Currency</th>
                       <th className="px-3 py-2">Cash out</th>
                       <th className="px-3 py-2">Payment bank</th>
@@ -535,7 +581,7 @@ export function CreditCyclePage({
                     {forecast.events.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-3 py-6 text-center text-ink-500">
-                          No upcoming bills in this window.
+                          No payments currently due for this period.
                         </td>
                       </tr>
                     )}
@@ -543,56 +589,55 @@ export function CreditCyclePage({
                 </table>
               </div>
             </WidgetCard>
+            {Object.keys(forecast.unassignedByCurrency ?? {}).length > 0 && (
+              <div className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-3 text-xs text-status-alert">
+                <b>Unassigned paying account:</b>{" "}
+                {Object.entries(forecast.unassignedByCurrency)
+                  .map(([k, v]) => fmt(v, k))
+                  .join(" · ")}
+                . Map a bank account to these obligations for meaningful bank-level forecasts.
+              </div>
+            )}
           </div>
         )}
 
         {tab === "invoices" && (
           <div className="space-y-4">
-            <div className="flex justify-end">
-              <button
+            <SectionHead
+              title="Invoice obligations"
+              text="Upload supporting PDF or image and record invoice amount, currency, due date and payment source."
+            >
+              <PrimaryButton
                 onClick={() => {
                   setEditingInvoice(null);
                   setShowInvoiceModal(true);
                 }}
-                className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
               >
-                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> New invoice
-              </button>
+                New invoice
+              </PrimaryButton>
+            </SectionHead>
+
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              <EventsTable
+                events={[...invoices]
+                  .filter((x) => x.status === "Unpaid" || x.status === "Scheduled")
+                  .sort((a, b) => String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? "")))
+                  .map((x) => ({
+                    date: x.dueDate ? new Date(x.dueDate).toISOString().slice(0, 10) : "",
+                    kind: "Invoice",
+                    label: x.vendor,
+                    reference: x.invoiceNumber ?? "",
+                    amount: x.amount,
+                    currency: x.currency,
+                    bankSourceId: x.paymentSourceId ?? "",
+                    certainty: x.status,
+                  }))}
+                bankLabel={bankLabel}
+              />
             </div>
 
-            <WidgetCard title="Invoice cash events" icon={CalendarDays}>
-              <div className="overflow-x-auto rounded-xl border border-base-700">
-                <table className="w-full text-left text-xs">
-                  <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-                    <tr>
-                      <th className="px-3 py-2">Due date</th>
-                      <th className="px-3 py-2">Invoice</th>
-                      <th className="px-3 py-2">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {forecast.events
-                      .filter((e) => e.kind === "Invoice")
-                      .map((e, i) => (
-                        <tr key={i} className="border-b border-base-800 text-ink-300 last:border-0">
-                          <td className="px-3 py-2 text-ink-50">{fmtDate(e.date)}</td>
-                          <td className="px-3 py-2">{e.label}</td>
-                          <td className="px-3 py-2">{fmt(e.amount, e.currency)}</td>
-                        </tr>
-                      ))}
-                    {forecast.events.filter((e) => e.kind === "Invoice").length === 0 && (
-                      <tr>
-                        <td colSpan={3} className="px-3 py-6 text-center text-ink-500">
-                          No unpaid or scheduled invoices fall in this window.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </WidgetCard>
-
-            <WidgetCard title="Manage invoices" icon={Receipt}>
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              <h3 className="mb-3 text-sm font-medium text-ink-50">Manage invoices</h3>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -606,77 +651,75 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.map((inv) => (
-                      <tr key={inv.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                        <td className="px-3 py-2 text-ink-50">
-                          {inv.vendor}
-                          {inv.invoiceNumber && <span className="text-ink-500"> · {inv.invoiceNumber}</span>}
-                        </td>
-                        <td className="px-3 py-2">{fmtDate(inv.dueDate)}</td>
-                        <td className="px-3 py-2">{fmt(inv.amount, inv.currency)}</td>
-                        <td className="px-3 py-2">
-                          <StatusBadge status={inv.status} />
-                        </td>
-                        <td className="px-3 py-2">
-                          {inv.documentId ? (
-                            <a href={`/api/documents/${inv.documentId}/download`} className="text-ink-300 hover:text-ink-50">
-                              View evidence
-                            </a>
-                          ) : (
-                            <span className="text-ink-500">No evidence attached</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => {
-                                setEditingInvoice(inv);
-                                setShowInvoiceModal(true);
-                              }}
-                              className="text-ink-500 hover:text-ink-300"
-                              title="Review / edit"
-                            >
-                              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            </button>
-                            <button onClick={() => handleDeleteInvoice(inv.id)} className="text-ink-500 hover:text-status-inactive">
-                              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {invoices.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-6 text-center text-ink-500">
-                          No AP invoices yet.
-                        </td>
-                      </tr>
-                    )}
+                    {[...invoices]
+                      .sort((a, b) => String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? "")))
+                      .map((inv) => (
+                        <tr key={inv.id} className="border-b border-base-800 text-ink-300 last:border-0">
+                          <td className="px-3 py-2">
+                            <b className="text-ink-50">{inv.vendor}</b>
+                            <div className="text-[11px] text-ink-500">{inv.invoiceNumber || "No invoice number"}</div>
+                          </td>
+                          <td className="px-3 py-2">{fmtDate(inv.dueDate)}</td>
+                          <td className="px-3 py-2">{fmt(inv.amount, inv.currency)}</td>
+                          <td className="px-3 py-2">
+                            <StatusBadge status={inv.status} />
+                          </td>
+                          <td className="px-3 py-2">
+                            {inv.documentId ? (
+                              <a href={`/api/documents/${inv.documentId}/download`} target="_blank" rel="noreferrer" className="text-ink-300 underline hover:text-ink-50">
+                                View document
+                              </a>
+                            ) : (
+                              <span className="text-ink-500">Missing document</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex justify-end gap-2">
+                              <SmallButton
+                                onClick={() => {
+                                  setEditingInvoice(inv);
+                                  setShowInvoiceModal(true);
+                                }}
+                              >
+                                Review / edit
+                              </SmallButton>
+                              <button onClick={() => handleDeleteInvoice(inv.id)} className="text-ink-500 hover:text-status-inactive" title="Delete invoice">
+                                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
+                {invoices.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No invoices recorded yet.</p>}
               </div>
-            </WidgetCard>
+            </div>
           </div>
         )}
 
         {tab === "payroll" && (
           <div className="space-y-4">
-            <div className="flex justify-end">
-              <button
+            <SectionHead
+              title="Payday and recurring obligations"
+              text="One entry per employee or contract, with the local country and its actual payment-day logic."
+            >
+              <PrimaryButton
                 onClick={() => {
                   setEditingRecurring(null);
                   setShowRecurringModal(true);
                 }}
-                className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
               >
-                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add recurring payment
-              </button>
+                Add recurring payment
+              </PrimaryButton>
+            </SectionHead>
+            <div className="rounded-lg border border-base-700 bg-base-900 p-3 text-xs text-ink-300">
+              Examples: <b className="text-ink-50">UK salaries, last business day</b>,{" "}
+              <b className="text-ink-50">US salaries, first Thursday</b>, <b className="text-ink-50">Pakistan salaries, day 1</b>.
+              Weekends are handled for last-business-day rules. Country-specific public holidays are not automatically
+              adjusted and must be confirmed by Finance.
             </div>
-            <p className="text-[11px] text-ink-500">
-              Example rules: &quot;day_of_month&quot; pays on a fixed day each month, &quot;nth_weekday&quot; pays on
-              the Nth weekday (e.g. 2nd Friday), &quot;month_end&quot; pays on the last calendar day.
-            </p>
-            <WidgetCard title="Payroll and recurring obligations" icon={Repeat}>
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -687,87 +730,97 @@ export function CreditCyclePage({
                       <th className="px-3 py-2">Schedule</th>
                       <th className="px-3 py-2">Amount</th>
                       <th className="px-3 py-2">Pay from</th>
-                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Active</th>
                       <th className="px-3 py-2"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {recurring.map((r) => (
-                      <tr key={r.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                        <td className="px-3 py-2 text-ink-50">
-                          {r.title}
-                          <span className="ml-1.5 rounded-full bg-status-alert/15 px-2 py-0.5 text-[10px] font-medium text-status-alert">
-                            {r.category}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">{r.beneficiary ?? "—"}</td>
-                        <td className="px-3 py-2">{r.country ?? "—"}</td>
-                        <td className="px-3 py-2">{humanizeRecurrence(r)}</td>
-                        <td className="px-3 py-2">{fmt(r.amount, r.currency)}</td>
-                        <td className="px-3 py-2">{bankLabel(r.paymentSourceId)}</td>
-                        <td className="px-3 py-2">
-                          <ActivePill active={r.active} />
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => {
-                                setEditingRecurring(r);
-                                setShowRecurringModal(true);
-                              }}
-                              className="text-ink-500 hover:text-ink-300"
-                              disabled={r.category === "Salary" && !canAccessFinancePayroll}
+                    {[...recurring]
+                      .sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title))
+                      .map((r) => (
+                        <tr key={r.id} className="border-b border-base-800 text-ink-300 last:border-0">
+                          <td className="px-3 py-2">
+                            <b className="text-ink-50">{r.title}</b>
+                            <div className="text-[11px] text-ink-500">{r.category}</div>
+                          </td>
+                          <td className="px-3 py-2">{r.beneficiary || "Not assigned"}</td>
+                          <td className="px-3 py-2">{r.country || "Not set"}</td>
+                          <td className="px-3 py-2">{humanizeRecurrence(r)}</td>
+                          <td className="px-3 py-2">{fmt(r.amount, r.currency)}</td>
+                          <td className="px-3 py-2">{sourceName(r.paymentSourceId) ?? "Unassigned"}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                r.active ? "bg-status-active/15 text-status-active" : "bg-base-700 text-ink-300"
+                              }`}
                             >
-                              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRecurring(r.id)}
-                              disabled={r.category === "Salary" && !canAccessFinancePayroll}
-                              className="text-ink-500 hover:text-status-inactive disabled:opacity-40"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {recurring.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="px-3 py-6 text-center text-ink-500">
-                          No recurring obligations yet.
-                        </td>
-                      </tr>
-                    )}
+                              {r.active ? "Active" : "Paused"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex justify-end gap-2">
+                              <SmallButton
+                                disabled={r.category === "Salary" && !canAccessFinancePayroll}
+                                onClick={() => {
+                                  setEditingRecurring(r);
+                                  setShowRecurringModal(true);
+                                }}
+                              >
+                                Edit
+                              </SmallButton>
+                              <button
+                                onClick={() => handleDeleteRecurring(r.id)}
+                                disabled={r.category === "Salary" && !canAccessFinancePayroll}
+                                className="text-ink-500 hover:text-status-inactive disabled:opacity-40"
+                                title="Delete"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
+                {recurring.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No recurring payment rules yet.</p>}
               </div>
-            </WidgetCard>
+            </div>
           </div>
         )}
 
         {tab === "cards" && (
           <div className="space-y-4">
-            <div className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-3 text-[11px] text-status-alert">
-              Statement minimums shown here require the actual statement to be entered — an estimate from the
-              minimum-due rule is not the same as the real charges on the card. Confirm against the Amex / card
-              portal before relying on a projected amount.
+            <SectionHead
+              title="Card and Amex billing cycles"
+              text="Statements close on a cutoff date. Purchases after cutoff enter the next statement, regardless of when the current bill is due."
+            >
+              <Link
+                href="/finance/traceability"
+                className="flex items-center gap-1 rounded-lg border border-status-active/50 px-3 py-1.5 text-xs font-medium text-status-active hover:bg-status-active/10"
+              >
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Register card
+              </Link>
+              <PrimaryButton
+                onClick={() => {
+                  setEditingCardRule(null);
+                  setShowCardRuleModal(true);
+                }}
+              >
+                Configure cycle
+              </PrimaryButton>
+            </SectionHead>
+            <div className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-3 text-xs text-status-alert">
+              The <b>minimum amount due</b> is not the value of the charges made within the cycle. Enter the{" "}
+              <b>actual statement balance and minimum due</b> from Amex to obtain a reliable payment obligation. Without a
+              statement, a full-settlement card shows only an estimated amount based on linked charges. A minimum-payment
+              card remains <b>Unknown</b> until its statement is supplied.
             </div>
 
-            <WidgetCard
-              title="Registered card billing rules"
-              icon={CreditCard}
-              action={
-                <button
-                  onClick={() => {
-                    setEditingCardRule(null);
-                    setShowCardRuleModal(true);
-                  }}
-                  className="flex items-center gap-1 rounded-lg border border-base-700 px-2.5 py-1.5 text-[11px] font-medium text-ink-300 hover:bg-base-800"
-                >
-                  <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add rule
-                </button>
-              }
-            >
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-ink-50">Registered card billing rules</h3>
+                <SmallButton onClick={() => setShowChargeModal(true)}>+ Record missing card charge</SmallButton>
+              </div>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -783,177 +836,188 @@ export function CreditCyclePage({
                   <tbody>
                     {cardRules.map((rule) => (
                       <tr key={rule.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                        <td className="px-3 py-2 text-ink-50">Card cycle {rule.id.slice(0, 8)}</td>
-                        <td className="px-3 py-2">Day {rule.statementDay}</td>
+                        <td className="px-3 py-2">
+                          <b className="text-ink-50">{cardName(rule.id)}</b> {sourceCurrency(rule.paymentAccountId)}
+                        </td>
+                        <td className="px-3 py-2">Day {rule.statementDay} of month</td>
                         <td className="px-3 py-2">{rule.dueOffsetDays} days</td>
                         <td className="px-3 py-2">{rule.settlement}</td>
-                        <td className="px-3 py-2">{bankLabel(rule.paymentAccountId)}</td>
+                        <td className="px-3 py-2">{sourceName(rule.paymentAccountId) ?? "No account"}</td>
                         <td className="px-3 py-2 text-right">
-                          <button
+                          <SmallButton
                             onClick={() => {
                               setEditingCardRule(rule);
                               setShowCardRuleModal(true);
                             }}
-                            className="text-ink-500 hover:text-ink-300"
                           >
-                            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                          </button>
+                            Edit
+                          </SmallButton>
                         </td>
                       </tr>
                     ))}
-                    {cardRules.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-6 text-center text-ink-500">
-                          No card cycles configured yet.
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
-            </WidgetCard>
+            </div>
 
-            <WidgetCard title="Statement cycles and projected settlement dates" icon={CalendarDays}>
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-ink-50">Statement cycles and projected settlement dates</h3>
+                <PrimaryButton small onClick={() => setShowStatementModal(true)}>
+                  Enter Amex statement
+                </PrimaryButton>
+              </div>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                     <tr>
                       <th className="px-3 py-2">Card</th>
-                      <th className="px-3 py-2">Period</th>
+                      <th className="px-3 py-2">Statement period</th>
                       <th className="px-3 py-2">Closes</th>
-                      <th className="px-3 py-2">Due</th>
+                      <th className="px-3 py-2">Payment due</th>
                       <th className="px-3 py-2">Charges recorded</th>
                       <th className="px-3 py-2">Amount payable</th>
-                      <th className="px-3 py-2">Rollover</th>
-                      <th className="px-3 py-2">Confidence</th>
+                      <th className="px-3 py-2">Rollover / outstanding</th>
+                      <th className="px-3 py-2">Source</th>
                     </tr>
                   </thead>
                   <tbody>
                     {forecast.cycles.map((c, i) => (
                       <tr key={i} className="border-b border-base-800 text-ink-300 last:border-0">
-                        <td className="px-3 py-2 text-ink-50">Card cycle {c.cardRuleId.slice(0, 8)}</td>
                         <td className="px-3 py-2">
-                          {fmtDate(c.periodStart)} – {fmtDate(c.closingDate)}
+                          <b className="text-ink-50">{cardName(c.cardRuleId)}</b>
+                        </td>
+                        <td className="px-3 py-2">
+                          {fmtDate(c.periodStart)} to {fmtDate(c.closingDate)}
                         </td>
                         <td className="px-3 py-2">{fmtDate(c.closingDate)}</td>
                         <td className="px-3 py-2">{fmtDate(c.dueDate)}</td>
                         <td className="px-3 py-2">{fmt(c.chargeTotal, c.currency)}</td>
-                        <td className="px-3 py-2">{c.amountDue !== null ? fmt(c.amountDue, c.currency) : "Not yet known"}</td>
-                        <td className="px-3 py-2">{fmt(c.estimatedCarryForward, c.currency)}</td>
                         <td className="px-3 py-2">
-                          <ConfidencePill value={c.accuracy} />
+                          <b className="text-ink-50">{c.amountDue === null ? "Await statement" : fmt(c.amountDue, c.currency)}</b>
+                          <div className="text-[11px] text-ink-500">{c.paymentKind}</div>
+                        </td>
+                        <td className="px-3 py-2">
+                          {fmt(c.estimatedCarryForward, c.currency)}
+                          <div className="text-[11px] text-ink-500">Estimate, excluding interest</div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              c.hasStatement ? "bg-status-active/15 text-status-active" : "bg-status-alert/15 text-status-alert"
+                            }`}
+                          >
+                            {c.accuracy}
+                          </span>
                         </td>
                       </tr>
                     ))}
-                    {forecast.cycles.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="px-3 py-6 text-center text-ink-500">
-                          No card settlement cycles in this window.
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
+                {forecast.cycles.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-ink-500">Set up a card cutoff date to generate its payment-cycle calendar.</p>
+                )}
               </div>
-            </WidgetCard>
+            </div>
 
-            <WidgetCard title="Manual card charges" icon={Receipt}>
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              <h3 className="mb-3 text-sm font-medium text-ink-50">Manual card charges</h3>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                     <tr>
+                      <th className="px-3 py-2">Statement</th>
+                      <th className="px-3 py-2">Card</th>
                       <th className="px-3 py-2">Merchant</th>
                       <th className="px-3 py-2">Amount</th>
                       <th className="px-3 py-2">Reference</th>
-                      <th className="px-3 py-2">Statement</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {cardCharges.map((c) => (
-                      <tr key={c.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                        <td className="px-3 py-2 text-ink-50">{c.merchant}</td>
-                        <td className="px-3 py-2">{fmt(c.amount, c.currency)}</td>
-                        <td className="px-3 py-2">{c.reference ?? "—"}</td>
-                        <td className="px-3 py-2">{c.statementId.slice(0, 8)}</td>
-                      </tr>
-                    ))}
-                    {cardCharges.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
-                          No manual card charges recorded yet.
-                        </td>
-                      </tr>
-                    )}
+                    {cardCharges.map((c) => {
+                      const st = statements.find((s) => s.id === c.statementId);
+                      return (
+                        <tr key={c.id} className="border-b border-base-800 text-ink-300 last:border-0">
+                          <td className="px-3 py-2">{st ? `Closes ${fmtDate(st.closingDate)}` : "—"}</td>
+                          <td className="px-3 py-2">{st ? cardName(st.cardRuleId) : "—"}</td>
+                          <td className="px-3 py-2 text-ink-50">{c.merchant ?? "—"}</td>
+                          <td className="px-3 py-2">{fmt(c.amount, c.currency)}</td>
+                          <td className="px-3 py-2">{c.reference ?? ""}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-            </WidgetCard>
+            </div>
           </div>
         )}
 
         {tab === "bank" && (
           <div className="space-y-4">
-            <div className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-3 text-[11px] text-status-alert">
-              Bank balances shown here are ERP-reported or manually entered snapshots, not a live bank feed. Confirm
-              against the actual bank statement before treating a projected balance as verified cash.
+            <SectionHead
+              title="Projected account balances"
+              text="ERP-sourced or manually entered opening balances less known scheduled outgoings."
+            >
+              <PrimaryButton onClick={() => setEditingBankLink("new")}>Map bank balance</PrimaryButton>
+            </SectionHead>
+            <div className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-3 text-xs text-status-alert">
+              Balances are not independently verified. A missing or stale ERP balance is <b>not</b> zero. Future incoming
+              collections, unknown invoices, currency conversions and card settlements without a paying account are not
+              included.
             </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {forecast.accounts.map((a) => (
-                <WidgetCard key={a.sourceId} title={a.account} icon={Landmark}>
-                  <div className="space-y-2">
-                    <Tile
-                      label="Projected balance"
-                      value={a.forecastBalance !== null ? fmt(a.forecastBalance, a.currency) : "Unknown"}
-                    />
-                    <Tile label="Opening balance" value={a.balance !== null ? fmt(a.balance, a.currency) : "Unknown"} />
-                    <Tile label="Known debits in window" value={fmt(a.knownOutflows, a.currency)} />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {forecast.accounts.map((x) => (
+                <div key={x.sourceId} className="rounded-xl border border-base-700 bg-base-900 p-4">
+                  <h4 className="text-[11px] text-ink-500">{x.account}</h4>
+                  <div className="mt-1 text-base font-semibold text-ink-50">
+                    {x.forecastBalance === null ? "Unknown" : fmt(x.forecastBalance, x.currency)}
                   </div>
-                  <p className="mt-2 text-[11px] text-ink-500">
-                    {a.source} {a.asOf ? `· as of ${fmtDate(a.asOf)}` : ""}
-                  </p>
-                </WidgetCard>
+                  <div className="mt-1 space-y-0.5 text-[11px] text-ink-500">
+                    <div>
+                      Opening: {x.balance === null ? "Unknown" : fmt(x.balance, x.currency)} · {x.source}
+                    </div>
+                    <div>Snapshot {x.asOf ? fmtDate(x.asOf) : "missing"}</div>
+                    <div>Known debits {fmt(x.knownOutflows, x.currency)}</div>
+                    {x.unconverted > 0 && <span className="text-status-inactive">{x.unconverted} outflows need FX</span>}
+                  </div>
+                  <div className="mt-2">
+                    <SmallButton onClick={() => setEditingBankLink(x.sourceId)}>Edit source</SmallButton>
+                  </div>
+                </div>
               ))}
-              {forecast.accounts.length === 0 && <p className="text-xs text-ink-500">No bank accounts registered yet.</p>}
             </div>
-
-            <WidgetCard title="Bank account mapping" icon={Landmark}>
+            <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              <h3 className="mb-3 text-sm font-medium text-ink-50">Bank mapping and balance source</h3>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                     <tr>
                       <th className="px-3 py-2">Account</th>
                       <th className="px-3 py-2">Currency</th>
-                      <th className="px-3 py-2">Source</th>
-                      <th className="px-3 py-2">As of</th>
-                      <th className="px-3 py-2">Treasury account linked</th>
+                      <th className="px-3 py-2">Balance source</th>
+                      <th className="px-3 py-2">As-of date</th>
+                      <th className="px-3 py-2">Opening balance</th>
+                      <th className="px-3 py-2">Projected balance</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {forecast.accounts.map((a) => (
-                      <tr key={a.sourceId} className="border-b border-base-800 text-ink-300 last:border-0">
-                        <td className="px-3 py-2 text-ink-50">{a.account}</td>
-                        <td className="px-3 py-2">{a.currency}</td>
-                        <td className="px-3 py-2">{a.source}</td>
-                        <td className="px-3 py-2">{fmtDate(a.asOf)}</td>
-                        <td className="px-3 py-2">{a.bankAccountId ? "Linked" : "Not linked"}</td>
+                    {forecast.accounts.map((x) => (
+                      <tr key={x.sourceId} className="border-b border-base-800 text-ink-300 last:border-0">
+                        <td className="px-3 py-2">
+                          <b className="text-ink-50">{x.account}</b>
+                        </td>
+                        <td className="px-3 py-2">{x.currency}</td>
+                        <td className="px-3 py-2">{x.source}</td>
+                        <td className="px-3 py-2">{x.asOf ? fmtDate(x.asOf) : "Not available"}</td>
+                        <td className="px-3 py-2">{x.balance === null ? "Unknown" : fmt(x.balance, x.currency)}</td>
+                        <td className="px-3 py-2">{x.forecastBalance === null ? "Unknown" : fmt(x.forecastBalance, x.currency)}</td>
                       </tr>
                     ))}
-                    {forecast.accounts.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-3 py-6 text-center text-ink-500">
-                          No bank accounts registered yet.
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
-              <p className="mt-2 text-[11px] text-ink-500">
-                Link treasury bank accounts to a payment source from the Banks screen to complete ERP-reported
-                balance matching.
-              </p>
-            </WidgetCard>
+            </div>
           </div>
         )}
       </div>
@@ -983,6 +1047,41 @@ export function CreditCyclePage({
           onSaved={async () => {
             setShowRecurringModal(false);
             await reloadRecurring();
+            await refreshForecast();
+          }}
+        />
+      )}
+      {showStatementModal && (
+        <CardStatementModal
+          cardRules={cardRules}
+          cardName={cardName}
+          onClose={() => setShowStatementModal(false)}
+          onSaved={async () => {
+            setShowStatementModal(false);
+            await reloadStatementsAndCharges();
+            await refreshForecast();
+          }}
+        />
+      )}
+      {showChargeModal && (
+        <CardChargeModal
+          statements={statements}
+          cardName={cardName}
+          onClose={() => setShowChargeModal(false)}
+          onSaved={async () => {
+            setShowChargeModal(false);
+            await reloadStatementsAndCharges();
+            await refreshForecast();
+          }}
+        />
+      )}
+      {editingBankLink && (
+        <BankLinkModal
+          sources={paymentSources}
+          initialSourceId={editingBankLink === "new" ? null : editingBankLink}
+          onClose={() => setEditingBankLink(null)}
+          onSaved={async () => {
+            setEditingBankLink(null);
             await refreshForecast();
           }}
         />
@@ -1318,5 +1417,346 @@ function CardRuleModal({
         </form>
       </div>
     </div>
+  );
+}
+
+type PaymentSource = { id: string; name: string; kind: string; currency: string | null };
+
+function SectionHead({ title, text, children }: { title: string; text: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="text-lg font-semibold text-ink-50">{title}</h2>
+        <p className="mt-1 text-xs text-ink-500">{text}</p>
+      </div>
+      {children && <div className="flex flex-wrap gap-2">{children}</div>}
+    </div>
+  );
+}
+
+function PrimaryButton({ onClick, children, small }: { onClick: () => void; children: React.ReactNode; small?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1 rounded-lg bg-ink-50 font-medium text-base-950 hover:bg-white ${small ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs"}`}
+    >
+      <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> {children}
+    </button>
+  );
+}
+
+function SmallButton({ onClick, children, disabled }: { onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-lg border border-base-700 px-2.5 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
+}
+
+function EventsTable({ events, bankLabel }: { events: CashEvent[]; bankLabel: (id: string) => string }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-base-700">
+      <table className="w-full text-left text-xs">
+        <thead className="border-b border-base-700 bg-base-900 text-ink-500">
+          <tr>
+            <th className="px-3 py-2">Due date</th>
+            <th className="px-3 py-2">Commitment</th>
+            <th className="px-3 py-2">Reference / notes</th>
+            <th className="px-3 py-2">Currency</th>
+            <th className="px-3 py-2">Cash out</th>
+            <th className="px-3 py-2">Payment bank</th>
+            <th className="px-3 py-2">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e, i) => (
+            <tr key={i} className="border-b border-base-800 text-ink-300 last:border-0">
+              <td className="px-3 py-2 text-ink-50">{fmtDate(e.date)}</td>
+              <td className="px-3 py-2">{e.label}</td>
+              <td className="px-3 py-2">{e.reference || "—"}</td>
+              <td className="px-3 py-2">{e.currency}</td>
+              <td className="px-3 py-2">{fmt(e.amount, e.currency)}</td>
+              <td className="px-3 py-2">{bankLabel(e.bankSourceId)}</td>
+              <td className="px-3 py-2">
+                <ConfidencePill value={e.certainty} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {events.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No payments currently due for this period.</p>}
+    </div>
+  );
+}
+
+function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-lg rounded-xl border border-base-700 bg-base-900 p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-ink-50">{title}</h2>
+          <button onClick={onClose} className="text-ink-500 hover:text-ink-300">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+async function postJson(url: string, body: unknown): Promise<string | null> {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.error ?? "Save failed";
+}
+
+const fieldLabel = "flex flex-col gap-1 text-[11px] text-ink-500";
+
+function CardStatementModal({
+  cardRules,
+  cardName,
+  onClose,
+  onSaved,
+}: {
+  cardRules: CardRule[];
+  cardName: (ruleId: string) => string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [f, setF] = useState({ cardRuleId: cardRules[0]?.id ?? "", closingDate: "", amount: "", minimumDue: "", amountPaid: "0", status: "Open" });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((p) => ({ ...p, [k]: e.target.value }));
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const err = await postJson("/api/finance/credit/card-statements", {
+      cardRuleId: f.cardRuleId,
+      closingDate: f.closingDate,
+      amount: Number(f.amount),
+      minimumDue: f.minimumDue === "" ? null : Number(f.minimumDue),
+      amountPaid: Number(f.amountPaid || 0),
+      status: f.status,
+    });
+    setSaving(false);
+    if (err) setError(err);
+    else onSaved();
+  }
+  return (
+    <ModalShell title="Enter Amex / card statement" onClose={onClose}>
+      {cardRules.length === 0 ? (
+        <p className="text-xs text-ink-500">Configure a card cycle first, then enter its statements.</p>
+      ) : (
+        <form onSubmit={submit} className="grid grid-cols-2 gap-2.5">
+          <label className={`${fieldLabel} col-span-2`}>
+            Card cycle
+            <select value={f.cardRuleId} onChange={set("cardRuleId")} className={inputClass}>
+              {cardRules.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {cardName(r.id)} · closes day {r.statementDay}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={fieldLabel}>
+            Statement closing date
+            <input type="date" required value={f.closingDate} onChange={set("closingDate")} className={inputClass} />
+          </label>
+          <label className={fieldLabel}>
+            Statement balance
+            <input type="number" step="0.01" required value={f.amount} onChange={set("amount")} className={inputClass} />
+          </label>
+          <label className={fieldLabel}>
+            Minimum due (if shown)
+            <input type="number" step="0.01" value={f.minimumDue} onChange={set("minimumDue")} className={inputClass} />
+          </label>
+          <label className={fieldLabel}>
+            Amount already paid
+            <input type="number" step="0.01" value={f.amountPaid} onChange={set("amountPaid")} className={inputClass} />
+          </label>
+          <label className={fieldLabel}>
+            Status
+            <select value={f.status} onChange={set("status")} className={inputClass}>
+              {["Open", "Paid", "Disputed"].map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+          {error && <p className="col-span-2 text-xs text-status-inactive">{error}</p>}
+          <button
+            type="submit"
+            disabled={saving || !f.cardRuleId || !f.closingDate || f.amount === ""}
+            className="col-span-2 rounded-lg bg-ink-50 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save statement"}
+          </button>
+        </form>
+      )}
+    </ModalShell>
+  );
+}
+
+function CardChargeModal({
+  statements,
+  cardName,
+  onClose,
+  onSaved,
+}: {
+  statements: CardStatement[];
+  cardName: (ruleId: string) => string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [f, setF] = useState({ statementId: statements[0]?.id ?? "", merchant: "", amount: "", currency: "USD", reference: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((p) => ({ ...p, [k]: e.target.value }));
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const err = await postJson("/api/finance/credit/card-charges", { ...f, amount: Number(f.amount) });
+    setSaving(false);
+    if (err) setError(err);
+    else onSaved();
+  }
+  return (
+    <ModalShell title="Record missing card charge" onClose={onClose}>
+      {statements.length === 0 ? (
+        <p className="text-xs text-ink-500">Enter the card statement first; charges are recorded against a statement.</p>
+      ) : (
+        <form onSubmit={submit} className="grid grid-cols-2 gap-2.5">
+          <label className={`${fieldLabel} col-span-2`}>
+            Statement
+            <select value={f.statementId} onChange={set("statementId")} className={inputClass}>
+              {statements.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {cardName(s.cardRuleId)} · closes {fmtDate(s.closingDate)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={`${fieldLabel} col-span-2`}>
+            Merchant
+            <input required value={f.merchant} onChange={set("merchant")} className={inputClass} />
+          </label>
+          <label className={fieldLabel}>
+            Amount
+            <input type="number" step="0.01" required value={f.amount} onChange={set("amount")} className={inputClass} />
+          </label>
+          <label className={fieldLabel}>
+            Currency
+            <input maxLength={3} value={f.currency} onChange={set("currency")} className={inputClass} />
+          </label>
+          <label className={`${fieldLabel} col-span-2`}>
+            Reference
+            <input value={f.reference} onChange={set("reference")} className={inputClass} />
+          </label>
+          {error && <p className="col-span-2 text-xs text-status-inactive">{error}</p>}
+          <button
+            type="submit"
+            disabled={saving || !f.statementId || !f.merchant.trim() || f.amount === ""}
+            className="col-span-2 rounded-lg bg-ink-50 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save card charge"}
+          </button>
+        </form>
+      )}
+    </ModalShell>
+  );
+}
+
+function BankLinkModal({
+  sources,
+  initialSourceId,
+  onClose,
+  onSaved,
+}: {
+  sources: PaymentSource[];
+  initialSourceId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const bankSources = sources.filter((s) => s.kind === "Bank account");
+  const [f, setF] = useState({
+    paymentSourceId: initialSourceId ?? bankSources[0]?.id ?? "",
+    bankAccountId: "",
+    openingBalance: "",
+    openingAsOf: "",
+  });
+  const [treasuryBanks, setTreasuryBanks] = useState<{ id: string; label: string; currency: string | null }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    fetch("/api/finance/treasury/bank-accounts")
+      .then((r) => (r.ok ? r.json() : { banks: [] }))
+      .then((d) => setTreasuryBanks(d.banks ?? []))
+      .catch(() => setTreasuryBanks([]));
+  }, []);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((p) => ({ ...p, [k]: e.target.value }));
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const err = await postJson("/api/finance/credit/bank-links", {
+      paymentSourceId: f.paymentSourceId,
+      bankAccountId: f.bankAccountId || null,
+      openingBalance: f.openingBalance === "" ? null : Number(f.openingBalance),
+      openingAsOf: f.openingAsOf || null,
+    });
+    setSaving(false);
+    if (err) setError(err);
+    else onSaved();
+  }
+  return (
+    <ModalShell title="Map bank balance" onClose={onClose}>
+      {bankSources.length === 0 ? (
+        <p className="text-xs text-ink-500">Register a bank-account payment source on Payment Traceability first.</p>
+      ) : (
+        <form onSubmit={submit} className="grid grid-cols-2 gap-2.5">
+          <label className={`${fieldLabel} col-span-2`}>
+            Paying bank account
+            <select value={f.paymentSourceId} onChange={set("paymentSourceId")} className={inputClass}>
+              {bankSources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {s.currency ?? "—"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={`${fieldLabel} col-span-2`}>
+            ERP-linked treasury bank (optional)
+            <select value={f.bankAccountId} onChange={set("bankAccountId")} className={inputClass}>
+              <option value="">Not linked, use manual opening balance</option>
+              {treasuryBanks.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.label} · {b.currency ?? "—"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={fieldLabel}>
+            Manual opening balance
+            <input type="number" step="0.01" value={f.openingBalance} onChange={set("openingBalance")} className={inputClass} />
+          </label>
+          <label className={fieldLabel}>
+            Balance as of
+            <input type="date" value={f.openingAsOf} onChange={set("openingAsOf")} className={inputClass} />
+          </label>
+          {error && <p className="col-span-2 text-xs text-status-inactive">{error}</p>}
+          <button
+            type="submit"
+            disabled={saving || !f.paymentSourceId}
+            className="col-span-2 rounded-lg bg-ink-50 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save bank mapping"}
+          </button>
+        </form>
+      )}
+    </ModalShell>
   );
 }

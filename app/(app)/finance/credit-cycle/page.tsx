@@ -2,7 +2,15 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
-import { listInvoices, listRecurring, listCardRules, listCardCharges, projection } from "@/lib/finance/creditCycleData";
+import { prisma } from "@/lib/prisma";
+import {
+  listInvoices,
+  listRecurring,
+  listCardRules,
+  listCardCharges,
+  listCardStatements,
+  projection,
+} from "@/lib/finance/creditCycleData";
 import { CreditCyclePage } from "@/components/finance/CreditCyclePage";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +22,17 @@ export default async function FinanceCreditCycleRoute() {
   }
 
   return withTenantPage(session, async (authUser) => {
-    const [invoices, recurring, forecast, cardRules, cardCharges] = await Promise.all([
+    const [invoices, recurring, forecast, cardRules, cardCharges, statements, paymentSources] = await Promise.all([
       listInvoices(),
       listRecurring(),
-      projection(),
+      projection({ includePayroll: authUser.canAccessFinancePayroll }),
       listCardRules(),
       listCardCharges(),
+      listCardStatements(),
+      prisma.financePaymentSource.findMany({
+        orderBy: [{ kind: "asc" }, { name: "asc" }],
+        select: { id: true, name: true, kind: true, currency: true },
+      }),
     ]);
 
     return (
@@ -29,6 +42,8 @@ export default async function FinanceCreditCycleRoute() {
         forecast={forecast}
         cardRules={cardRules}
         cardCharges={cardCharges}
+        statements={statements}
+        paymentSources={paymentSources}
         canAccessFinancePayroll={authUser.canAccessFinancePayroll}
       />
     );
