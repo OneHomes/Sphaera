@@ -10,9 +10,8 @@ import type { FinanceState } from "@/lib/finance/ledgerData";
 // grid, same "Create a cost head" panel with its exact educational copy
 // and the two external chart-of-accounts links, same "How the
 // reorganisation works" explainer, same "Merge & retire a cost head"
-// panel, and the same bulk source-label-reassignment table. Two backend
-// gaps from the source are called out inline where they occur (see the
-// "not yet available" notices) rather than silently dropped.
+// preview/confirm workflow, and the same bulk source-label-reassignment
+// table, including department rename and "select all visible" wiring.
 
 const COST_GROUPS: [string, string[]][] = [
   [
@@ -105,7 +104,19 @@ function Pill({ children, tone }: { children: React.ReactNode; tone?: "amber" | 
   return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>{children}</span>;
 }
 
-function AddNameForm({ placeholder, endpoint, onAdded }: { placeholder: string; endpoint: string; onAdded: (name: string) => void }) {
+function AddNameForm({
+  placeholder,
+  endpoint,
+  onAdded,
+  submitLabel = "+ Add",
+  savingLabel = "Adding…",
+}: {
+  placeholder: string;
+  endpoint: string;
+  onAdded: (name: string) => void;
+  submitLabel?: string;
+  savingLabel?: string;
+}) {
   const [name, setName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +152,7 @@ function AddNameForm({ placeholder, endpoint, onAdded }: { placeholder: string; 
           disabled={isSaving || !name.trim()}
           className="shrink-0 rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
         >
-          {isSaving ? "Adding…" : "+ Add"}
+          {isSaving ? savingLabel : submitLabel}
         </button>
       </form>
       {error && <p className="mt-1.5 text-[11px] text-status-inactive">{error}</p>}
@@ -173,6 +184,19 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
   const [mapResult, setMapResult] = useState<string | null>(null);
   const [mergeSource, setMergeSource] = useState("");
   const [mergeTarget, setMergeTarget] = useState("");
+  const [mergePreview, setMergePreview] = useState<{
+    source: string;
+    target: string;
+    payments: number;
+    paymentUsd: number;
+    rows: Record<string, number>;
+  } | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [renamingDept, setRenamingDept] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const unidentified = (t: FinanceState["transactions"][number]) => !t.managementDepartment;
 
@@ -239,6 +263,94 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
       else next.add(key);
       return next;
     });
+  }
+  const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((r) => mapSelected.has(r.key));
+  function toggleSelectAllVisible() {
+    if (allVisibleSelected) {
+      clearMapSelection();
+    } else {
+      selectVisible();
+    }
+  }
+
+  function startRenameDept(d: string) {
+    setRenamingDept(d);
+    setRenameValue(d);
+    setRenameError(null);
+  }
+  function cancelRenameDept() {
+    setRenamingDept(null);
+    setRenameValue("");
+    setRenameError(null);
+  }
+  async function submitRenameDept() {
+    if (!renamingDept || isRenaming) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === renamingDept) {
+      cancelRenameDept();
+      return;
+    }
+    setIsRenaming(true);
+    setRenameError(null);
+    try {
+      const res = await fetch("/api/finance/departments/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldName: renamingDept, newName: trimmed }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Failed to rename department");
+      setDepartments((prev) => prev.map((d) => (d === renamingDept ? trimmed : d)).sort());
+      cancelRenameDept();
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : "Failed to rename department");
+    } finally {
+      setIsRenaming(false);
+    }
+  }
+
+  function previewHeadMerge() {
+    if (!mergeSource || !mergeTarget || mergeSource === mergeTarget) return;
+    setMergeError(null);
+    const affected = state.transactions.filter((t) => t.managementCostHead === mergeSource);
+    const rows: Record<string, number> = {};
+    for (const t of affected) {
+      const dept = t.managementDepartment || "Unassigned";
+      rows[dept] = (rows[dept] ?? 0) + 1;
+    }
+    setMergePreview({
+      source: mergeSource,
+      target: mergeTarget,
+      payments: affected.length,
+      paymentUsd: affected.reduce((s, t) => s + t.amount, 0),
+      rows,
+    });
+  }
+  function cancelHeadMerge() {
+    setMergePreview(null);
+    setMergeError(null);
+  }
+  async function confirmHeadMerge() {
+    if (!mergePreview || isMerging) return;
+    setIsMerging(true);
+    setMergeError(null);
+    try {
+      const res = await fetch("/api/finance/organise/merge-cost-head", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: mergePreview.source, target: mergePreview.target }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Failed to merge cost heads");
+      setManagementCostHeads((prev) => prev.filter((h) => h !== mergePreview.source));
+      setMergePreview(null);
+      setMergeSource("");
+      setMergeTarget("");
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : "Failed to merge cost heads");
+    } finally {
+      setIsMerging(false);
+    }
   }
 
   async function applyMappingBulk() {
@@ -326,22 +438,50 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
         <AddNameForm
           placeholder="New department name, e.g. IT or Human Resources"
           endpoint="/api/finance/departments"
+          submitLabel="+ Add department"
           onAdded={(name) => setDepartments((prev) => (prev.includes(name) ? prev : [...prev, name].sort()))}
         />
         <div className="mt-3 flex flex-wrap gap-2">
-          {departments.map((d) => (
-            <span key={d} className="flex items-center gap-1.5 rounded-full border border-base-700 py-1 pl-3 pr-1.5 text-[11px] text-ink-300">
-              {d}
-              <button
-                disabled
-                title="Renaming departments is not yet wired to an API in this port"
-                className="rounded-full border border-base-800 px-2 py-0.5 text-[10px] text-ink-600 opacity-60"
-              >
-                Edit name
-              </button>
-            </span>
-          ))}
+          {departments.map((d) =>
+            renamingDept === d ? (
+              <span key={d} className="flex items-center gap-1.5 rounded-full border border-base-600 py-1 pl-2 pr-1.5 text-[11px] text-ink-300">
+                <input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  autoFocus
+                  maxLength={70}
+                  className="w-32 rounded-md border border-base-700 bg-base-800 px-1.5 py-0.5 text-[11px] text-ink-50 outline-none"
+                />
+                <button
+                  onClick={submitRenameDept}
+                  disabled={isRenaming || !renameValue.trim()}
+                  className="rounded-full border border-base-700 px-2 py-0.5 text-[10px] text-ink-50 hover:border-base-600 disabled:opacity-50"
+                >
+                  {isRenaming ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={cancelRenameDept}
+                  disabled={isRenaming}
+                  className="rounded-full border border-base-800 px-2 py-0.5 text-[10px] text-ink-500 hover:text-ink-200"
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <span key={d} className="flex items-center gap-1.5 rounded-full border border-base-700 py-1 pl-3 pr-1.5 text-[11px] text-ink-300">
+                {d}
+                <button
+                  onClick={() => startRenameDept(d)}
+                  title={`Rename ${d}`}
+                  className="rounded-full border border-base-800 px-2 py-0.5 text-[10px] text-ink-300 hover:text-ink-50"
+                >
+                  Edit name
+                </button>
+              </span>
+            )
+          )}
         </div>
+        {renameError && <p className="mt-2 text-[11px] text-status-inactive">{renameError}</p>}
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -371,6 +511,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
             <AddNameForm
               placeholder="New cost head name"
               endpoint="/api/finance/cost-heads"
+              submitLabel="+ Create"
               onAdded={(name) => setManagementCostHeads((prev) => (prev.includes(name) ? prev : [...prev, name].sort()))}
             />
           </div>
@@ -474,17 +615,57 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
             ))}
           </select>
           <button
-            disabled
-            title="Merge/retire preview and apply endpoints are not yet built in this port"
-            className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-500 opacity-60"
+            onClick={previewHeadMerge}
+            disabled={!mergeSource || !mergeTarget || mergeSource === mergeTarget}
+            className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:text-ink-50 disabled:opacity-40"
           >
             Preview transfer
           </button>
         </div>
-        <p className="mt-3 text-[11px] text-ink-500">
-          Not yet available: this port has no merge/retire API behind it. The controls above are a UI shell matching
-          the original screen; wire a preview + confirm endpoint before enabling it.
-        </p>
+
+        {mergePreview && (
+          <>
+            <div className="mt-3.5 rounded-lg border border-status-alert/40 bg-status-alert/10 p-3 text-[11px] text-status-alert">
+              <strong className="block text-xs">Review before merging</strong>
+              <div className="mt-2">
+                {mergePreview.source} → <strong>{mergePreview.target}</strong>
+              </div>
+              <div className="mt-1">
+                {mergePreview.payments.toLocaleString()} affected payments, {usd(mergePreview.paymentUsd)}. Original
+                payment dates, currencies, debt classifications and bank references will be retained.
+              </div>
+              {Object.keys(mergePreview.rows).length > 0 && (
+                <div className="mt-1.5">
+                  {Object.entries(mergePreview.rows)
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => `${k.replaceAll("_", " ")}: ${v}`)
+                    .join(" · ")}
+                </div>
+              )}
+              <div className="mt-1.5">
+                Existing approved budget versions are preserved. They may still display the retired head for
+                historical comparison.
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={confirmHeadMerge}
+                disabled={isMerging}
+                className="rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
+              >
+                {isMerging ? "Merging…" : "Confirm transfer & retire old head"}
+              </button>
+              <button
+                onClick={cancelHeadMerge}
+                disabled={isMerging}
+                className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:text-ink-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+        {mergeError && <p className="mt-3 text-[11px] text-status-inactive">{mergeError}</p>}
       </div>
 
       <div className="rounded-xl border border-base-700 bg-base-900 p-4">
@@ -527,7 +708,13 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
             <thead className="border-b border-base-700 bg-base-900 text-ink-500">
               <tr>
                 <th className="px-3 py-2">
-                  <input type="checkbox" title="Select visible cost head labels" disabled className="h-3.5 w-3.5 opacity-40" />
+                  <input
+                    type="checkbox"
+                    title="Select visible cost head labels"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="h-3.5 w-3.5 rounded border-base-700 bg-base-800"
+                  />
                 </th>
                 <th className="px-3 py-2">Original Finance label</th>
                 <th className="px-3 py-2">Proposed / approved destination</th>

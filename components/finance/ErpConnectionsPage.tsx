@@ -42,12 +42,14 @@ function Tile({ label, value }: { label: string; value: string }) {
 const inputClass =
   "w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500";
 
-const DATA_FLOW_STEPS = [
-  "IT confirms a read-only connection (C# API or SQL Server bridge) for the regional ERP and shares the endpoint with Finance.",
-  "Finance registers the ERP source here, tagging it to its home region (Pakistan, UAE or UK & USA) and legal entity.",
-  "IT exposes the fund-allocation fields (S&M / Development / Unallocated) on every receipt and payment pulled from that ERP.",
-  "Finance reviews and approves each ERP transaction's fund allocation before it reaches the treasury ledger.",
-  "Approved allocations flow into the Treasury Funds screen, grouped by ERP, bank, entity, currency and fund.",
+const fieldLabelClass = "block text-[11px] text-ink-500 mb-1";
+
+const DATA_FLOW_STEPS: { label: string; value: string }[] = [
+  { label: "1. Three separate ERPs", value: "Pakistan · UAE · UK & USA" },
+  { label: "2. Finance categorises cash", value: "S&M / Development / Unallocated" },
+  { label: "3. Send approved allocation", value: "Read-only C# API connector" },
+  { label: "4. Match originating bank", value: "ERP source + ERP bank account number" },
+  { label: "5. Report allocations", value: "Fund → ERP → bank → payment" },
 ];
 
 export function ErpConnectionsPage({
@@ -156,16 +158,16 @@ export function ErpConnectionsPage({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <WidgetCard title="Regional ERPs" icon={Network}>
-          <Tile label="Separate installations" value="3" />
+          <Tile label="Pakistan · UAE · UK & USA" value="3" />
         </WidgetCard>
         <WidgetCard title="Active registrations" icon={ClipboardCheck}>
-          <Tile label="Registered and active" value={activeCount.toLocaleString()} />
+          <Tile label="Awaiting IT API connections" value={activeCount.toLocaleString()} />
         </WidgetCard>
         <WidgetCard title="Fund types" icon={Landmark}>
-          <Tile label="S&amp;M and Development" value="2" />
+          <Tile label="Sales & Marketing · Development" value="2" />
         </WidgetCard>
         <WidgetCard title="Tagging authority" icon={ShieldCheck}>
-          <Tile label="Who classifies each transaction" value="Finance" />
+          <Tile label="Within each ERP, per transaction" value="Finance" />
         </WidgetCard>
       </div>
 
@@ -175,8 +177,12 @@ export function ErpConnectionsPage({
           const rows = fundRowsByRegion.get(reg) ?? [];
           return (
             <WidgetCard key={reg} title={reg} icon={Network}>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-600">Regional ERP</p>
               <Tile label="Registered sources" value={regSources.length.toLocaleString()} />
-              <p className="mt-3 text-[11px] text-ink-500">Finance tags each transaction as it is reviewed inside this ERP.</p>
+              <div className="mt-3 flex items-center justify-between text-[11px] text-ink-300">
+                <span>Fund classification</span>
+                <span className="text-ink-50">Finance tags each transaction</span>
+              </div>
               <div className="mt-2 space-y-1">
                 {rows.length === 0 ? (
                   <p className="text-[11px] text-ink-600">No ERP fund-tagged movements received yet.</p>
@@ -204,47 +210,79 @@ export function ErpConnectionsPage({
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <WidgetCard title={editingId ? "Edit ERP registration" : "Register ERP source"} icon={Network}>
+        <WidgetCard
+          title={editingId ? "Edit ERP registration" : "Register ERP source"}
+          icon={Network}
+          action={
+            editingId ? (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="text-[11px] font-medium text-ink-300 hover:text-ink-50"
+              >
+                + Add another
+              </button>
+            ) : undefined
+          }
+        >
           <form onSubmit={handleSubmit} className="space-y-2.5">
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ERP name" className={inputClass} />
-            <select value={region} onChange={(e) => setRegion(e.target.value)} className={inputClass}>
-              {ERP_REGIONS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-            <div className="flex gap-2">
-              <select value={environment} onChange={(e) => setEnvironment(e.target.value)} className={inputClass}>
-                {ERP_ENVIRONMENTS.map((env) => (
-                  <option key={env} value={env}>
-                    {env}
+            <div>
+              <label className={fieldLabelClass}>ERP name</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="One Homes Pakistan ERP" className={inputClass} />
+            </div>
+            <div>
+              <label className={fieldLabelClass}>ERP region</label>
+              <select value={region} onChange={(e) => setRegion(e.target.value)} className={inputClass}>
+                {ERP_REGIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className={fieldLabelClass}>Environment</label>
+                <select value={environment} onChange={(e) => setEnvironment(e.target.value)} className={inputClass}>
+                  {ERP_ENVIRONMENTS.map((env) => (
+                    <option key={env} value={env}>
+                      {env}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className={fieldLabelClass}>Legal entity or entities covered (optional)</label>
+                <input
+                  value={legalEntity}
+                  onChange={(e) => setLegalEntity(e.target.value)}
+                  placeholder="Enter legal entities, if known"
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <div>
+              <label className={fieldLabelClass}>Connection method</label>
+              <select value={integrationMode} onChange={(e) => setIntegrationMode(e.target.value)} className={inputClass}>
+                {ERP_INTEGRATION_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={fieldLabelClass}>API base URL, optional</label>
               <input
-                value={legalEntity}
-                onChange={(e) => setLegalEntity(e.target.value)}
-                placeholder="Legal entity"
+                value={endpointUrl}
+                onChange={(e) => setEndpointUrl(e.target.value)}
+                placeholder="https://... API base URL (optional, no credentials)"
                 className={inputClass}
               />
             </div>
-            <select value={integrationMode} onChange={(e) => setIntegrationMode(e.target.value)} className={inputClass}>
-              {ERP_INTEGRATION_MODES.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <input
-              value={endpointUrl}
-              onChange={(e) => setEndpointUrl(e.target.value)}
-              placeholder="https://... API base URL (optional, no credentials)"
-              className={inputClass}
-            />
             <label className="flex items-center gap-2 text-xs text-ink-300">
               <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-              Active
+              Active ERP registration
             </label>
             <p className="text-[10px] text-ink-600">
               This registry stores non-secret connection metadata only. No live ERP connection is made here — never
@@ -257,7 +295,7 @@ export function ErpConnectionsPage({
                 disabled={saving || !name.trim() || !region}
                 className="flex-1 rounded-lg bg-ink-50 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
               >
-                {saving ? "Saving…" : editingId ? "Save changes" : "Register source"}
+                {saving ? "Saving…" : editingId ? "Save registration" : "Register ERP"}
               </button>
               <button
                 type="button"
@@ -271,16 +309,17 @@ export function ErpConnectionsPage({
         </WidgetCard>
 
         <WidgetCard title="IT and Finance data flow" icon={Workflow}>
-          <ol className="space-y-2 text-xs text-ink-300">
-            {DATA_FLOW_STEPS.map((step, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="shrink-0 font-medium text-ink-50">{i + 1}.</span>
-                <span>{step}</span>
-              </li>
+          <div className="space-y-2">
+            {DATA_FLOW_STEPS.map((step) => (
+              <div key={step.label} className="flex items-center justify-between text-xs text-ink-300">
+                <span>{step.label}</span>
+                <strong className="text-ink-50">{step.value}</strong>
+              </div>
             ))}
-          </ol>
+          </div>
           <p className="mt-3 text-[11px] text-ink-500">
-            IT must expose the fund-allocation fields on every ERP transaction before fund reporting can begin.
+            IT must expose each ERP&apos;s approved fund allocation fields. Never infer a payment&apos;s fund merely
+            from its ERP location, bank or legal entity. No connections are active until IT completes the API work.
           </p>
           <Link href="/finance/banks/funds" className="mt-2 inline-block text-[11px] text-ink-300 hover:text-ink-50">
             Open Treasury Funds ↗
@@ -289,9 +328,14 @@ export function ErpConnectionsPage({
       </div>
 
       <div className="mt-4">
-        <WidgetCard title="ERP registrations" icon={ClipboardCheck}>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {sources.map((s) => (
+        <div className="mb-3">
+          <h2 className="text-base font-semibold text-ink-50">ERP registrations</h2>
+          <p className="mt-1 text-xs text-ink-500">
+            Existing ERP sources without a region are marked Unassigned and must be corrected, not guessed.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {sources.map((s) => (
               <div key={s.id} className="rounded-lg border border-base-700 bg-base-800 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
                   <span className="rounded-full bg-base-700 px-2 py-0.5 text-[10px] font-medium text-ink-300">
@@ -315,7 +359,7 @@ export function ErpConnectionsPage({
                   {s.endpointUrl || "No endpoint configured"}
                 </p>
                 <p className="mt-1 text-[11px] text-ink-500">
-                  {s.stagedCount} staged / {s.pendingCount} pending
+                  {s.stagedCount} staged payments, {s.pendingCount} awaiting matching
                 </p>
                 {!s.region && (
                   <p className="mt-1.5 text-[11px] font-medium text-status-alert">Set region before integrating</p>
@@ -327,10 +371,9 @@ export function ErpConnectionsPage({
                   <Pencil className="h-3 w-3" strokeWidth={1.75} /> Edit
                 </button>
               </div>
-            ))}
-            {sources.length === 0 && <p className="text-xs text-ink-500">No ERP sources registered yet.</p>}
-          </div>
-        </WidgetCard>
+          ))}
+          {sources.length === 0 && <p className="text-xs text-ink-500">No ERP sources registered yet.</p>}
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CalendarRange,
   PieChart as PieChartIcon,
@@ -131,6 +132,7 @@ export function FinancialPlanningPage({
   costHeads: string[];
   transactions: TransactionRow[];
 }) {
+  const router = useRouter();
   const [plans, setPlans] = useState<PlanRow[]>(initialPlans);
   const [lines, setLines] = useState<PlanLineRow[]>(initialLines);
   const [targets, setTargets] = useState<PlanTargetRow[]>(initialTargets);
@@ -261,6 +263,11 @@ export function FinancialPlanningPage({
 
   const canRevise = latestApproved !== null && latestApproved.fyStart === headerFyStart;
 
+  const plansForSelectedFy = useMemo(
+    () => plans.filter((p) => p.fyStart === headerFyStart),
+    [plans, headerFyStart]
+  );
+
   return (
     <div className="p-6">
       <div className="mb-5">
@@ -292,9 +299,9 @@ export function FinancialPlanningPage({
             className="rounded-lg border border-base-700 bg-base-800 px-2 py-2 text-xs text-ink-50 outline-none"
           >
             <option value="">Latest approved plan</option>
-            {plans.map((p) => (
+            {plansForSelectedFy.map((p) => (
               <option key={p.id} value={p.id}>
-                {fyName(p.fyStart)} v{p.version} {p.status}
+                v{p.version} · {p.status} · {p.name ?? ""}
               </option>
             ))}
           </select>
@@ -309,7 +316,7 @@ export function FinancialPlanningPage({
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <WidgetCard title="Budget in selected view" icon={Banknote}>
           <Tile
-            label={selectedPlan ? `${fyName(selectedPlan.fyStart)} v${selectedPlan.version}` : "No plan"}
+            label="Cost-head budgets from the selected version"
             value={selectedPlan ? usd(budgetTotal) : "No plan"}
           />
         </WidgetCard>
@@ -317,18 +324,25 @@ export function FinancialPlanningPage({
           <Tile label={`${operatingInFy.length.toLocaleString()} payments`} value={usd(actualOpex)} />
         </WidgetCard>
         <WidgetCard title="Planned sales target" icon={Target}>
-          <Tile label="Annual target" value={selectedPlan && planTargets.length ? usd(salesTotal) : "No plan"} />
+          <Tile
+            label="Monthly targets in the approved plan, not actual sales"
+            value={selectedPlan && planTargets.length ? usd(salesTotal) : "No plan"}
+          />
         </WidgetCard>
         <WidgetCard title="Planned collections target" icon={Target}>
-          <Tile label="Annual target" value={selectedPlan && planTargets.length ? usd(collectionsTotal) : "No plan"} />
+          <Tile
+            label="Monthly targets in the approved plan, not actual receipts"
+            value={selectedPlan && planTargets.length ? usd(collectionsTotal) : "No plan"}
+          />
         </WidgetCard>
         <WidgetCard title="Budget status" icon={CheckCircle2}>
-          <div className="flex h-full items-center">
+          <div className="flex h-full flex-col justify-center gap-1">
             <StatusBadge status={selectedPlan?.status ?? "Missing"} />
+            <p className="text-[11px] text-ink-500">Approved budgets are not overwritten by new draft uploads</p>
           </div>
         </WidgetCard>
         <WidgetCard title="Cost heads planned" icon={ClipboardList}>
-          <Tile label="Distinct cost heads in this plan" value={String(distinctCostHeads.size)} />
+          <Tile label="Editable through a new version upload" value={String(distinctCostHeads.size)} />
         </WidgetCard>
       </div>
 
@@ -446,7 +460,14 @@ export function FinancialPlanningPage({
                 {costHeadRows.map((r) => (
                   <tr key={`${r.department}\u0000${r.costHead}`} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2">{r.department}</td>
-                    <td className="px-3 py-2 text-ink-50">{r.costHead}</td>
+                    <td className="px-3 py-2 text-ink-50">
+                      <button
+                        onClick={() => router.push(`/finance/payments?department=${encodeURIComponent(r.department)}`)}
+                        className="hover:underline"
+                      >
+                        {r.costHead} ↗
+                      </button>
+                    </td>
                     <td className="px-3 py-2">{usd(r.amount)}</td>
                     <td className="px-3 py-2">{usd(r.actual)}</td>
                   </tr>

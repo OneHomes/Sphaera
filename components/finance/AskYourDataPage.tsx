@@ -7,10 +7,10 @@ import { WidgetCard } from "@/components/dashboard/WidgetCard";
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 const SUGGESTED_QUESTIONS = [
-  "What's our current operating spend this month?",
-  "How much historical debt have we paid so far?",
-  "Which department has the highest spend?",
-  "How many payments still need to be classified?",
+  "Why did we overspend in July?",
+  "Which cost heads have the highest expenditure?",
+  "How much old debt have we cleared?",
+  "What should we cut or change next year?",
 ];
 
 export function AskYourDataPage() {
@@ -57,27 +57,39 @@ export function AskYourDataPage() {
   return (
     <div className="flex h-full flex-col p-6">
       <div className="mb-5">
-        <h1 className="text-xl font-semibold text-ink-50">Ask Your Data</h1>
+        <h1 className="text-xl font-semibold text-ink-50">Ask the commercial data</h1>
         <p className="mt-1 text-sm text-ink-500">
-          Ask Janus questions about your Finance ledger — grounded only on real recorded data.
+          Speak naturally, without finance terminology. Ask about overspends, missing classifications, historical
+          debt, suppliers and suggestions for next year.
         </p>
       </div>
 
       <WidgetCard title="Finance Assistant" icon={Sparkles} className="flex-1">
         <div className="flex h-full flex-col">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
+              Powered by Janus
+            </span>
+            <span className="text-[11px] text-ink-500">Chat never changes payments automatically</span>
+          </div>
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto pr-1">
             {messages.length === 0 && (
-              <div className="flex flex-col gap-2">
-                <p className="text-xs text-ink-500">Try asking:</p>
-                {SUGGESTED_QUESTIONS.map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => send(q)}
-                    className="w-fit rounded-lg border border-base-700 bg-base-800 px-3 py-1.5 text-left text-xs text-ink-300 hover:border-base-600 hover:text-ink-50"
-                  >
-                    {q}
-                  </button>
-                ))}
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-ink-500">
+                  Ask anything about the financial data. The assistant can query the ledger for evidence.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-ink-500">Try asking:</p>
+                  {SUGGESTED_QUESTIONS.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => send(q)}
+                      className="w-fit rounded-lg border border-base-700 bg-base-800 px-3 py-1.5 text-left text-xs text-ink-300 hover:border-base-600 hover:text-ink-50"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {messages.map((m, i) => (
@@ -92,7 +104,11 @@ export function AskYourDataPage() {
                 {m.content}
               </div>
             ))}
-            {loading && <div className="w-fit rounded-lg bg-base-800 px-3 py-2 text-xs text-ink-500">Thinking…</div>}
+            {loading && (
+              <div className="w-fit rounded-lg bg-base-800 px-3 py-2 text-xs text-ink-500">
+                Analysing the database...
+              </div>
+            )}
           </div>
 
           {error && (
@@ -111,7 +127,7 @@ export function AskYourDataPage() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about spend, budgets, disputes…"
+              placeholder="For example, where did the money go in July and how can we improve next year?"
               className="w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500"
             />
             <button
@@ -125,6 +141,11 @@ export function AskYourDataPage() {
           </form>
         </div>
       </WidgetCard>
+
+      <p className="mt-3 text-[11px] text-ink-600">
+        This is an API-connected analyst, not a general chat assistant. Selected financial aggregates and
+        transaction details are sent to Sphaera&apos;s Janus to answer your question.
+      </p>
     </div>
   );
 }

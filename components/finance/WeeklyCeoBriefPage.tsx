@@ -111,7 +111,7 @@ export function WeeklyCeoBriefPage({ state }: { state: FinanceState }) {
             onClick={() => setShowReport((v) => !v)}
             className="rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
           >
-            {showReport ? "Hide readable CEO report" : "Open readable CEO report ↗"}
+            {showReport ? "Collapse report" : "Open readable CEO report ↗"}
           </button>
           <button
             onClick={handleDownload}

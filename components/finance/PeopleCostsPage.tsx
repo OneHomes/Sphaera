@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 
 // Direct structural/content port of the source app's People Costs
@@ -254,12 +255,22 @@ export function PeopleCostsPage({
   const draftTotal = draftLines.reduce((s, l) => s + (parseFloat(l.amountUsd) || 0), 0);
   const draftExceeds = selectedPayment ? draftTotal > Math.abs(selectedPayment.amount) + 0.001 : false;
 
-  async function saveAllocation() {
+  const hasExistingAllocations = selectedPayment
+    ? allocations.some((a) => a.transactionId === selectedPayment.id)
+    : false;
+
+  function removeAllAllocations() {
+    setDraftLines([]);
+    saveAllocation([]);
+  }
+
+  async function saveAllocation(linesOverride?: AllocationLineDraft[]) {
     if (!selectedPayment || allocSaving) return;
     setAllocSaving(true);
     setAllocError(null);
     try {
-      const lines = draftLines
+      const sourceLines = linesOverride ?? draftLines;
+      const lines = sourceLines
         .filter((l) => l.personId && l.amountUsd)
         .map((l) => ({
           personId: l.personId,
@@ -331,10 +342,10 @@ export function PeopleCostsPage({
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi title="Attributed salary" value={usd(attributedSalary)} detail="Sum of all Salary allocation lines" />
-        <Kpi title="Attributed commission" value={usd(attributedCommission)} detail="Sum of all Commission allocation lines" />
+        <Kpi title="Attributed salary" value={usd(attributedSalary)} detail="Within current financial filters" />
+        <Kpi title="Attributed commission" value={usd(attributedCommission)} detail="Linked to individual employees" />
         <Kpi title="Other employer costs" value={usd(otherEmployerCosts)} detail="Bonus, employer taxes, benefits, other" />
-        <Kpi title="Total attributed people cost" value={usd(totalAttributed)} detail="Across every allocation line" />
+        <Kpi title="Total attributed people cost" value={usd(totalAttributed)} detail="Sum of assigned payments, not additional spend" />
       </div>
 
       <div className="mt-4">
@@ -404,7 +415,11 @@ export function PeopleCostsPage({
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <WidgetCard title="Register employee">
+        <WidgetCard title={editingPerson ? "Edit employee" : "Register employee"}>
+          <p className="mb-3 text-xs text-ink-500">
+            Maintain one person record even if their department later changes. Historic allocations retain their
+            original department.
+          </p>
           <form onSubmit={submitPerson} className="mb-4 space-y-2">
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className={inputClass} />
             <select value={department} onChange={(e) => setDepartment(e.target.value)} className={inputClass}>
@@ -450,6 +465,10 @@ export function PeopleCostsPage({
         </WidgetCard>
 
         <WidgetCard title="Find payroll and commission payments">
+          <p className="mb-3 text-xs text-ink-500">
+            Search existing payments. You can divide one payment between many people, and assign salary and
+            commission separately.
+          </p>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <input
               value={paymentSearch}
@@ -463,7 +482,7 @@ export function PeopleCostsPage({
             </label>
           </div>
           <div className="flex max-h-[300px] flex-col gap-1 overflow-y-auto">
-            {matchingPayments.map((p) => (
+            {matchingPayments.slice(0, 80).map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-base-800">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-ink-50" title={p.description}>
@@ -484,6 +503,10 @@ export function PeopleCostsPage({
             ))}
             {matchingPayments.length === 0 && <p className="p-2 text-xs text-ink-500">No payroll-eligible payments match this search.</p>}
           </div>
+          <p className="mt-2 text-[11px] text-ink-500">
+            Showing {Math.min(80, matchingPayments.length)} of {matchingPayments.length}. Narrow search to find a
+            particular payment.
+          </p>
         </WidgetCard>
       </div>
 
@@ -498,7 +521,12 @@ export function PeopleCostsPage({
             }
           >
             <p className="mb-3 text-xs text-ink-500">
-              Original amount {usd(selectedPayment.amount)} · {new Date(selectedPayment.date).toLocaleDateString()}
+              {selectedPayment.id} · {new Date(selectedPayment.date).toLocaleDateString()} · Original amount:{" "}
+              {usd(selectedPayment.amount)}
+            </p>
+            <p className="mb-3 rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-300">
+              Select an employee, type of cost, and exact USD amount on each line. The sum cannot exceed the
+              payment. Deal or payroll references can be recorded against each commission or salary line.
             </p>
             <div className="flex flex-col gap-2">
               {draftLines.map((line) => (
@@ -561,12 +589,21 @@ export function PeopleCostsPage({
                 + Add a person
               </button>
               <button
-                onClick={saveAllocation}
+                onClick={() => saveAllocation()}
                 disabled={allocSaving || draftLines.length === 0}
                 className="rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
               >
                 {allocSaving ? "Saving…" : "Save person allocations"}
               </button>
+              {hasExistingAllocations && (
+                <button
+                  onClick={removeAllAllocations}
+                  disabled={allocSaving}
+                  className="rounded-lg border border-status-inactive/40 px-3 py-1.5 text-xs font-medium text-status-inactive hover:bg-status-inactive/10 disabled:opacity-50"
+                >
+                  Remove all allocations
+                </button>
+              )}
               <span className="text-[11px] text-ink-500">
                 Lines total: {usd(draftTotal)} of {usd(selectedPayment.amount)}
               </span>
@@ -575,12 +612,23 @@ export function PeopleCostsPage({
               )}
               {allocError && <span className="text-[11px] text-status-inactive">{allocError}</span>}
             </div>
+            <p className="mt-3 text-[11px] text-ink-500">
+              Changes are audited and undoable via Change History. Unallocated amounts remain visible until fully
+              attributed.
+            </p>
           </WidgetCard>
         </div>
       )}
 
       <div className="mt-4">
-        <WidgetCard title="Commission and payroll allocation history">
+        <WidgetCard
+          title="Commission and payroll allocation history"
+          action={
+            <Link href="/finance/history" className="text-[11px] text-ink-300 hover:text-ink-50">
+              Change History ↗
+            </Link>
+          }
+        >
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -617,6 +665,12 @@ export function PeopleCostsPage({
               </tbody>
             </table>
           </div>
+          {allocations.length > 200 && (
+            <p className="mt-2 text-[11px] text-ink-500">
+              Showing the latest 200 of {allocations.length.toLocaleString()} lines. Narrow the year, month,
+              department or person for more detail.
+            </p>
+          )}
         </WidgetCard>
       </div>
     </div>

@@ -126,12 +126,18 @@ function RuleEditor({
   }
 
   if (!canEdit) {
-    return <span className="text-[11px] text-ink-500">{nature ? `${nature} / ${behaviour}` : "Unclassified"}</span>;
+    return (
+      <>
+        <td className="px-3 py-2 text-[11px] text-ink-500">{nature || "Unclassified"}</td>
+        <td className="px-3 py-2 text-[11px] text-ink-500">{nature ? behaviour : "—"}</td>
+        <td className="px-3 py-2" />
+      </>
+    );
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
+    <>
+      <td className="px-3 py-2">
         <select
           value={n}
           onChange={(e) => {
@@ -149,6 +155,8 @@ function RuleEditor({
             </option>
           ))}
         </select>
+      </td>
+      <td className="px-3 py-2">
         <select
           value={b}
           disabled={!n}
@@ -161,6 +169,10 @@ function RuleEditor({
             </option>
           ))}
         </select>
+        {validationError && dirty && <p className="mt-1 text-[10px] text-status-inactive">{validationError}</p>}
+        {error && <p className="mt-1 text-[10px] text-status-inactive">{error}</p>}
+      </td>
+      <td className="px-3 py-2">
         <button
           onClick={save}
           disabled={!dirty || !!validationError || saving}
@@ -168,10 +180,8 @@ function RuleEditor({
         >
           {saving ? "Saving…" : "Save"}
         </button>
-      </div>
-      {validationError && dirty && <p className="text-[10px] text-status-inactive">{validationError}</p>}
-      {error && <p className="text-[10px] text-status-inactive">{error}</p>}
-    </div>
+      </td>
+    </>
   );
 }
 
@@ -350,18 +360,6 @@ export function OverheadAnalysisPage({
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [filteredTransactions]);
 
-  const spendByHead = useMemo(() => {
-    const totals: Record<string, { amount: number; count: number }> = {};
-    for (const tx of transactions) {
-      if (!tx.managementCostHead) continue;
-      const cur = totals[tx.managementCostHead] ?? { amount: 0, count: 0 };
-      cur.amount += tx.amount;
-      cur.count += 1;
-      totals[tx.managementCostHead] = cur;
-    }
-    return totals;
-  }, [transactions]);
-
   const suggestions = useMemo(
     () => costHeads.filter((h) => !ruleMap[h] && suggestForHead(h)),
     [costHeads, ruleMap]
@@ -421,13 +419,14 @@ export function OverheadAnalysisPage({
         </p>
       </div>
 
-      {!canEdit && (
-        <div className="mb-4 rounded-lg border border-status-alert/30 bg-status-alert/10 px-3 py-2 text-xs text-status-alert">
-          Payroll access is required to change overhead classifications. You can view the current rules below.
-        </div>
-      )}
-
-      <WidgetCard title="Filters">
+      <WidgetCard
+        title="Filter your expenditure"
+        action={
+          <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">
+            Accounting review required for untagged heads
+          </span>
+        }
+      >
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs text-ink-500">
             Cost category
@@ -500,10 +499,10 @@ export function OverheadAnalysisPage({
       </WidgetCard>
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi title="Filtered net amount" value={usd(filteredNet)} detail="Sum of payments matching the current filter" />
-        <Kpi title="Matching payments" value={filteredTransactions.length.toLocaleString()} detail="Unique payments matching the filter" />
-        <Kpi title="Fixed overheads in period" value={usd(fixedInPeriod)} detail="Overhead / fixed, across all payments" />
-        <Kpi title="Unreviewed entries" value={unreviewedCount.toLocaleString()} detail="Have a cost head but no classification yet" />
+        <Kpi title="Filtered net amount" value={usd(filteredNet)} detail="Signed USD net of selected classified payments" />
+        <Kpi title="Matching payments" value={filteredTransactions.length.toLocaleString()} detail="Unique source payment records" />
+        <Kpi title="Fixed overheads in period" value={usd(fixedInPeriod)} detail="Total cash movements during selected months, not a monthly run-rate" />
+        <Kpi title="Unreviewed entries" value={unreviewedCount.toLocaleString()} detail="Assign cost-head tags below before treating totals as complete" />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -541,8 +540,9 @@ export function OverheadAnalysisPage({
           }
         >
           <p className="mb-2 text-xs text-ink-500">
-            Assign a default classification once per cost head — new payments under that cost head inherit it
-            automatically. Classifications can still be overridden on individual payments below.
+            Assign the default classification once per approved cost head. Existing payment amounts are not
+            reclassified, and untagged heads remain under review. You can clear a rule or override a particular
+            payment. All changes are undoable through Change History.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             {canEdit && suggestions.length > 0 && (
@@ -568,14 +568,14 @@ export function OverheadAnalysisPage({
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                 <tr>
                   <th className="px-3 py-2">Approved cost head</th>
-                  <th className="px-3 py-2">Cost category / behaviour</th>
-                  <th className="px-3 py-2">Spend</th>
+                  <th className="px-3 py-2">Cost category</th>
+                  <th className="px-3 py-2">Cost behaviour</th>
+                  <th className="px-3 py-2">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {searchedHeads.map((head) => {
                   const rule = ruleMap[head];
-                  const spend = spendByHead[head];
                   const suggestion = suggestForHead(head);
                   const subtext = rule
                     ? "Approved management rule"
@@ -588,26 +588,21 @@ export function OverheadAnalysisPage({
                         <div className="font-medium text-ink-50">{head}</div>
                         <div className="text-[10px] text-ink-500">{subtext}</div>
                       </td>
-                      <td className="px-3 py-2">
-                        <RuleEditor
-                          costHead={head}
-                          nature={rule?.nature ?? ""}
-                          behaviour={rule?.behaviour ?? ""}
-                          canEdit={canEdit}
-                          onSaved={(costHead, nature, behaviour) =>
-                            setRuleMap((prev) => ({ ...prev, [costHead]: { nature, behaviour } }))
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        {usd(spend?.amount ?? 0)} · {spend?.count ?? 0} pmts
-                      </td>
+                      <RuleEditor
+                        costHead={head}
+                        nature={rule?.nature ?? ""}
+                        behaviour={rule?.behaviour ?? ""}
+                        canEdit={canEdit}
+                        onSaved={(costHead, nature, behaviour) =>
+                          setRuleMap((prev) => ({ ...prev, [costHead]: { nature, behaviour } }))
+                        }
+                      />
                     </tr>
                   );
                 })}
                 {searchedHeads.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="px-3 py-6 text-center text-ink-500">
+                    <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
                       No cost heads match your search.
                     </td>
                   </tr>

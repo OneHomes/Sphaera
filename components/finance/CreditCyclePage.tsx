@@ -360,6 +360,7 @@ export function CreditCyclePage({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <WidgetCard title="Scheduled cash outflows" icon={CreditCard}>
+          <p className="mb-2 text-[11px] text-ink-500">Selected projection window, separated by currency</p>
           {currencyEntries.length > 0 ? (
             <div className="grid grid-cols-1 gap-2">
               {currencyEntries.map(([currency, amount]) => (
@@ -374,10 +375,10 @@ export function CreditCyclePage({
           <Tile label={`${overdueInvoiceCount} overdue`} value={unpaidInvoices.length.toLocaleString()} />
         </WidgetCard>
         <WidgetCard title="Recurring obligations" icon={Repeat}>
-          <Tile label="Active schedules" value={activeRecurringCount.toLocaleString()} />
+          <Tile label="Employee salaries, rent, utilities and other rules" value={activeRecurringCount.toLocaleString()} />
         </WidgetCard>
         <WidgetCard title="Configured card cycles" icon={CreditCard}>
-          <Tile label="Registered rules" value={cardRules.length.toLocaleString()} />
+          <Tile label="Statement cutoff, payment due and settlement account" value={cardRules.length.toLocaleString()} />
         </WidgetCard>
       </div>
 
@@ -396,23 +397,29 @@ export function CreditCyclePage({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
-          />
-          <select
-            value={months}
-            onChange={(e) => setMonths(Number(e.target.value))}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
-          >
-            {MONTH_OPTIONS.map((m) => (
-              <option key={m} value={m}>
-                {m} month{m === 1 ? "" : "s"}
-              </option>
-            ))}
-          </select>
+          <label className="flex items-center gap-1.5 text-[11px] text-ink-500">
+            Forecast from
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-[11px] text-ink-500">
+            Forecast horizon
+            <select
+              value={months}
+              onChange={(e) => setMonths(Number(e.target.value))}
+              className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
+            >
+              {MONTH_OPTIONS.map((m) => (
+                <option key={m} value={m}>
+                  {m} month{m === 1 ? "" : "s"}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             onClick={() => refreshForecast(startDate, months)}
             disabled={refreshing}

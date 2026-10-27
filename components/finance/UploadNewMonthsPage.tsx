@@ -32,6 +32,9 @@ type PreviewResult = {
   newAmountUsd: number;
   invalidRows: number;
   monthsAdded: string[];
+  mode: string;
+  warning: string;
+  newHeads: string[];
   sampleNewPayments: Array<{ month: string; description: string; amountUsd: number; head: string }>;
 };
 
@@ -131,7 +134,11 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
 
       <div className="mt-4">
         <WidgetCard title="Check the file for new payments" icon={UploadCloud}>
-          <form onSubmit={handleCheckFile} className="space-y-2.5">
+          <h3 className="text-sm font-medium text-ink-50">Select your updated sales and marketing workbook</h3>
+          <p className="mt-1 text-[11px] text-ink-500">
+            .xlsx format, existing Cost Centre Detail or monthly Sales & Marketing / Marketing tabs, 25 MB maximum
+          </p>
+          <form onSubmit={handleCheckFile} className="mt-3 space-y-2.5">
             <input
               type="file"
               accept=".xlsx"
@@ -168,9 +175,15 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
             title={`Import review: ${preview.filename}`}
             icon={FileSpreadsheet}
             action={
-              <span className="rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
-                Preview ready
-              </span>
+              preview.newPayments > 0 ? (
+                <span className="rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
+                  Ready to add new transactions
+                </span>
+              ) : (
+                <span className="rounded-full bg-status-alert/15 px-2 py-0.5 text-[11px] font-medium text-status-alert">
+                  No new rows found
+                </span>
+              )
             }
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -196,10 +209,21 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
               {preview.invalidRows > 0
                 ? `${preview.invalidRows} row(s) could not be read and will be skipped. `
                 : ""}
-              Months being added: {preview.monthsAdded.length ? preview.monthsAdded.join(", ") : "none"}.
+              {preview.mode} used. Months being added: {preview.monthsAdded.length ? preview.monthsAdded.join(", ") : "none"}.
+              <br />
+              {preview.warning}
             </p>
 
-            <div className="mt-3 overflow-x-auto rounded-xl border border-base-700">
+            {preview.newHeads.length > 0 && (
+              <div className="mt-3 rounded-lg border border-status-alert/30 bg-status-alert/10 p-3 text-[11px] text-status-alert">
+                {preview.newHeads.length} uploaded cost-head combinations are not in your current classification
+                dropdown. These rows will retain their imported head, but reallocations will continue to use only the
+                original approved heads.
+              </div>
+            )}
+
+            <h3 className="mt-3 text-xs font-medium text-ink-50">Sample new payments</h3>
+            <div className="mt-1 overflow-x-auto rounded-xl border border-base-700">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                   <tr>
@@ -240,7 +264,7 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
             <div className="mt-3 flex gap-2">
               <button
                 onClick={handleApprove}
-                disabled={approving || approved}
+                disabled={approving || approved || preview.newPayments === 0}
                 className="rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
               >
                 {approving ? "Adding..." : `Approve and add ${preview.newPayments} payments to SQL`}

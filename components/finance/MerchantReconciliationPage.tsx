@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Store,
   AlertTriangle,
@@ -8,8 +8,10 @@ import {
   UploadCloud,
   Link2,
   Search,
+  Layers,
 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import type { SupplierSuggestion } from "@/lib/finance/merchantReconcileData";
 
 // Direct structural port of the source app's Merchant Reconciliation
 // screen: a shared filter/toolbar (merchant, cost head, financial year,
@@ -20,7 +22,9 @@ import { WidgetCard } from "@/components/dashboard/WidgetCard";
 // XLSX-byte generator/parser wired up yet (see merchantReconcileData.ts's
 // own doc comments on buildMerchantReviewExportRows / validateImportRow),
 // so the review workbook round-trip is exercised as CSV/JSON rather than a
-// real protected .xlsx file — called out inline in the Return tab.
+// real protected .xlsx file — called out inline in the Return tab. The
+// downloaded review file is likewise CSV-structured text; its name/label
+// matches the source's declared ".xlsx" per the same documented gap.
 
 type ExportRow = {
   transactionId: string;
@@ -66,6 +70,16 @@ type UploadedInvoice = {
 
 type Tab = "payments" | "return" | "library" | "matching";
 
+// Mirrors merchantCatalog()'s return shape (lib/finance/merchantReconcileData.ts):
+// approved reporting-provider groups (with their raw aliases) plus the
+// still-ungrouped raw payment descriptions. Matches the source's mcPicker
+// item model (provider vs raw "key").
+type CatalogProvider = { key: string; id: string; name: string; aliases: string[] };
+type CatalogRaw = { key: string; name: string };
+type Catalog = { providers: CatalogProvider[]; raw: CatalogRaw[] };
+
+type PickerItem = { key: string; name: string; hint?: string };
+
 const FY_OPTIONS = [
   { value: "", label: "All years" },
   { value: "2025", label: "FY2025/26" },
@@ -75,6 +89,7 @@ const FY_OPTIONS = [
 ];
 
 const PAGE_SIZE = 15;
+const SUGGESTION_PAGE_SIZE = 5;
 
 function usd(value: number): string {
   return `$${Math.round(value).toLocaleString()}`;
@@ -110,22 +125,42 @@ export function MerchantReconciliationPage({
   reviewedCount,
   totalPaymentCount,
   recentBatchCount,
-  merchantOptions,
+  catalog,
   costHeadOptions,
+  supplierSuggestions,
 }: {
   reviewedCount: number;
   totalPaymentCount: number;
   recentBatchCount: number;
-  merchantOptions: string[];
+  catalog: Catalog;
   costHeadOptions: string[];
+  supplierSuggestions: SupplierSuggestion[];
 }) {
   const [tab, setTab] = useState<Tab>("payments");
 
-  // --- Shared filter toolbar ---------------------------------------------
-  const [merchantQuery, setMerchantQuery] = useState("");
-  const [costHead, setCostHead] = useState("");
+  // --- Shared filter toolbar: multi-select merchants + cost heads --------
+  // A local, editable copy of the server-computed catalog, so approving a
+  // supplier-name suggestion or grouping/ungrouping aliases below can
+  // update the picker's options immediately without a dedicated
+  // catalog-refresh endpoint.
+  const [catalogState, setCatalogState] = useState<Catalog>(catalog);
+
+  const [selectedMerchants, setSelectedMerchants] = useState<string[]>([]);
+  const [merchantPickerOpen, setMerchantPickerOpen] = useState(false);
+  const [merchantFilter, setMerchantFilter] = useState("");
+
+  const [selectedCostHeads, setSelectedCostHeads] = useState<string[]>([]);
+  const [headPickerOpen, setHeadPickerOpen] = useState(false);
+  const [headFilter, setHeadFilter] = useState("");
+
   const [fyStart, setFyStart] = useState("");
   const [exportScope, setExportScope] = useState<"all" | "unidentified">("all");
+
+  // True once the merchant/cost-head/year/scope selection has changed since
+  // the last successful "Find payments" run — mirrors the source's
+  // MC.pendingSelection, which blocks the results view behind a "Merchant
+  // selection ready" confirmation until the review is actually re-run.
+  const [selectionDirty, setSelectionDirty] = useState(false);
 
   const [rows, setRows] = useState<ExportRow[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -135,23 +170,60 @@ export function MerchantReconciliationPage({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  function buildParams(): URLSearchParams {
+  const merchantItems: PickerItem[] = useMemo(
+    () => [
+      ...catalogState.providers.map((p) => ({
+        key: p.key,
+        name: p.name,
+        hint: `${p.aliases.length} grouped merchant name${p.aliases.length === 1 ? "" : "s"}`,
+      })),
+      ...catalogState.raw.map((r) => ({ key: r.key, name: r.name, hint: "Original payment description" })),
+    ],
+    [catalogState]
+  );
+  const headItems: PickerItem[] = useMemo(() => costHeadOptions.map((c) => ({ key: c, name: c })), [costHeadOptions]);
+
+  function itemName(items: PickerItem[], key: string): string {
+    return items.find((i) => i.key === key)?.name ?? key;
+  }
+
+  function markDirty() {
+    setSelectionDirty(true);
+  }
+
+  async function fetchFilteredRows(): Promise<ExportRow[]> {
     const params = new URLSearchParams();
-    if (merchantQuery.trim()) params.set("merchant", merchantQuery.trim());
-    if (costHead) params.set("costHead", costHead);
     if (fyStart) params.set("fyStart", fyStart);
-    return params;
+    const res = await fetch(`/api/finance/merchant/review/export?${params.toString()}`);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error ?? "Failed to find payments");
+    let result: ExportRow[] = data.rows ?? [];
+    // The export endpoint only accepts one merchant/cost-head value at a
+    // time, so multi-select filtering (ticking several merchants and/or
+    // cost heads) is applied here, over the full fetched set — the same
+    // client-side-filter pattern the unidentified-only export scope
+    // already uses below.
+    if (selectedMerchants.length) {
+      const names = selectedMerchants.map((k) => itemName(merchantItems, k).toLowerCase()).filter(Boolean);
+      result = result.filter((r) =>
+        names.some((n) => r.supplier.toLowerCase().includes(n) || r.description.toLowerCase().includes(n))
+      );
+    }
+    if (selectedCostHeads.length) {
+      const heads = selectedCostHeads.map((h) => h.toLowerCase());
+      result = result.filter((r) => heads.includes((r.costHead || "").toLowerCase()));
+    }
+    return result;
   }
 
   async function handleFindPayments() {
     setSearching(true);
     setSearchError(null);
     try {
-      const res = await fetch(`/api/finance/merchant/review/export?${buildParams().toString()}`);
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error ?? "Failed to find payments");
-      setRows(data.rows ?? []);
+      const result = await fetchFilteredRows();
+      setRows(result);
       setPage(1);
+      setSelectionDirty(false);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -163,14 +235,8 @@ export function MerchantReconciliationPage({
     setDownloading(true);
     setDownloadError(null);
     try {
-      let source = rows;
-      if (!source) {
-        const res = await fetch(`/api/finance/merchant/review/export?${buildParams().toString()}`);
-        const data = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(data?.error ?? "Failed to export payments");
-        source = data.rows ?? [];
-      }
-      const scoped = exportScope === "unidentified" ? (source ?? []).filter((r) => !r.product) : source ?? [];
+      const source = rows ?? (await fetchFilteredRows());
+      const scoped = exportScope === "unidentified" ? source.filter((r) => !r.product) : source;
       const header = [
         "Payment ID (DO NOT EDIT)",
         "Date (DO NOT EDIT)",
@@ -204,11 +270,144 @@ export function MerchantReconciliationPage({
             .join(",")
         );
       }
-      downloadBlob(`merchant-payment-review-${new Date().toISOString().slice(0, 10)}.csv`, lines.join("\n"), "text/csv");
+      // Known, documented gap (see file header + merchantReconcileData.ts's
+      // buildMerchantReviewExportRows doc comment): real XLSX byte
+      // generation isn't wired up yet, so this is still CSV-structured
+      // text. The filename/MIME are named ".xlsx" to match the source's
+      // declared download label; the content itself is the honest
+      // CSV/JSON round-trip this port actually performs end-to-end.
+      downloadBlob(
+        `merchant-payment-review-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        lines.join("\n"),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : "Failed");
     } finally {
       setDownloading(false);
+    }
+  }
+
+  // --- Supplier-name suggestions ("smart panel") --------------------------
+  const [suggestionsState, setSuggestionsState] = useState<SupplierSuggestion[]>(supplierSuggestions);
+  const [smartOpen, setSmartOpen] = useState(false);
+  const [suggestionFilter, setSuggestionFilter] = useState("");
+  const [suggestionLimit, setSuggestionLimit] = useState(SUGGESTION_PAGE_SIZE);
+  const [suggestionSelections, setSuggestionSelections] = useState<Record<string, string[]>>({});
+  const [suggestionCanonical, setSuggestionCanonical] = useState<Record<string, string>>({});
+  const [suggestionApproving, setSuggestionApproving] = useState<Record<string, boolean>>({});
+  const [suggestionErrors, setSuggestionErrors] = useState<Record<string, string | null>>({});
+
+  const matchingSuggestions = useMemo(() => {
+    const query = suggestionFilter.trim().toLowerCase();
+    if (!query) return suggestionsState;
+    return suggestionsState.filter(
+      (g) => g.name.toLowerCase().includes(query) || g.aliases.some((a) => a.name.toLowerCase().includes(query))
+    );
+  }, [suggestionsState, suggestionFilter]);
+  const visibleSuggestions = matchingSuggestions.slice(0, suggestionLimit);
+
+  function applyApprovedAliases(providerName: string, aliases: string[], providerId?: string) {
+    setCatalogState((prev) => {
+      const aliasSet = new Set(aliases.map((a) => a.toLowerCase()));
+      const remainingRaw = prev.raw.filter((r) => !aliasSet.has(r.name.toLowerCase()));
+      const existingIdx = prev.providers.findIndex((p) => p.name.toLowerCase() === providerName.toLowerCase());
+      if (existingIdx >= 0) {
+        const updated = [...prev.providers];
+        const merged = Array.from(new Set([...updated[existingIdx].aliases, ...aliases])).sort((a, b) =>
+          a.toLowerCase().localeCompare(b.toLowerCase())
+        );
+        updated[existingIdx] = { ...updated[existingIdx], aliases: merged };
+        return { providers: updated, raw: remainingRaw };
+      }
+      const newProvider: CatalogProvider = {
+        key: providerId ? `provider:${providerId}` : `provider:${providerName}`,
+        id: providerId ?? providerName,
+        name: providerName,
+        aliases: [...aliases].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())),
+      };
+      return {
+        providers: [...prev.providers, newProvider].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
+        raw: remainingRaw,
+      };
+    });
+    setSelectedMerchants((prev) => prev.filter((k) => !aliases.some((a) => k === `raw:${a}`)));
+  }
+
+  async function handleApproveSuggestion(group: SupplierSuggestion) {
+    const aliases = suggestionSelections[group.key] ?? group.aliases.map((a) => a.name);
+    const providerName = (suggestionCanonical[group.key] ?? group.name).trim();
+    if (!providerName || aliases.length === 0) return;
+    setSuggestionApproving((prev) => ({ ...prev, [group.key]: true }));
+    setSuggestionErrors((prev) => ({ ...prev, [group.key]: null }));
+    try {
+      const res = await fetch("/api/finance/merchant/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName, aliases }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Failed to approve supplier group");
+      applyApprovedAliases(providerName, aliases, data?.providerId);
+      setSuggestionsState((prev) => prev.filter((g) => g.key !== group.key));
+    } catch (err) {
+      setSuggestionErrors((prev) => ({ ...prev, [group.key]: err instanceof Error ? err.message : "Failed" }));
+    } finally {
+      setSuggestionApproving((prev) => ({ ...prev, [group.key]: false }));
+    }
+  }
+
+  // --- Service provider groups panel --------------------------------------
+  const [manageOpen, setManageOpen] = useState(false);
+  const [groupProviderName, setGroupProviderName] = useState("");
+  const [grouping, setGrouping] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
+  const [ungroupingKey, setUngroupingKey] = useState<string | null>(null);
+
+  const rawChosen = selectedMerchants.filter((k) => k.startsWith("raw:")).map((k) => k.slice(4));
+
+  async function handleGroupSelected() {
+    const providerName = groupProviderName.trim();
+    if (!rawChosen.length || !providerName) return;
+    setGrouping(true);
+    setGroupError(null);
+    try {
+      const res = await fetch("/api/finance/merchant/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName, aliases: rawChosen }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Failed to group selected names");
+      applyApprovedAliases(providerName, rawChosen, data?.providerId);
+      setGroupProviderName("");
+    } catch (err) {
+      setGroupError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setGrouping(false);
+    }
+  }
+
+  async function handleUngroupAlias(providerId: string, alias: string) {
+    const key = `${providerId}:${alias}`;
+    setUngroupingKey(key);
+    setGroupError(null);
+    try {
+      const res = await fetch(`/api/finance/merchant/providers/${providerId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Failed to remove alias");
+      setCatalogState((prev) => ({
+        providers: prev.providers.map((p) => (p.id === providerId ? { ...p, aliases: p.aliases.filter((a) => a !== alias) } : p)),
+        raw: [...prev.raw, { key: `raw:${alias}`, name: alias }].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
+      }));
+    } catch (err) {
+      setGroupError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setUngroupingKey(null);
     }
   }
 
@@ -265,8 +464,8 @@ export function MerchantReconciliationPage({
           preview: false,
           rows: readyRows,
           allowOverwrite,
-          merchant: merchantQuery || undefined,
-          costHead: costHead || undefined,
+          merchant: selectedMerchants.length ? selectedMerchants.map((k) => itemName(merchantItems, k)).join(", ") : undefined,
+          costHead: selectedCostHeads.length ? selectedCostHeads.join(", ") : undefined,
           fyStart: fyStart ? Number(fyStart) : undefined,
         }),
       });
@@ -391,47 +590,79 @@ export function MerchantReconciliationPage({
           </p>
         </div>
         <span className="rounded-full bg-base-800 px-3 py-1 text-xs text-ink-300">
-          {reviewedCount.toLocaleString()} of {totalPaymentCount.toLocaleString()} payments reviewed
+          {reviewedCount.toLocaleString()} reviewed payments
         </span>
       </div>
 
       {/* Filter / toolbar */}
       <WidgetCard title="Find payments to review">
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <input
-              list="merchant-options"
-              value={merchantQuery}
-              onChange={(e) => setMerchantQuery(e.target.value)}
-              placeholder="Merchant name"
-              className={inputClass}
-            />
-            <datalist id="merchant-options">
-              {merchantOptions.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </div>
-          <select value={costHead} onChange={(e) => setCostHead(e.target.value)} className={inputClass}>
-            <option value="">All cost heads</option>
-            {costHeadOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <select value={fyStart} onChange={(e) => setFyStart(e.target.value)} className={inputClass}>
+          <MultiSelectPicker
+            label="Merchants / service providers"
+            placeholder="Choose one or more merchants"
+            items={merchantItems}
+            selected={selectedMerchants}
+            onChange={(next) => {
+              setSelectedMerchants(next);
+              markDirty();
+            }}
+            open={merchantPickerOpen}
+            onToggle={() => setMerchantPickerOpen((v) => !v)}
+            filterText={merchantFilter}
+            onFilterChange={setMerchantFilter}
+            searchPlaceholder="Search, e.g. Adobe"
+          />
+          <MultiSelectPicker
+            label="Cost head"
+            placeholder="All cost heads"
+            items={headItems}
+            selected={selectedCostHeads}
+            onChange={(next) => {
+              setSelectedCostHeads(next);
+              markDirty();
+            }}
+            open={headPickerOpen}
+            onToggle={() => setHeadPickerOpen((v) => !v)}
+            filterText={headFilter}
+            onFilterChange={setHeadFilter}
+            searchPlaceholder="Search cost heads"
+          />
+          <select
+            value={fyStart}
+            onChange={(e) => {
+              setFyStart(e.target.value);
+              markDirty();
+            }}
+            className={inputClass}
+          >
             {FY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
           </select>
-          <select value={exportScope} onChange={(e) => setExportScope(e.target.value as "all" | "unidentified")} className={inputClass}>
+          <select
+            value={exportScope}
+            onChange={(e) => {
+              setExportScope(e.target.value as "all" | "unidentified");
+              markDirty();
+            }}
+            className={inputClass}
+          >
             <option value="all">All matching payments</option>
             <option value="unidentified">Unidentified only</option>
           </select>
         </div>
+
+        <SelectionChips items={headItems} selected={selectedCostHeads} onRemove={(key) => {
+          setSelectedCostHeads((prev) => prev.filter((k) => k !== key));
+          markDirty();
+        }} />
+        <SelectionChips items={merchantItems} selected={selectedMerchants} onRemove={(key) => {
+          setSelectedMerchants((prev) => prev.filter((k) => k !== key));
+          markDirty();
+        }} />
+
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             onClick={handleFindPayments}
@@ -446,7 +677,7 @@ export function MerchantReconciliationPage({
             disabled={downloading}
             className="rounded-lg border border-base-700 px-3 py-2 text-xs font-medium text-ink-300 hover:bg-base-700 disabled:opacity-50"
           >
-            {downloading ? "Preparing..." : "↓ Download payment review (.csv)"}
+            {downloading ? "Preparing..." : "↓ Download payment review (.xlsx)"}
           </button>
         </div>
         {searchError && <p className="mt-2 text-xs text-status-inactive">{searchError}</p>}
@@ -456,6 +687,44 @@ export function MerchantReconciliationPage({
           completed. Columns for dates, IDs, descriptions and amounts are locked.
         </p>
       </WidgetCard>
+
+      {/* Suggested company-name matches ("smart panel") */}
+      <SmartSuggestionsPanel
+        suggestions={visibleSuggestions}
+        totalGroups={suggestionsState.length}
+        matchingCount={matchingSuggestions.length}
+        canShowMore={matchingSuggestions.length > suggestionLimit}
+        open={smartOpen}
+        onToggle={() => setSmartOpen((v) => !v)}
+        filterText={suggestionFilter}
+        onFilterChange={(v) => {
+          setSuggestionFilter(v);
+          setSuggestionLimit(SUGGESTION_PAGE_SIZE);
+        }}
+        onShowMore={() => setSuggestionLimit((n) => n + SUGGESTION_PAGE_SIZE)}
+        aliasSelections={suggestionSelections}
+        onAliasSelectionsChange={(key, aliases) => setSuggestionSelections((prev) => ({ ...prev, [key]: aliases }))}
+        canonicalNames={suggestionCanonical}
+        onCanonicalNameChange={(key, value) => setSuggestionCanonical((prev) => ({ ...prev, [key]: value }))}
+        approving={suggestionApproving}
+        errors={suggestionErrors}
+        onApprove={handleApproveSuggestion}
+      />
+
+      {/* Service Provider Groups */}
+      <GroupPanel
+        providers={catalogState.providers}
+        rawChosenCount={rawChosen.length}
+        open={manageOpen}
+        onToggle={() => setManageOpen((v) => !v)}
+        providerName={groupProviderName}
+        onProviderNameChange={setGroupProviderName}
+        onGroupSelected={handleGroupSelected}
+        grouping={grouping}
+        error={groupError}
+        ungroupingKey={ungroupingKey}
+        onUngroup={handleUngroupAlias}
+      />
 
       {/* Tabs */}
       <div className="mt-4 inline-flex rounded-lg border border-base-700 bg-base-900 p-0.5">
@@ -480,9 +749,20 @@ export function MerchantReconciliationPage({
       {/* Merchant payments */}
       {tab === "payments" && (
         <div className="mt-4">
-          {rows === null ? (
+          {rows === null || selectionDirty ? (
             <WidgetCard title="Merchant payments">
-              <p className="text-xs text-ink-500">Choose one or more merchants above, then click Find payments.</p>
+              {selectedMerchants.length || selectedCostHeads.length ? (
+                <div>
+                  <h3 className="text-sm font-medium text-ink-50">Merchant selection ready</h3>
+                  <p className="mt-1 text-xs text-ink-500">
+                    Your merchants are selected. Click <strong className="text-ink-300">Find payments</strong> to load
+                    the matching transactions and amounts. All matching options are included, even those not visible
+                    in the dropdown preview.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-ink-500">Choose one or more merchants above, then click Find payments.</p>
+              )}
             </WidgetCard>
           ) : (
             <>
@@ -496,7 +776,7 @@ export function MerchantReconciliationPage({
                   <p className="mt-1 text-xl font-semibold text-status-active">{identifiedCount.toLocaleString()}</p>
                 </div>
                 <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-                  <p className="text-[11px] text-ink-500">Total USD</p>
+                  <p className="text-[11px] text-ink-500">All matching USD payments</p>
                   <p className="mt-1 text-xl font-semibold text-ink-50">{usd(totalUsd)}</p>
                 </div>
               </div>
@@ -508,7 +788,7 @@ export function MerchantReconciliationPage({
                       <th className="px-3 py-2">Date</th>
                       <th className="px-3 py-2">Payment description</th>
                       <th className="px-3 py-2">Bank / ERP reference</th>
-                      <th className="px-3 py-2">Amount</th>
+                      <th className="px-3 py-2">Amount (USD)</th>
                       <th className="px-3 py-2">Assigned subscription</th>
                       <th className="px-3 py-2">Status</th>
                     </tr>
@@ -558,7 +838,7 @@ export function MerchantReconciliationPage({
                     disabled={page <= 1}
                     className="rounded-md border border-base-700 px-2 py-1 text-ink-300 hover:bg-base-700 disabled:opacity-40"
                   >
-                    Prev
+                    ← Previous
                   </button>
                   <span>
                     Page {page} of {totalPages}
@@ -568,7 +848,7 @@ export function MerchantReconciliationPage({
                     disabled={page >= totalPages}
                     className="rounded-md border border-base-700 px-2 py-1 text-ink-300 hover:bg-base-700 disabled:opacity-40"
                   >
-                    Next
+                    Next →
                   </button>
                 </div>
               )}
@@ -581,7 +861,8 @@ export function MerchantReconciliationPage({
       {tab === "return" && (
         <div className="mt-4">
           <WidgetCard title="Return completed Excel" icon={FileSpreadsheet}>
-            <p className="text-xs text-ink-500">
+            <h3 className="text-sm font-medium text-ink-50">Re-upload the department&apos;s completed workbook</h3>
+            <p className="mt-1 text-xs text-ink-500">
               Finance reviews every proposed change before applying it to SQLite. A returned file cannot alter
               original payment IDs, dates or amounts. Previously classified payments cannot be replaced silently.
             </p>
@@ -599,12 +880,15 @@ export function MerchantReconciliationPage({
             </div>
 
             <form onSubmit={handlePreviewReturn} className="mt-3 space-y-2.5">
-              <input
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => setReturnFile(e.target.files?.[0] ?? null)}
-                className="w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none file:mr-3 file:rounded-md file:border-0 file:bg-base-700 file:px-2 file:py-1 file:text-ink-50"
-              />
+              <label className="block text-xs text-ink-300">
+                Completed merchant review XLSX
+                <input
+                  type="file"
+                  accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  onChange={(e) => setReturnFile(e.target.files?.[0] ?? null)}
+                  className="mt-1.5 w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none file:mr-3 file:rounded-md file:border-0 file:bg-base-700 file:px-2 file:py-1 file:text-ink-50"
+                />
+              </label>
               {returnError && <p className="text-xs text-status-inactive">{returnError}</p>}
               <button
                 type="submit"
@@ -803,6 +1087,467 @@ export function MerchantReconciliationPage({
         <p className="mt-1 text-[11px] text-ink-600">{recentBatchCount} recent review batch(es) on file.</p>
       )}
     </div>
+  );
+}
+
+function MultiSelectPicker({
+  label,
+  items,
+  selected,
+  onChange,
+  placeholder,
+  filterText,
+  onFilterChange,
+  open,
+  onToggle,
+  searchPlaceholder,
+}: {
+  label: string;
+  items: PickerItem[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  placeholder: string;
+  filterText: string;
+  onFilterChange: (value: string) => void;
+  open: boolean;
+  onToggle: () => void;
+  searchPlaceholder: string;
+}) {
+  const filtered = filterText.trim()
+    ? items.filter((i) => i.name.toLowerCase().includes(filterText.trim().toLowerCase()))
+    : items;
+  const visible = filtered.slice(0, 65);
+
+  function toggleItem(key: string) {
+    onChange(selected.includes(key) ? selected.filter((k) => k !== key) : [...selected, key]);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`${inputClass} flex items-center justify-between text-left`}
+      >
+        <span>{selected.length ? `${selected.length} selected` : placeholder}</span>
+        <span className="text-ink-500">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full min-w-[260px] rounded-lg border border-base-700 bg-base-800 p-2 shadow-xl">
+          <label className="mb-2 block text-[10px] font-medium uppercase tracking-wide text-ink-500">
+            {label}
+            <input
+              value={filterText}
+              onChange={(e) => onFilterChange(e.target.value)}
+              placeholder={searchPlaceholder}
+              autoComplete="off"
+              className={`${inputClass} mt-1 normal-case`}
+            />
+          </label>
+          <div className="max-h-56 space-y-1 overflow-y-auto">
+            {visible.length === 0 && <p className="px-1 py-2 text-xs text-ink-500">No matching names.</p>}
+            {visible.map((item) => (
+              <label
+                key={item.key}
+                className="flex items-start gap-2 rounded-md px-1.5 py-1 text-xs text-ink-300 hover:bg-base-700"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(item.key)}
+                  onChange={() => toggleItem(item.key)}
+                  className="mt-0.5 rounded border-base-700 bg-base-900"
+                />
+                <span>
+                  <span className="block font-medium text-ink-50">{item.name}</span>
+                  {item.hint && <span className="block text-[10px] text-ink-500">{item.hint}</span>}
+                </span>
+              </label>
+            ))}
+          </div>
+          {filtered.length > visible.length && (
+            <p className="mt-1 text-[10px] text-ink-500">
+              Showing {visible.length} of {filtered.length}. Search to narrow the list.
+            </p>
+          )}
+          <div className="mt-2 flex items-center gap-1.5 border-t border-base-700 pt-2">
+            <button
+              type="button"
+              onClick={() => onChange(Array.from(new Set([...selected, ...filtered.map((i) => i.key)])))}
+              className="rounded-md border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-700"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="rounded-md border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-700"
+            >
+              Clear All
+            </button>
+            <button
+              type="button"
+              onClick={onToggle}
+              className="ml-auto rounded-md bg-ink-50 px-2.5 py-1 text-[11px] font-medium text-base-950 hover:bg-white"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SelectionChips({
+  items,
+  selected,
+  onRemove,
+}: {
+  items: PickerItem[];
+  selected: string[];
+  onRemove: (key: string) => void;
+}) {
+  if (!selected.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {selected.map((key) => {
+        const name = items.find((i) => i.key === key)?.name ?? key;
+        return (
+          <span key={key} className="flex items-center gap-1 rounded-full bg-base-800 px-2.5 py-1 text-[11px] text-ink-300">
+            {name}
+            <button
+              type="button"
+              onClick={() => onRemove(key)}
+              title="Remove"
+              aria-label={`Remove ${name}`}
+              className="text-ink-500 hover:text-ink-50"
+            >
+              ×
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function SmartSuggestionsPanel({
+  suggestions,
+  totalGroups,
+  matchingCount,
+  canShowMore,
+  open,
+  onToggle,
+  filterText,
+  onFilterChange,
+  onShowMore,
+  aliasSelections,
+  onAliasSelectionsChange,
+  canonicalNames,
+  onCanonicalNameChange,
+  approving,
+  errors,
+  onApprove,
+}: {
+  suggestions: SupplierSuggestion[];
+  totalGroups: number;
+  matchingCount: number;
+  canShowMore: boolean;
+  open: boolean;
+  onToggle: () => void;
+  filterText: string;
+  onFilterChange: (value: string) => void;
+  onShowMore: () => void;
+  aliasSelections: Record<string, string[]>;
+  onAliasSelectionsChange: (key: string, aliases: string[]) => void;
+  canonicalNames: Record<string, string>;
+  onCanonicalNameChange: (key: string, value: string) => void;
+  approving: Record<string, boolean>;
+  errors: Record<string, string | null>;
+  onApprove: (group: SupplierSuggestion) => void;
+}) {
+  return (
+    <WidgetCard
+      className="mt-4"
+      title="Suggested company-name matches"
+      icon={Search}
+      action={
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-base-800 px-2.5 py-1 text-[11px] text-ink-300">{totalGroups} groups</span>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-lg border border-base-700 px-2.5 py-1.5 text-[11px] font-medium text-ink-300 hover:bg-base-700"
+          >
+            {open ? "Hide suggestions" : "Review suggestions"}
+          </button>
+        </div>
+      }
+    >
+      <p className="text-xs text-ink-500">
+        Sphaera scans original payment descriptions for likely duplicate supplier names. Suggestions are NOT approved
+        automatically. Finance must review each original description.
+      </p>
+      {open && (
+        <div className="mt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={filterText}
+              onChange={(e) => onFilterChange(e.target.value)}
+              placeholder="Find suggested company, e.g. Adobe"
+              aria-label="Search supplier suggestions"
+              className={`${inputClass} max-w-xs`}
+            />
+            <span className="text-[11px] text-ink-500">{matchingCount} matching suggestions</span>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {suggestions.length === 0 ? (
+              <p className="text-xs text-ink-500">
+                No matching supplier names need review. Existing approved groups are under Manage service providers.
+              </p>
+            ) : (
+              suggestions.map((g) => (
+                <SuggestionCard
+                  key={g.key}
+                  group={g}
+                  selectedAliases={aliasSelections[g.key] ?? g.aliases.map((a) => a.name)}
+                  onSelectedAliasesChange={(aliases) => onAliasSelectionsChange(g.key, aliases)}
+                  canonicalName={canonicalNames[g.key] ?? g.name}
+                  onCanonicalNameChange={(value) => onCanonicalNameChange(g.key, value)}
+                  approving={Boolean(approving[g.key])}
+                  error={errors[g.key] ?? null}
+                  onApprove={() => onApprove(g)}
+                />
+              ))
+            )}
+          </div>
+
+          {canShowMore && (
+            <div className="mt-2.5">
+              <button
+                type="button"
+                onClick={onShowMore}
+                className="rounded-lg border border-base-700 px-2.5 py-1.5 text-[11px] font-medium text-ink-300 hover:bg-base-700"
+              >
+                Show more suggestions
+              </button>
+            </div>
+          )}
+
+          <p className="mt-3 text-[11px] text-ink-500">
+            Only the reporting company name changes after approval. Original payment text, transaction IDs, dates,
+            amounts, cost heads and ERP data are preserved. These matches are suggestions, not proof of common legal
+            ownership.
+          </p>
+        </div>
+      )}
+    </WidgetCard>
+  );
+}
+
+function SuggestionCard({
+  group,
+  selectedAliases,
+  onSelectedAliasesChange,
+  canonicalName,
+  onCanonicalNameChange,
+  approving,
+  error,
+  onApprove,
+}: {
+  group: SupplierSuggestion;
+  selectedAliases: string[];
+  onSelectedAliasesChange: (aliases: string[]) => void;
+  canonicalName: string;
+  onCanonicalNameChange: (value: string) => void;
+  approving: boolean;
+  error: string | null;
+  onApprove: () => void;
+}) {
+  function toggleAlias(name: string) {
+    onSelectedAliasesChange(
+      selectedAliases.includes(name) ? selectedAliases.filter((a) => a !== name) : [...selectedAliases, name]
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-base-700 bg-base-800 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-ink-50">{group.name}</p>
+          <p className="text-[11px] text-ink-500">
+            {group.reason} · {group.confidence}
+          </p>
+        </div>
+        <p className="text-[11px] text-ink-500">
+          {group.count} payments · {usd(group.totalUsd)} · {group.aliases.length} names proposed
+        </p>
+      </div>
+
+      <div className="mt-2 space-y-1">
+        {group.aliases.map((a) => (
+          <label
+            key={a.name}
+            className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-xs text-ink-300 hover:bg-base-700"
+          >
+            <span className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selectedAliases.includes(a.name)}
+                onChange={() => toggleAlias(a.name)}
+                className="rounded border-base-700 bg-base-900"
+              />
+              <span className="whitespace-pre-wrap break-words text-ink-50">{a.name}</span>
+            </span>
+            <strong className="shrink-0 text-ink-50">
+              {a.count} · {usd(a.usd)}
+            </strong>
+          </label>
+        ))}
+      </div>
+
+      {group.approvedAliases.length > 0 && (
+        <p className="mt-2 text-[11px] text-ink-500">
+          Previously approved: {group.approvedAliases.map((a) => a.name).join(", ")}
+        </p>
+      )}
+
+      {error && <p className="mt-2 text-[11px] text-status-inactive">{error}</p>}
+
+      <div className="mt-2.5 flex flex-wrap items-end gap-2">
+        <label className="flex-1 text-[11px] text-ink-500">
+          Common reporting company name
+          <input
+            value={canonicalName}
+            onChange={(e) => onCanonicalNameChange(e.target.value)}
+            maxLength={150}
+            spellCheck={false}
+            className={`${inputClass} mt-1`}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onApprove}
+          disabled={approving || selectedAliases.length === 0 || !canonicalName.trim()}
+          className="rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
+        >
+          {approving ? "Approving..." : "Approve selected names"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GroupPanel({
+  providers,
+  rawChosenCount,
+  open,
+  onToggle,
+  providerName,
+  onProviderNameChange,
+  onGroupSelected,
+  grouping,
+  error,
+  ungroupingKey,
+  onUngroup,
+}: {
+  providers: CatalogProvider[];
+  rawChosenCount: number;
+  open: boolean;
+  onToggle: () => void;
+  providerName: string;
+  onProviderNameChange: (value: string) => void;
+  onGroupSelected: () => void;
+  grouping: boolean;
+  error: string | null;
+  ungroupingKey: string | null;
+  onUngroup: (providerId: string, alias: string) => void;
+}) {
+  return (
+    <WidgetCard
+      className="mt-4"
+      title="Service Provider Groups"
+      icon={Layers}
+      action={
+        <button
+          type="button"
+          onClick={onToggle}
+          className="rounded-lg border border-base-700 px-2.5 py-1.5 text-[11px] font-medium text-ink-300 hover:bg-base-700"
+        >
+          {open ? "Hide groups" : "Manage service providers"}
+        </button>
+      }
+    >
+      <p className="text-xs text-ink-500">
+        Merge payment descriptions under one reporting provider, without modifying original ERP or bank text.
+      </p>
+      {open && (
+        <div className="mt-3">
+          <div className="flex flex-wrap items-end justify-between gap-2 rounded-lg border border-base-700 bg-base-800 p-3">
+            <div>
+              <strong className="text-xs text-ink-50">{rawChosenCount} ungrouped names selected</strong>
+              <p className="mt-1 text-[11px] text-ink-500">
+                To group merchants: tick their names in the Merchants / service providers picker above, enter a
+                provider name, then group them — or reuse an existing provider&apos;s name to add to it.
+              </p>
+              <input
+                value={providerName}
+                onChange={(e) => onProviderNameChange(e.target.value)}
+                placeholder="Provider name, e.g. Adobe Inc."
+                className={`${inputClass} mt-2 max-w-xs`}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onGroupSelected}
+              disabled={!rawChosenCount || !providerName.trim() || grouping}
+              className="rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
+            >
+              {grouping ? "Grouping..." : "Group selected names"}
+            </button>
+          </div>
+
+          {error && <p className="mt-2 text-xs text-status-inactive">{error}</p>}
+
+          <div className="mt-3 space-y-2.5">
+            {providers.length === 0 ? (
+              <p className="text-xs text-ink-500">No provider groups yet.</p>
+            ) : (
+              providers.map((p) => (
+                <div key={p.key} className="rounded-lg border border-base-700 bg-base-800 p-3">
+                  <strong className="text-xs text-ink-50">{p.name}</strong>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {p.aliases.length === 0 ? (
+                      <span className="text-[11px] text-ink-500">No names assigned yet</span>
+                    ) : (
+                      p.aliases.map((a) => (
+                        <span
+                          key={a}
+                          className="flex items-center gap-1 rounded-full bg-base-900 px-2.5 py-1 text-[11px] text-ink-300"
+                        >
+                          {a}
+                          <button
+                            type="button"
+                            onClick={() => onUngroup(p.id, a)}
+                            disabled={ungroupingKey === `${p.id}:${a}`}
+                            title="Remove this alias from group"
+                            className="text-ink-500 hover:text-ink-50 disabled:opacity-50"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </WidgetCard>
   );
 }
 

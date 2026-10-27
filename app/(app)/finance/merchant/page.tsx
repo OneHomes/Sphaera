@@ -34,24 +34,19 @@ export default async function FinanceMerchantRoute() {
     // reads/writes (FinanceMerchantReview), not a guess.
     const reviewedCount = allRows.filter((r) => Boolean(r.product)).length;
 
-    // Merchant-name picker options: known reporting-supplier providers,
-    // raw (ungrouped) source descriptions, and pending cluster-suggestion
-    // canonical names — every name Finance could plausibly search by.
-    const merchantOptions = Array.from(
-      new Set([
-        ...catalog.providers.map((p) => p.name),
-        ...catalog.raw.map((r) => r.name),
-        ...suggestions.map((s) => s.name),
-      ])
-    ).sort((a, b) => a.localeCompare(b));
-
+    // The merchant/cost-head picker, the supplier-name "smart" suggestions
+    // panel and the Service Provider Groups panel all need the real
+    // catalog/suggestion shapes (provider ids + aliases, suggestion
+    // reasons/confidence/alias counts) rather than a flattened name list,
+    // so both are passed through as-is.
     return (
       <MerchantReconciliationPage
         reviewedCount={reviewedCount}
         totalPaymentCount={allRows.length}
         recentBatchCount={batches.length}
-        merchantOptions={merchantOptions}
+        catalog={catalog}
         costHeadOptions={costHeadOptions}
+        supplierSuggestions={suggestions}
       />
     );
   });

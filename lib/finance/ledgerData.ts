@@ -483,6 +483,104 @@ export async function createCostHead(name: string): Promise<{ ok: true } | { ok:
   return { ok: true };
 }
 
+/** Renames a registered department everywhere it's referenced: the department
+ * registry itself, any per-payment allocation override, and any legacy
+ * mapping suggestion/confirmation. Used by the "Edit name" control next to
+ * each department chip in Organise Costs. */
+export async function renameDepartment(
+  oldName: string,
+  newName: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const trimmed = newName.trim().replace(/\s+/g, " ");
+  if (trimmed.length < 2 || trimmed.length > 70 || !NAME_PATTERN.test(trimmed)) {
+    return { ok: false, error: "Department must be 2 to 70 characters, with a plain-text name." };
+  }
+  if (trimmed === oldName) return { ok: true };
+  const existing = await prisma.financeManagementDepartment.findFirst({ where: { name: { equals: trimmed } } });
+  if (existing) return { ok: false, error: "That department already exists." };
+  const dept = await prisma.financeManagementDepartment.findFirst({ where: { name: oldName } });
+  if (!dept) return { ok: false, error: "Department not found." };
+  await prisma.financeManagementDepartment.update({ where: { id: dept.id }, data: { name: trimmed } });
+  await prisma.financeAllocation.updateMany({ where: { department: oldName }, data: { department: trimmed } });
+  await prisma.financeLegacyMapping.updateMany({ where: { department: oldName }, data: { department: trimmed } });
+  return { ok: true };
+}
+
+export type MergeCostHeadResult =
+  | { ok: true; updated: number; changeId: string | null }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Moves every allocated payment from one simplified management cost head
+ * to another, then retires the source head from future selections —
+ * direct port of the source's "Merge & retire a cost head" control.
+ * Original ERP records (head/centre/amount/date/etc.) are never touched;
+ * only the management-layer overlay (FinanceAllocation.costHead and any
+ * FinanceLegacyMapping.costHead still pointing at the retired head) is
+ * repointed at the replacement. Approved FinancePlan budget lines keep
+ * referencing the retired head's name for historical comparison, exactly
+ * like the source notice warns.
+ */
+export async function mergeCostHead(params: {
+  source: string;
+  target: string;
+  actorId: string;
+  actorEmail: string;
+}): Promise<MergeCostHeadResult> {
+  const source = params.source.trim();
+  const target = params.target.trim();
+  if (!source || !target) {
+    return { ok: false, status: 400, error: "Choose both a cost head to retire and a replacement." };
+  }
+  if (source === target) {
+    return { ok: false, status: 400, error: "Choose a different replacement cost head." };
+  }
+
+  const [sourceExists, targetExists] = await Promise.all([
+    prisma.financeManagementCostHead.findFirst({ where: { name: source } }),
+    prisma.financeManagementCostHead.findFirst({ where: { name: target } }),
+  ]);
+  if (!sourceExists || !targetExists) {
+    return { ok: false, status: 400, error: "Both cost heads must be existing, registered cost heads." };
+  }
+
+  const affected = await prisma.financeAllocation.findMany({
+    where: { costHead: source },
+    select: { transactionId: true },
+  });
+  const ids = affected.map((a) => a.transactionId);
+
+  const before = ids.length ? await revisionItems("FinanceAllocation", ids) : [];
+
+  if (ids.length) {
+    await prisma.financeAllocation.updateMany({ where: { costHead: source }, data: { costHead: target } });
+  }
+  await prisma.financeLegacyMapping.updateMany({ where: { costHead: source }, data: { costHead: target } });
+  await prisma.financeManagementCostHead.deleteMany({ where: { name: source } });
+
+  const after = ids.length ? await revisionItems("FinanceAllocation", ids) : [];
+
+  let changeId: string | null = null;
+  if (ids.length) {
+    const found = await prisma.financeTransaction.findMany({
+      where: { id: { in: ids } },
+      select: { organizationId: true },
+      take: 1,
+    });
+    changeId = await logReversible({
+      organizationId: found[0]?.organizationId ?? null,
+      action: "merge_cost_head",
+      description: `Merged cost head "${source}" into "${target}" (${ids.length} payments)`,
+      actorId: params.actorId,
+      actorEmail: params.actorEmail,
+      before,
+      after,
+    });
+  }
+
+  return { ok: true, updated: ids.length, changeId };
+}
+
 export async function updateMonth(params: {
   month: string;
   collections?: number;

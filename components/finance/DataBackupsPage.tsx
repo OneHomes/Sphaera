@@ -15,15 +15,12 @@ import type { FinanceState } from "@/lib/finance/ledgerData";
 // and AI integration" OpenAI-key panel is dropped: this port's chat
 // assistant is Sphaera's own Janus, not a user-supplied API key.
 
-function usd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
-}
-
-function Kpi({ title, value }: { title: string; value: string }) {
+function Kpi({ title, value, detail }: { title: string; value: string; detail: string }) {
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
       <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
+      <p className="mt-1 text-[11px] text-ink-600">{detail}</p>
     </div>
   );
 }
@@ -171,18 +168,34 @@ export function DataBackupsPage({
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi title="Ledger payments" value={state.transactions.length.toLocaleString()} />
-        <Kpi title="Saved classifications" value={state.classifications.toLocaleString()} />
-        <Kpi title="Imported files" value={importedFilesCount.toLocaleString()} />
-        <Kpi title="Original Finance account choices" value={state.costHeads.length.toLocaleString()} />
+        <Kpi
+          title="SQLite payments"
+          value={state.transactions.length.toLocaleString()}
+          detail="Original rows and newly imported months"
+        />
+        <Kpi
+          title="Saved classifications"
+          value={state.classifications.toLocaleString()}
+          detail="Payment-level edits stored in SQLite"
+        />
+        <Kpi
+          title="Imported files"
+          value={importedFilesCount.toLocaleString()}
+          detail="Additional file batches processed"
+        />
+        <Kpi
+          title="Original Finance account choices"
+          value={state.costHeads.length.toLocaleString()}
+          detail="Original Finance cost labels"
+        />
       </div>
 
       <div className="mt-4">
         <WidgetCard title="Backup and migration" icon={DatabaseBackup}>
           <p className="text-xs text-ink-500">
-            Download a complete backup of the ledger, classifications and settings before making bulk changes, or to
-            migrate the data elsewhere. Backup export and restore are Payroll-gated because a full backup includes
-            People Costs data.
+            Download a complete database backup including transactions, classifications, monthly figures and import
+            history. The ledger and every classification are stored in Sphaera&apos;s own database, not a local file,
+            so this backup is the authoritative copy to keep alongside the application.
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -214,7 +227,7 @@ export function DataBackupsPage({
           )}
 
           <form onSubmit={handleRestore} className="mt-4 space-y-2.5 border-t border-base-800 pt-4">
-            <p className="text-xs text-ink-500">Restore a previously downloaded backup file.</p>
+            <p className="text-xs text-ink-500">Restore full SQL backup or migrate an old browser backup</p>
             <input
               type="file"
               onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
@@ -255,87 +268,93 @@ export function DataBackupsPage({
             automatically from a compatible tab in that same file; otherwise they must be entered here manually.
           </p>
 
-          <div className="mt-3 overflow-x-auto rounded-xl border border-base-700">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-                <tr>
-                  <th className="px-3 py-2">Month</th>
-                  <th className="px-3 py-2">Operating budget</th>
-                  <th className="px-3 py-2">Collections</th>
-                  <th className="px-3 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {state.monthly.map((m) => {
-                  const effectiveBudget = monthOverrides[m.month] ?? m.opexBudget;
-                  const missing = !effectiveBudget;
-                  return (
-                    <tr key={m.month} className="border-b border-base-800 text-ink-300 last:border-0">
-                      <td className="px-3 py-2 text-ink-50">{m.month}</td>
-                      <td className="px-3 py-2">
-                        {editingMonth === m.month ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              value={draftBudget}
-                              onChange={(e) => setDraftBudget(e.target.value)}
-                              type="number"
-                              className="w-28 rounded-lg border border-base-700 bg-base-800 px-2 py-1 text-xs text-ink-50 outline-none"
-                            />
-                            <button
-                              onClick={() => saveEdit(m.month)}
-                              disabled={savingMonth}
-                              className="rounded-md bg-ink-50 px-2 py-1 text-[11px] font-medium text-base-950 hover:bg-white disabled:opacity-50"
-                            >
-                              {savingMonth ? "Saving..." : "Save"}
-                            </button>
-                            <button
-                              onClick={() => setEditingMonth(null)}
-                              className="rounded-md border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-700"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : missing ? (
+          <div className="mt-3 divide-y divide-base-800 rounded-xl border border-base-700">
+            {state.monthly.map((m) => {
+              const effectiveBudget = monthOverrides[m.month] ?? m.opexBudget;
+              const missing = !effectiveBudget;
+              return (
+                <div key={m.month} className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-ink-300">
+                  {editingMonth === m.month ? (
+                    <div className="flex flex-1 items-center gap-2">
+                      <span className="text-ink-50">{m.month}</span>
+                      <input
+                        value={draftBudget}
+                        onChange={(e) => setDraftBudget(e.target.value)}
+                        type="number"
+                        placeholder="Operating budget"
+                        className="w-28 rounded-lg border border-base-700 bg-base-800 px-2 py-1 text-xs text-ink-50 outline-none"
+                      />
+                      <button
+                        onClick={() => saveEdit(m.month)}
+                        disabled={savingMonth}
+                        className="rounded-md bg-ink-50 px-2 py-1 text-[11px] font-medium text-base-950 hover:bg-white disabled:opacity-50"
+                      >
+                        {savingMonth ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => setEditingMonth(null)}
+                        className="rounded-md border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="flex items-center gap-2">
+                        <span className="text-ink-50">{m.month}</span>
+                        {missing && (
                           <span className="rounded-full bg-status-alert/15 px-2 py-0.5 text-[11px] font-medium text-status-alert">
                             Budget missing
                           </span>
-                        ) : (
-                          usd(effectiveBudget)
                         )}
-                      </td>
-                      <td className="px-3 py-2">{usd(m.collections)}</td>
-                      <td className="px-3 py-2 text-right">
-                        {editingMonth !== m.month && (
-                          <button
-                            onClick={() => startEdit(m.month, effectiveBudget)}
-                            className="rounded-md border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-700"
-                          >
-                            Edit data
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {state.monthly.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
-                      No months recorded yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      </span>
+                      <button
+                        onClick={() => startEdit(m.month, effectiveBudget)}
+                        className="rounded-md border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-700"
+                      >
+                        Edit data
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {state.monthly.length === 0 && (
+              <p className="px-3 py-6 text-center text-xs text-ink-500">No months recorded yet.</p>
+            )}
           </div>
           {monthError && <p className="mt-2 text-xs text-status-inactive">{monthError}</p>}
         </WidgetCard>
       </div>
 
-      <p className="mt-4 flex items-center gap-1.5 text-[11px] text-ink-600">
-        <Sparkles className="h-3 w-3" strokeWidth={1.75} />
-        Finance&apos;s chat assistant (Ask Your Data) is powered by Sphaera&apos;s own Janus. No API key or
-        configuration is needed.
-      </p>
+      <div className="mt-4">
+        <WidgetCard title="Developer and AI integration" icon={Sparkles}>
+          <p className="text-xs text-ink-500">
+            Local API: Finance data is served from Sphaera&apos;s own Next.js API routes under{" "}
+            <code className="rounded bg-base-800 px-1 py-0.5 text-[11px] text-ink-300">/api/finance</code>, reachable
+            only by signed-in Sphaera users.
+          </p>
+          <pre className="mt-3 overflow-x-auto rounded-lg border border-base-700 bg-base-800 p-3 text-[11px] text-ink-300">
+{`GET  /api/finance/ledger/state
+POST /api/finance/ledger/classify
+POST /api/finance/ledger/import/preview
+POST /api/finance/ledger/import/commit
+POST /api/finance/monthly
+GET  /api/finance/erp/status
+POST /api/finance/chat
+GET  /api/finance/backup
+POST /api/finance/restore`}
+          </pre>
+          <p className="mt-3 text-[11px] text-ink-500">
+            AI integration: Ask Your Data is answered by Sphaera&apos;s own Janus assistant, not a user-supplied
+            OpenAI API key. No key or model configuration is needed on this screen.
+          </p>
+          <p className="mt-3 text-[11px] text-ink-600">
+            See the project README for authentication and deployment notes before exposing Finance data beyond
+            Sphaera itself.
+          </p>
+        </WidgetCard>
+      </div>
     </div>
   );
 }

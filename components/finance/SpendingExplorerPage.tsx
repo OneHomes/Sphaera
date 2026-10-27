@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   PieChart,
   Pie,
@@ -9,6 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 
 // Direct structural/content port of the source app's Spending Explorer
@@ -65,21 +67,23 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
 }
 
 export function SpendingExplorerPage({ state }: { state: FinanceState }) {
+  const [rows, setRows] = useState(state.transactions);
   const [paymentView, setPaymentView] = useState<PaymentView>("operating");
   const [department, setDepartment] = useState<string | null>(null);
   const [centre, setCentre] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
 
   const activeDepartments = useMemo(() => new Set(state.departments), [state.departments]);
   const isOperating = (t: FinanceLedgerRow) =>
     Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
 
   const basisTransactions = useMemo(() => {
-    if (paymentView === "operating") return state.transactions.filter(isOperating);
-    if (paymentView === "debt") return state.transactions.filter((t) => t.debtPeriod !== "current");
-    return state.transactions;
+    if (paymentView === "operating") return rows.filter(isOperating);
+    if (paymentView === "debt") return rows.filter((t) => t.debtPeriod !== "current");
+    return rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.transactions, paymentView, activeDepartments]);
+  }, [rows, paymentView, activeDepartments]);
 
   const deptKey = (t: FinanceLedgerRow) => t.managementDepartment ?? UNCLASSIFIED_DEPT;
   const centreKey = (t: FinanceLedgerRow) => t.effectiveCentre ?? UNLABELLED_CENTRE;
@@ -96,6 +100,7 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
   const levelKeyFn = level === 0 ? deptKey : level === 1 ? centreKey : descKey;
 
   const grouped = useMemo(() => groupTransactions(scoped, levelKeyFn), [scoped, level]);
+  const rankedCap = level === 2 ? 15 : 45;
 
   const departmentOptions = useMemo(
     () => groupTransactions(basisTransactions, deptKey).map((g) => g.name),
@@ -143,7 +148,13 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
   const selectedTotal = filteredTransactions.reduce((sum, t) => sum + t.amount, 0);
   const scopedTotal = scoped.reduce((sum, t) => sum + t.amount, 0);
   const sharePct = scopedTotal > 0 ? (selectedTotal / scopedTotal) * 100 : 0;
-  const paymentViewLabel = PAYMENT_VIEW_OPTIONS.find((o) => o.value === paymentView)?.label ?? "";
+  const expenditureNote =
+    paymentView === "operating"
+      ? "Classified current-year spending, excluding historical debt and unresolved movements"
+      : paymentView === "debt"
+      ? "Payments marked as historical debt"
+      : "All recorded payments, including movements that may not be expenses";
+  const paymentPageIds = filteredTransactions.slice(0, 200).map((t) => t.id);
 
   return (
     <div className="p-6">
@@ -226,13 +237,13 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
       </nav>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi title="Selected expenditure" value={usd(selectedTotal, true)} detail={`Basis: ${paymentViewLabel}`} />
+        <Kpi title="Selected expenditure" value={usd(selectedTotal, true)} detail={expenditureNote} />
         <Kpi title="Payments in selection" value={filteredTransactions.length.toLocaleString()} detail="Individual ledger rows" />
         {level < 2 ? (
           <Kpi
             title="Entries selected"
             value={`${selected.size} / ${grouped.length}`}
-            detail={level === 0 ? "Departments checked" : "Cost centres checked"}
+            detail="Use the checkboxes above to adjust this comparison"
           />
         ) : (
           <Kpi title="Payment descriptions" value={String(grouped.length)} detail="Distinct descriptions at this level" />
@@ -240,15 +251,24 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
         <Kpi
           title={department ? "Share of department total" : "Share of filtered total"}
           value={`${sharePct.toFixed(1)}%`}
-          detail={department ? `Of ${department}` : "Of the current payment-view basis"}
+          detail="Share of the available signed net spend"
         />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
         <WidgetCard
-          title={level === 0 ? "By department" : level === 1 ? `By cost centre · ${department}` : `By description · ${centre}`}
+          title={level === 0 ? "Cost heads" : level === 1 ? `Cost heads within ${department}` : `Payment descriptions within ${centre}`}
           className="lg:col-span-3"
+          action={
+            <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">
+              Updates as you tick entries
+            </span>
+          }
         >
+          <p className="mb-3 text-xs text-ink-500">
+            Doughnut proportions represent positive net costs. Click a coloured slice or legend entry for an
+            individual drilldown.
+          </p>
           <ResponsiveContainer width="100%" height={240}>
             <PieChart>
               <Pie
@@ -303,7 +323,7 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
         </WidgetCard>
 
         <WidgetCard
-          title="Ranked list"
+          title={level === 0 ? "Selected departments" : level === 1 ? "Selected cost heads" : "Largest payment descriptions"}
           className="lg:col-span-2"
           action={
             <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">
@@ -311,8 +331,11 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
             </span>
           }
         >
+          <p className="mb-3 text-xs text-ink-500">
+            These amounts use signed net ledger figures and may include adjustments or credits.
+          </p>
           <div className="flex max-h-[320px] flex-col gap-1 overflow-y-auto">
-            {grouped.map((g) => (
+            {grouped.slice(0, rankedCap).map((g) => (
               <button
                 key={g.name}
                 onClick={() => handleRowClick(g.name)}
@@ -329,11 +352,47 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
             ))}
             {grouped.length === 0 && <p className="p-2 text-xs text-ink-500">No payments at this level.</p>}
           </div>
+          {grouped.length > rankedCap && (
+            <p className="mt-2 text-[11px] text-ink-500">
+              {(grouped.length - rankedCap).toLocaleString()} additional items remain visible in the ledger.
+            </p>
+          )}
         </WidgetCard>
       </div>
 
+      <p className="mt-4 text-xs text-ink-500">
+        Tick individual payments below, or use Select all filtered above to reclassify every matching payment across
+        pages. Chart category checkboxes filter the view; payment checkboxes select actual records to change.
+      </p>
+
+      <BulkPaymentToolbar
+        mode="payments"
+        tx={filteredTransactions}
+        pageIds={paymentPageIds}
+        selected={selectedPaymentIds}
+        setSelected={setSelectedPaymentIds}
+        departments={state.departments}
+        managementCostHeads={state.managementCostHeads}
+        onApplied={(ids, dept, costHead) => {
+          setRows((prev) =>
+            prev.map((r) => (ids.includes(r.id) ? { ...r, managementDepartment: dept, managementCostHead: costHead } : r))
+          );
+          setSelectedPaymentIds(new Set());
+        }}
+      />
+
       <div className="mt-4">
-        <WidgetCard title={`Payments${activeFilter ? ` — ${selected.size} selected` : ""}`}>
+        <WidgetCard
+          title={`Payments behind ${centre ?? department ?? "your selected cost heads"}`}
+          action={
+            <Link
+              href={department ? `/finance/payments?department=${encodeURIComponent(department)}` : "/finance/payments"}
+              className="text-[11px] text-ink-300 hover:text-ink-50"
+            >
+              Open these payments in full ledger ↗
+            </Link>
+          }
+        >
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -376,9 +435,15 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
       </div>
 
       <div className="mt-4 rounded-lg border border-status-alert/30 bg-status-alert/10 px-3 py-2 text-[11px] text-status-alert">
-        Budget comparisons are not available for a custom cost-head or cost-centre selection like this one — the
-        operating budget is only defined by month and department. Some ledger entries shown here may be transfers,
-        refunds or collections rather than genuine expenditure, and should be read with that in mind.
+        {level === 0 && paymentView === "operating" && !activeFilter ? (
+          "The separate Budget vs Actual page shows the full operating budget. Use that page to assess overall budget variance."
+        ) : (
+          <>
+            Budget comparisons are not available for a custom cost-head or cost-centre selection like this one — the
+            operating budget is only defined by month and department. Some ledger entries shown here may be
+            transfers, refunds or collections rather than genuine expenditure, and should be read with that in mind.
+          </>
+        )}
       </div>
     </div>
   );

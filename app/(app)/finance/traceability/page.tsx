@@ -19,6 +19,7 @@ export default async function FinanceTraceabilityRoute() {
     return (
       <PaymentTraceabilityPage
         state={state}
+        transactions={finance.transactions}
         departments={finance.departments}
         costHeads={finance.managementCostHeads}
       />

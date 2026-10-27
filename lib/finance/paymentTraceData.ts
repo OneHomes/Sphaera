@@ -10,27 +10,40 @@ import { logReversible, revisionItems } from "./changeJournal";
 // always sum back exactly to the source payment — never float-drifted.
 
 export async function getTraceState() {
-  const [paymentSources, subscriptions, subscriptionUsers, paymentsWithBankReference, erpStaging] =
-    await Promise.all([
-      prisma.financePaymentSource.findMany({ orderBy: [{ kind: "asc" }, { name: "asc" }] }),
-      prisma.financeSubscription.findMany({ orderBy: [{ supplier: "asc" }, { service: "asc" }] }),
-      prisma.financeSubscriptionUser.findMany({ orderBy: [{ subscriptionId: "asc" }, { userEmail: "asc" }] }),
-      prisma.financePaymentTrace.count({ where: { paymentReference: { not: "" } } }),
-      prisma.financeErpSyncStaging.findMany({
-        where: { status: "pending" },
-        orderBy: { receivedAt: "desc" },
-        take: 80,
-      }),
-    ]);
+  const [paymentSources, subscriptions, subscriptionUsers, erpStaging] = await Promise.all([
+    prisma.financePaymentSource.findMany({ orderBy: [{ kind: "asc" }, { name: "asc" }] }),
+    prisma.financeSubscription.findMany({ orderBy: [{ supplier: "asc" }, { service: "asc" }] }),
+    prisma.financeSubscriptionUser.findMany({ orderBy: [{ subscriptionId: "asc" }, { userEmail: "asc" }] }),
+    prisma.financeErpSyncStaging.findMany({
+      where: { status: "pending" },
+      orderBy: { receivedAt: "desc" },
+      take: 80,
+    }),
+  ]);
 
   return {
     paymentSources,
     subscriptions,
     subscriptionUsers,
-    paymentsWithBankReference,
     unmatchedErpRecords: erpStaging.length,
     erpStaging,
   };
+}
+
+export type MatchErpResult = { ok: true } | { ok: false; status: number; error: string };
+
+/** Direct equivalent of the source's ERP-to-ledger reconciliation pick — links one staged incoming ERP record to an existing transaction. */
+export async function matchErpRecord(params: { stagingId: string; transactionId: string }): Promise<MatchErpResult> {
+  const staging = await prisma.financeErpSyncStaging.findUnique({ where: { id: params.stagingId } });
+  if (!staging) return { ok: false, status: 404, error: "ERP record no longer exists" };
+  const tx = await prisma.financeTransaction.findUnique({ where: { id: params.transactionId } });
+  if (!tx) return { ok: false, status: 404, error: "Payment no longer exists" };
+
+  await prisma.financeErpSyncStaging.update({
+    where: { id: params.stagingId },
+    data: { status: "matched", matchedTransactionId: params.transactionId },
+  });
+  return { ok: true };
 }
 
 const PAYMENT_SOURCE_KINDS = ["Bank account", "Company card", "Other"] as const;

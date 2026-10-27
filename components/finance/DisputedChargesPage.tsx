@@ -62,16 +62,16 @@ export function DisputedChargesPage({ transactions }: { transactions: FinanceLed
         <Kpi
           title="Open and under review"
           value={openRows.length.toLocaleString()}
-          detail="Awaiting a Finance decision"
+          detail="To be investigated with Finance"
           color="amber"
         />
-        <Kpi title="Value under review" value={usd(valueUnderReview)} detail="Sum of charges not yet resolved" />
+        <Kpi title="Value under review" value={usd(valueUnderReview)} detail="USD, including non-operating entries" />
         <Kpi
           title="Resolved investigations"
           value={resolvedRows.length.toLocaleString()}
-          detail="Closed with a recorded outcome"
+          detail="Decisions retained for audit"
         />
-        <Kpi title="Dispute total" value={rows.length.toLocaleString()} detail="All flagged payments, open or resolved" />
+        <Kpi title="Dispute total" value={rows.length.toLocaleString()} detail="Across all financial years" />
       </div>
 
       <WidgetCard
@@ -93,11 +93,11 @@ export function DisputedChargesPage({ transactions }: { transactions: FinanceLed
             <thead className="border-b border-base-700 bg-base-900 text-ink-500">
               <tr>
                 <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2">Supplier &amp; charge</th>
-                <th className="px-3 py-2">Reason &amp; Finance owner</th>
+                <th className="px-3 py-2">Supplier / charge</th>
+                <th className="px-3 py-2">Reason / assigned Finance owner</th>
                 <th className="px-3 py-2">Amount</th>
                 <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2" />
+                <th className="px-3 py-2">Action</th>
               </tr>
             </thead>
             <tbody>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import type { FinanceState } from "@/lib/finance/ledgerData";
@@ -18,12 +18,12 @@ import type { FinanceState } from "@/lib/finance/ledgerData";
 // implementation (recharts donut, Tailwind table) replaces the original's
 // bespoke SVG doughnut/CSS — this is a re-skin, not a redesign.
 //
-// Not ported: the source's multi-select "chartPicker" (tick several heads
-// to compare combined spend, data-pick-head checkboxes) — the single
-// click-to-drill interaction below covers the "donut + table drilldown"
-// requirement; the multi-select comparison tool is a separate, smaller
-// feature that would need its own persisted selection state the rest of
-// this port doesn't have yet.
+// The source's multi-select "chartPicker" (tick several heads to compare
+// combined spend, data-pick-head checkboxes) is ported below as a
+// self-contained comparison panel rather than the original's popup/dropdown
+// control — same tick-multiple-heads-to-compare behaviour, feeding a small
+// combined-total summary, without disturbing the single click-to-drill
+// donut/table interaction already in place.
 
 const DONUT_COLORS = ["#009c91", "#2d6c85", "#e9a14b", "#8167b8", "#6ab4cc", "#d66b6e", "#8dad67", "#d9b95c", "#b4bed1"];
 
@@ -33,15 +33,44 @@ function usd(value: number, compact = false): string {
   return `$${Math.round(value).toLocaleString()}`;
 }
 
-function Kpi({ title, value, detail, color }: { title: string; value: string; detail: string; color?: "purple" }) {
+function Kpi({
+  title,
+  value,
+  detail,
+  color,
+  href,
+  onClick,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  color?: "purple";
+  href?: string;
+  onClick?: () => void;
+}) {
   const colorClass = color === "purple" ? "text-[#7965bd]" : "text-ink-50";
-  return (
-    <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+  const content = (
+    <div className="rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
       <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
+  if (href) {
+    return (
+      <Link href={href} className="block text-left">
+        {content}
+      </Link>
+    );
+  }
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="block w-full text-left">
+        {content}
+      </button>
+    );
+  }
+  return content;
 }
 
 // groupCosts() + the top-8-plus-"Other" bucketing from the source's
@@ -59,6 +88,8 @@ function groupForDonut(rows: { key: string; value: number }[], otherLabel: strin
 
 export function CostHeadsPage({ state }: { state: FinanceState }) {
   const [selectedHead, setSelectedHead] = useState<string | null>(null);
+  const [compareHeads, setCompareHeads] = useState<Set<string>>(new Set());
+  const tableRef = useRef<HTMLDivElement>(null);
 
   const activeDepartments = new Set(state.departments);
   const isOperating = (t: FinanceState["transactions"][number]) =>
@@ -113,23 +144,107 @@ export function CostHeadsPage({ state }: { state: FinanceState }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi title="Cost heads" value={String(byHead.length)} detail="Recorded account-head categories" />
+      <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-medium text-ink-50">Compare cost heads</h3>
+            <p className="mt-0.5 text-[11px] text-ink-500">
+              Tick several entries to compare their combined spending.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
+              {compareHeads.size} of {byHead.length} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setCompareHeads(new Set(byHead.map(([key]) => key)))}
+              className="rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-800"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={() => setCompareHeads(new Set())}
+              className="rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-800"
+            >
+              Clear all
+            </button>
+          </div>
+        </div>
+        <div className="grid max-h-56 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+          {byHead.map(([key, g]) => (
+            <label
+              key={key}
+              className="flex items-center gap-2 rounded-lg border border-base-800 px-2.5 py-1.5 text-xs text-ink-300 hover:border-base-700"
+            >
+              <input
+                type="checkbox"
+                checked={compareHeads.has(key)}
+                onChange={() => {
+                  setCompareHeads((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(key)) next.delete(key);
+                    else next.add(key);
+                    return next;
+                  });
+                }}
+              />
+              <span className="truncate">
+                {key} <span className="text-ink-500">({usd(g.total, true)})</span>
+              </span>
+            </label>
+          ))}
+          {byHead.length === 0 && <p className="text-[11px] text-ink-500">No cost heads available for these filters.</p>}
+        </div>
+        {compareHeads.size > 0 && (
+          <div className="mt-3 rounded-lg border border-base-700 bg-base-800 p-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-ink-300">
+                Combined spend across {compareHeads.size} selected head{compareHeads.size === 1 ? "" : "s"}
+              </span>
+              <span className="font-semibold text-ink-50">
+                {usd(byHead.filter(([key]) => compareHeads.has(key)).reduce((s, [, g]) => s + g.total, 0))}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {byHead
+                .filter(([key]) => compareHeads.has(key))
+                .map(([key, g]) => (
+                  <span key={key} className="rounded-full border border-base-700 px-2 py-0.5 text-[11px] text-ink-300">
+                    {key} ({usd(g.total, true)})
+                  </span>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi
+          title="Cost heads"
+          value={String(byHead.length)}
+          detail="Recorded account-head categories"
+          onClick={() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        />
         <Kpi
           title="All movements"
           value={usd(allMovements, true)}
           detail="Includes costs, transfers and other movements"
+          href="/finance/payments"
         />
         <Kpi
           title="Current operating"
           value={usd(currentOperating, true)}
           detail="Excludes marked historical debt"
+          href="/finance/payments"
         />
         <Kpi
           title="Historical debt"
           value={usd(historicalDebt, true)}
           detail="Marked payments across all heads"
           color="purple"
+          href="/finance/historical-debt"
         />
       </div>
 
@@ -188,7 +303,7 @@ export function CostHeadsPage({ state }: { state: FinanceState }) {
         </p>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-xl border border-base-700">
+      <div ref={tableRef} className="mt-4 overflow-x-auto rounded-xl border border-base-700">
         <table className="w-full text-left text-xs">
           <thead className="border-b border-base-700 bg-base-900 text-ink-500">
             <tr>

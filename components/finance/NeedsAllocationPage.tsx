@@ -8,14 +8,113 @@ import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
 
 // Direct structural/content port of the source app's reviewPage()
 // (index.html line 1040) — same 4 KPI cards, same verbatim collections
-// warning banner, same shared bulk-allocate toolbar and payments table as
-// paymentPage(). Only the visual implementation changes.
+// warning banner, same shared bulk-allocate toolbar, same
+// reviewRepeatGroups() "repeated payments" panel, and the same payments
+// table as paymentPage(). Only the visual implementation changes.
 
 function usd(value: number, compact = false): string {
   if (compact && Math.abs(value) >= 1000) {
     return `$${(value / 1000).toFixed(0)}K`;
   }
   return `$${Math.round(value).toLocaleString()}`;
+}
+
+type RepeatGroup = { key: string; label: string; ids: string[]; amount: number; count: number };
+
+// Direct port of the source's recurringGroups(): payments that share an
+// identical description across more than one distinct date (the same
+// payee charging repeatedly) — most such groups first, capped at 8, same
+// as the original's reviewRepeatGroups(tx).
+function recurringGroups(tx: FinanceLedgerRow[]): RepeatGroup[] {
+  const map = new Map<string, { label: string; ids: string[]; amount: number; dates: Set<string> }>();
+  for (const t of tx) {
+    const label = (t.description || "").trim();
+    if (!label) continue;
+    const key = label.toLowerCase();
+    const dateKey = new Date(t.date).toISOString().slice(0, 10);
+    const existing = map.get(key);
+    if (existing) {
+      existing.ids.push(t.id);
+      existing.amount += t.amount;
+      existing.dates.add(dateKey);
+    } else {
+      map.set(key, { label, ids: [t.id], amount: t.amount, dates: new Set([dateKey]) });
+    }
+  }
+  return Array.from(map.entries())
+    .filter(([, g]) => g.ids.length > 1 && g.dates.size > 1)
+    .map(([key, g]) => ({ key, label: g.label, ids: g.ids, amount: g.amount, count: g.ids.length }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+}
+
+function ReviewRepeatGroups({
+  tx,
+  selected,
+  setSelected,
+}: {
+  tx: FinanceLedgerRow[];
+  selected: Set<string>;
+  setSelected: (next: Set<string>) => void;
+}) {
+  const groups = useMemo(() => recurringGroups(tx), [tx]);
+  if (groups.length === 0) return null;
+
+  function toggleGroup(g: RepeatGroup, allSelected: boolean) {
+    const next = new Set(selected);
+    g.ids.forEach((id) => (allSelected ? next.delete(id) : next.add(id)));
+    setSelected(next);
+  }
+
+  return (
+    <section className="mb-4 rounded-xl border border-base-700 bg-base-900 p-4">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium text-ink-50">Repeated payments, select together</h3>
+          <p className="mt-1 max-w-xl text-[11px] text-ink-500">
+            Same description across different dates. Click Select matching to tick every matching unallocated
+            payment, including other pages. Always verify these are the same type of payment before assigning a cost
+            head.
+          </p>
+        </div>
+        <span className="rounded-full border border-base-700 px-2 py-0.5 text-[11px] font-medium text-ink-500">
+          {groups.length} frequent payees shown
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {groups.map((g) => {
+          const allSelected = g.ids.every((id) => selected.has(id));
+          return (
+            <div
+              key={g.key}
+              className={`flex items-center justify-between gap-2 rounded-lg border p-2.5 ${
+                allSelected ? "border-status-active/50 bg-status-active/10" : "border-base-700"
+              }`}
+            >
+              <div className="min-w-0">
+                <strong className="block truncate text-xs text-ink-50" title={g.label}>
+                  {g.label}
+                </strong>
+                <small className="text-[11px] text-ink-500">
+                  {g.count} payments · {usd(g.amount)}
+                </small>
+              </div>
+              <button
+                onClick={() => toggleGroup(g, allSelected)}
+                className={`shrink-0 rounded-lg border px-2 py-1 text-[11px] ${
+                  allSelected
+                    ? "border-status-active/50 bg-status-active/15 text-status-active"
+                    : "border-base-700 text-ink-300 hover:text-ink-50"
+                }`}
+              >
+                {allSelected ? "Remove" : "Select matching"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function Kpi({ title, value, detail, color }: { title: string; value: string; detail: string; color?: "amber" }) {
@@ -103,6 +202,8 @@ export function NeedsAllocationPage({
         managementCostHeads={managementCostHeads}
         onApplied={(ids) => removeClassified(ids)}
       />
+
+      <ReviewRepeatGroups tx={tx} selected={selected} setSelected={setSelected} />
 
       <PaymentsTable
         rows={tx}
