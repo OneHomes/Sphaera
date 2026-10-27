@@ -35,6 +35,7 @@ export async function getWeeklyBrief(year: number, departmentScope?: string[] | 
   const today = new Date();
   const weekStart = new Date(today.getTime() - 6 * 86400000);
   const recent = payments.filter((x) => {
+    if (!x.date) return false;
     const d = iso(new Date(x.date));
     return iso(weekStart) <= d && d <= iso(today);
   });

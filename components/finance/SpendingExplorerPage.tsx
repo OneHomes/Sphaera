@@ -414,7 +414,7 @@ export function SpendingExplorerPage({ state: rawState }: { state: FinanceState 
               <tbody>
                 {filteredTransactions.slice(0, 200).map((t) => (
                   <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                    <td className="px-3 py-1.5">{new Date(t.date).toLocaleDateString()}</td>
+                    <td className="px-3 py-1.5">{t.date ? new Date(t.date).toLocaleDateString() : t.month}</td>
                     <td className="max-w-[320px] truncate px-3 py-1.5" title={t.description}>
                       {t.description}
                     </td>

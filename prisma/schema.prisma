@@ -1104,7 +1104,7 @@ model FinanceTransaction {
   fingerprint    String
   occurrence     Int      @default(1)
   month          String // 'YYYY-MM'
-  paymentDate    DateTime
+  paymentDate    DateTime?
   description    String   @db.NVarChar(Max)
   originalCentre String?
   originalHead   String?

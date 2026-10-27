@@ -88,7 +88,7 @@ export function PaymentsTable({
                   </td>
                 )}
                 <td className="whitespace-nowrap px-3 py-2">
-                  {new Date(t.date).toLocaleDateString()}
+                  {t.date ? new Date(t.date).toLocaleDateString() : t.month}
                 </td>
                 <td
                   className="max-w-[320px] cursor-pointer px-3 py-2"

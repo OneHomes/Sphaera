@@ -583,7 +583,7 @@ export async function buildMerchantReviewExportRows(params: {
 
     rows.push({
       transactionId: t.id,
-      paymentDateIso: t.paymentDate.toISOString().slice(0, 10),
+      paymentDateIso: t.paymentDate ? t.paymentDate.toISOString().slice(0, 10) : "",
       supplier: reportingSupplier,
       description: t.description,
       paymentReference: t.paymentTrace?.paymentReference ?? "",
@@ -675,7 +675,7 @@ export async function validateImportRow(row: MerchantReviewImportRow): Promise<V
 
   // Immutable ERP/bank fields: amount (0.015 tolerance, matching the
   // source's rounding slack) and date.
-  const txDateIso = tx.paymentDate.toISOString().slice(0, 10);
+  const txDateIso = tx.paymentDate ? tx.paymentDate.toISOString().slice(0, 10) : "";
   if (row.paymentDateIso !== txDateIso || Math.abs((row.amountUsd || 0) - tx.amountUsd) > 0.015) {
     return { ...base, error: "Immutable amount or date changed, re-export the template" };
   }
@@ -1089,7 +1089,7 @@ export async function extractInvoiceFieldSuggestions(text: string): Promise<Invo
 
 export type InvoiceMatchCandidate = {
   transactionId: string;
-  paymentDate: Date;
+  paymentDate: Date | null;
   description: string;
   paymentAmountUsd: number;
   confidence: string;
@@ -1147,7 +1147,7 @@ export async function suggestPaymentMatchesForInvoice(invoice: {
 
     if (invoice.invoiceDateIso) {
       const invoiceDate = new Date(invoice.invoiceDateIso);
-      const days = Math.abs((invoiceDate.getTime() - t.paymentDate.getTime()) / 86400000);
+      const days = t.paymentDate ? Math.abs((invoiceDate.getTime() - t.paymentDate.getTime()) / 86400000) : NaN;
       if (Number.isFinite(days) && days > 120) continue;
     }
 
@@ -1173,7 +1173,7 @@ export async function suggestPaymentMatchesForInvoice(invoice: {
       rank,
     });
   }
-  return results.sort((a, b) => b.rank - a.rank || b.paymentDate.getTime() - a.paymentDate.getTime()).slice(0, 15);
+  return results.sort((a, b) => b.rank - a.rank || (b.paymentDate?.getTime() ?? 0) - (a.paymentDate?.getTime() ?? 0)).slice(0, 15);
 }
 
 export type LinkInvoiceResult =

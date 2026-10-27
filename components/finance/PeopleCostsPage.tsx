@@ -38,7 +38,7 @@ type Allocation = {
   updatedAt: string | Date;
   paymentDescription: string;
   month: string;
-  paymentDate: string | Date;
+  paymentDate: string | Date | null;
   paymentAmount: number;
   personName: string;
 };
@@ -51,7 +51,7 @@ type PersonCostState = {
 
 type PaymentOption = {
   id: string;
-  date: string | Date;
+  date: string | Date | null;
   month: string;
   head: string | null;
   description: string;
@@ -367,7 +367,7 @@ export function PeopleCostsPage({
   const history = useMemo(
     () =>
       [...filteredAllocations]
-        .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())
+        .sort((a, b) => new Date(b.paymentDate ?? 0).getTime() - new Date(a.paymentDate ?? 0).getTime())
         .slice(0, 200),
     [filteredAllocations]
   );
@@ -571,7 +571,7 @@ export function PeopleCostsPage({
             }
           >
             <p className="mb-3 text-xs text-ink-500">
-              {selectedPayment.id} · {new Date(selectedPayment.date).toLocaleDateString()} · Original amount:{" "}
+              {selectedPayment.id} · {selectedPayment.date ? new Date(selectedPayment.date).toLocaleDateString() : selectedPayment.month} · Original amount:{" "}
               {usd(selectedPayment.amount)}
             </p>
             <p className="mb-3 rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-300">
@@ -694,7 +694,7 @@ export function PeopleCostsPage({
               <tbody>
                 {history.map((h) => (
                   <tr key={h.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                    <td className="px-3 py-2">{new Date(h.paymentDate).toLocaleDateString()}</td>
+                    <td className="px-3 py-2">{h.paymentDate ? new Date(h.paymentDate).toLocaleDateString() : h.month}</td>
                     <td className="px-3 py-2 font-medium text-ink-50">{h.personName}</td>
                     <td className="px-3 py-2">{h.departmentSnapshot ?? "—"}</td>
                     <td className="px-3 py-2">{h.costType}</td>

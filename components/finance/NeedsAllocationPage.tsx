@@ -31,7 +31,7 @@ function recurringGroups(tx: FinanceLedgerRow[]): RepeatGroup[] {
     const label = (t.description || "").trim();
     if (!label) continue;
     const key = label.toLowerCase();
-    const dateKey = new Date(t.date).toISOString().slice(0, 10);
+    const dateKey = t.date ? new Date(t.date).toISOString().slice(0, 10) : "";
     const existing = map.get(key);
     if (existing) {
       existing.ids.push(t.id);

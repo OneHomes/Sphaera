@@ -190,7 +190,7 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
             <tbody>
               {table.map((x) => (
                 <tr key={x.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                  <td className="whitespace-nowrap px-3 py-2">{new Date(x.date).toLocaleDateString()}</td>
+                  <td className="whitespace-nowrap px-3 py-2">{x.date ? new Date(x.date).toLocaleDateString() : x.month}</td>
                   <td className="max-w-[320px] truncate px-3 py-2 text-ink-50" title={x.description}>
                     {x.description}
                   </td>

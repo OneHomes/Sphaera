@@ -459,7 +459,7 @@ export async function commitLedgerImport(params: {
         fingerprint: t.fingerprint,
         occurrence: occ,
         month: t.month,
-        paymentDate: t.date ? new Date(t.date) : new Date(`${t.month}-01`),
+        paymentDate: t.date ? new Date(t.date) : null,
         description: t.description,
         originalCentre: t.costCentre,
         originalHead: t.head,

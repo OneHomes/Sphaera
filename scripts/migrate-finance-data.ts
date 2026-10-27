@@ -158,7 +158,7 @@ async function main() {
       fingerprint: String(row.fingerprint),
       occurrence: Number(row.occurrence ?? 0),
       month: String(row.month),
-      paymentDate: toDate(row.payment_date) ?? new Date(),
+      paymentDate: toDate(row.payment_date),
       description: String(row.description ?? ""),
       originalCentre: row.original_centre ? String(row.original_centre) : null,
       originalHead: row.original_head ? String(row.original_head) : null,

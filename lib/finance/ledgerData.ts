@@ -11,7 +11,7 @@ import { logReversible, revisionItems } from "./changeJournal";
 export type FinanceLedgerRow = {
   id: string;
   month: string;
-  date: Date;
+  date: Date | null;
   description: string;
   costCentre: string | null;
   head: string | null;

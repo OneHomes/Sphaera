@@ -87,7 +87,7 @@ export function DataBackupsPage({
       lines.push(
         [
           t.month,
-          new Date(t.date).toISOString().slice(0, 10),
+          t.date ? new Date(t.date).toISOString().slice(0, 10) : "",
           csvEscape(t.description ?? ""),
           t.amount.toFixed(2),
           csvEscape(t.managementDepartment ?? ""),

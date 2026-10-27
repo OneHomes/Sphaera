@@ -49,7 +49,7 @@ function exportCsv(rows: FinanceLedgerRow[]) {
   const header = ["Date", "Description", "Department", "Cost head", "Amount USD", "Debt period"];
   const lines = rows.map((r) =>
     [
-      new Date(r.date).toISOString().slice(0, 10),
+      r.date ? new Date(r.date).toISOString().slice(0, 10) : "",
       r.description,
       r.managementDepartment ?? "Unclassified",
       r.managementCostHead ?? "",
