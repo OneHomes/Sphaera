@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
+import { getFinanceFilterOptions } from "@/lib/finance/ledgerData";
 import { FinanceShell } from "@/components/finance/FinanceShell";
 
 export const dynamic = "force-dynamic";
@@ -26,8 +27,14 @@ export default async function FinanceLayout({ children }: { children: React.Reac
       );
     }
 
+    const filterOptions = await getFinanceFilterOptions();
+
     return (
-      <FinanceShell canAccessFinancePayroll={authUser.canAccessFinancePayroll} isAdmin={authUser.role === "ADMIN"}>
+      <FinanceShell
+        canAccessFinancePayroll={authUser.canAccessFinancePayroll}
+        isAdmin={authUser.role === "ADMIN"}
+        filterOptions={filterOptions}
+      >
         {children}
       </FinanceShell>
     );

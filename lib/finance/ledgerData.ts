@@ -51,6 +51,7 @@ export type FinanceLedgerRow = {
   sourceSheet: string | null;
   sourceRow: number | null;
   sourceFile: string | null;
+  country: string | null;
 };
 
 export type FinanceState = {
@@ -187,6 +188,7 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
       sourceSheet: t.sourceSheet,
       sourceRow: t.sourceRow,
       sourceFile: t.sourceFile,
+      country: t.country,
     };
   });
 
@@ -202,6 +204,51 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
     managementCostHeads: managementCostHeadRows.map((h) => h.name),
     legacyMappings,
     classifications: await prisma.financeAllocation.count(),
+  };
+}
+
+export type FinanceFilterOptions = {
+  months: string[];
+  countries: string[];
+  departments: string[];
+  fyYears: number[];
+};
+
+/** FY runs November–October, matching every other fiscal-year calculation in this port. */
+export function fyOf(month: string): number {
+  const [y, m] = month.split("-").map(Number);
+  return m >= 11 ? y : y - 1;
+}
+
+/**
+ * Cheap distinct-value lookups for the global Finance filter bar (Financial
+ * year / From month / To month / Department / Country / Search payments) —
+ * direct equivalent of the source's renderTop(), which derives these same
+ * lists from the full in-memory DATA.transactions. Deliberately NOT the
+ * full getFinanceState() mega-join: the filter bar is rendered on every
+ * Finance page via the shared layout, so this stays a handful of indexed
+ * distinct-column reads instead of re-running the whole ledger join twice
+ * per navigation.
+ */
+export async function getFinanceFilterOptions(): Promise<FinanceFilterOptions> {
+  const [monthRows, countryRows, departmentRows] = await Promise.all([
+    prisma.financeTransaction.findMany({ distinct: ["month"], select: { month: true }, orderBy: { month: "asc" } }),
+    prisma.financeTransaction.findMany({
+      distinct: ["country"],
+      select: { country: true },
+      where: { country: { not: null } },
+    }),
+    prisma.financeManagementDepartment.findMany({ orderBy: { name: "asc" }, select: { name: true } }),
+  ]);
+
+  const months = monthRows.map((r) => r.month);
+  const fyYears = Array.from(new Set([2025, 2026, 2027, ...months.map(fyOf)])).sort((a, b) => b - a);
+
+  return {
+    months,
+    countries: countryRows.map((r) => r.country as string).sort(),
+    departments: departmentRows.map((r) => r.name),
+    fyYears,
   };
 }
 

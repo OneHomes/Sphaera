@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   PieChart,
@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
+import { useFilteredFinanceRows } from "./FinanceFilterContext";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 
 // Direct structural/content port of the source app's Spending Explorer
@@ -66,8 +67,14 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
   );
 }
 
-export function SpendingExplorerPage({ state }: { state: FinanceState }) {
+export function SpendingExplorerPage({ state: rawState }: { state: FinanceState }) {
+  // Scoped by the global Finance filter bar — spendingExplorer() in the
+  // source app calls filt() first, exactly like this.
+  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
   const [rows, setRows] = useState(state.transactions);
+  useEffect(() => {
+    setRows(state.transactions);
+  }, [state.transactions]);
   const [paymentView, setPaymentView] = useState<PaymentView>("operating");
   const [department, setDepartment] = useState<string | null>(null);
   const [centre, setCentre] = useState<string | null>(null);

@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
+import { useFilteredFinanceRows } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 
 // Direct structural/content port of the source app's headPage() (server
@@ -86,7 +87,10 @@ function groupForDonut(rows: { key: string; value: number }[], otherLabel: strin
   return [...largest, ...other];
 }
 
-export function CostHeadsPage({ state }: { state: FinanceState }) {
+export function CostHeadsPage({ state: rawState }: { state: FinanceState }) {
+  // Scoped by the global Finance filter bar — headPage() in the source app
+  // calls filt() first, exactly like this.
+  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
   const [selectedHead, setSelectedHead] = useState<string | null>(null);
   const [compareHeads, setCompareHeads] = useState<Set<string>>(new Set());
   const tableRef = useRef<HTMLDivElement>(null);

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 import { ClassifyModal } from "./ClassifyModal";
 import { PaymentsTable } from "./PaymentsTable";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
+import { useFilteredFinanceRows } from "./FinanceFilterContext";
 
 // Direct structural/content port of the source app's reviewPage()
 // (index.html line 1040) — same 4 KPI cards, same verbatim collections
@@ -130,7 +131,7 @@ function Kpi({ title, value, detail, color }: { title: string; value: string; de
 }
 
 export function NeedsAllocationPage({
-  transactions,
+  transactions: allTransactions,
   departments,
   managementCostHeads,
   costHeads,
@@ -140,7 +141,13 @@ export function NeedsAllocationPage({
   managementCostHeads: string[];
   costHeads: FinanceState["costHeads"];
 }) {
+  // Scoped by the global Finance filter bar — reviewPage() in the source
+  // app resolves its rows via txSelection(), which calls filt() first.
+  const transactions = useFilteredFinanceRows(allTransactions);
   const [rows, setRows] = useState(transactions);
+  useEffect(() => {
+    setRows(transactions);
+  }, [transactions]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pageIds, setPageIds] = useState<string[]>([]);
   const [classifyTarget, setClassifyTarget] = useState<FinanceLedgerRow | null>(null);

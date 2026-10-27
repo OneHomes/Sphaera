@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Plus, Calculator, CheckCircle2, Network } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { PaymentsTable } from "./PaymentsTable";
+import { useFilteredFinanceRows } from "./FinanceFilterContext";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 
 type PaymentSource = {
@@ -116,7 +117,7 @@ function emptyUserDraft(): UserDraft {
 
 export function PaymentTraceabilityPage({
   state,
-  transactions,
+  transactions: allTransactions,
   departments,
   costHeads,
 }: {
@@ -125,6 +126,10 @@ export function PaymentTraceabilityPage({
   departments: string[];
   costHeads: string[];
 }) {
+  // Scoped by the global Finance filter bar (Financial year / From month /
+  // To month / Department / Country / Search payments) — tracePage() in
+  // the source app calls filt() first, exactly like this.
+  const transactions = useFilteredFinanceRows(allTransactions);
   const [sources, setSources] = useState(state.paymentSources);
   const [subscriptions, setSubscriptions] = useState(state.subscriptions);
   const [subscriptionUsers, setSubscriptionUsers] = useState(state.subscriptionUsers);

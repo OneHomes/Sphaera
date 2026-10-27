@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 import { ClassifyModal } from "./ClassifyModal";
 import { DisputeModal } from "./DisputeModal";
 import { PaymentsTable } from "./PaymentsTable";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
+import { useFilteredFinanceRows } from "./FinanceFilterContext";
 
 // Direct structural/content port of the source app's paymentPage()
 // (index.html line 1039) — same "Show" filter, same drilldown chip, same
@@ -71,7 +72,7 @@ function exportCsv(rows: FinanceLedgerRow[]) {
 }
 
 export function AllPaymentsPage({
-  transactions,
+  transactions: allTransactions,
   departments,
   managementCostHeads,
   costHeads,
@@ -83,7 +84,13 @@ export function AllPaymentsPage({
   costHeads: FinanceState["costHeads"];
   initialDepartmentFilter?: string | null;
 }) {
+  // Scoped by the global Finance filter bar — paymentPage() in the source
+  // app resolves its rows via txSelection(), which calls filt() first.
+  const transactions = useFilteredFinanceRows(allTransactions);
   const [rows, setRows] = useState(transactions);
+  useEffect(() => {
+    setRows(transactions);
+  }, [transactions]);
   const [mode, setMode] = useState<ShowMode>("all");
   const [drillDepartment, setDrillDepartment] = useState<string | null>(initialDepartmentFilter ?? null);
   const [selected, setSelected] = useState<Set<string>>(new Set());

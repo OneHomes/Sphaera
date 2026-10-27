@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useFilteredFinanceRows } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 
 // Direct structural/content port of the source app's debtPage() (server
@@ -51,7 +52,10 @@ const PERIOD_BADGE: Record<string, string> = {
   older: "bg-[#7965bd]/15 text-[#7965bd]",
 };
 
-export function HistoricalDebtPage({ state }: { state: FinanceState }) {
+export function HistoricalDebtPage({ state: rawState }: { state: FinanceState }) {
+  // Scoped by the global Finance filter bar — debtPage() in the source app
+  // calls filt() first, exactly like this.
+  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
   const [headFilter, setHeadFilter] = useState<string | null>(null);
 

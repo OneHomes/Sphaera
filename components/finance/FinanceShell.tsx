@@ -1,8 +1,11 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { FinanceFilterProvider } from "./FinanceFilterContext";
+import { FinanceFilterBar } from "./FinanceFilterBar";
+import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
 import {
   LayoutDashboard,
   PieChart,
@@ -99,10 +102,12 @@ export function FinanceShell({
   children,
   canAccessFinancePayroll,
   isAdmin,
+  filterOptions,
 }: {
   children: React.ReactNode;
   canAccessFinancePayroll: boolean;
   isAdmin: boolean;
+  filterOptions: FinanceFilterOptions;
 }) {
   const pathname = usePathname();
   const [banksOpen, setBanksOpen] = useState(
@@ -153,7 +158,14 @@ export function FinanceShell({
           );
         })}
       </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <Suspense fallback={null}>
+          <FinanceFilterProvider>
+            <FinanceFilterBar options={filterOptions} />
+            {children}
+          </FinanceFilterProvider>
+        </Suspense>
+      </div>
     </div>
   );
 }

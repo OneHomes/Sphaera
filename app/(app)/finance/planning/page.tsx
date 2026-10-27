@@ -27,13 +27,7 @@ export default async function FinancePlanningRoute() {
         targets={targets}
         departments={financeState.departments}
         costHeads={financeState.managementCostHeads}
-        transactions={financeState.transactions.map((t) => ({
-          managementDepartment: t.managementDepartment,
-          managementCostHead: t.managementCostHead,
-          amount: t.amount,
-          month: t.month,
-          debtPeriod: t.debtPeriod,
-        }))}
+        transactions={financeState.transactions}
       />
     );
   });

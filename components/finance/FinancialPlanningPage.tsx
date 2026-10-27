@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { useFilteredFinanceRows } from "./FinanceFilterContext";
+import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 
 type PlanRow = {
   id: string;
@@ -31,13 +33,7 @@ type PlanRow = {
 type PlanLineRow = { id: string; planId: string; month: string; department: string; costHead: string; budgetUsd: number };
 type PlanTargetRow = { id: string; planId: string; month: string; salesTargetUsd: number; collectionsTargetUsd: number };
 
-type TransactionRow = {
-  managementDepartment: string | null;
-  managementCostHead: string | null;
-  amount: number;
-  month: string;
-  debtPeriod: string;
-};
+type TransactionRow = FinanceLedgerRow;
 
 type BudgetRowDraft = { department: string; costHead: string; annualBudgetUsd: string };
 
@@ -123,7 +119,7 @@ export function FinancialPlanningPage({
   targets: initialTargets,
   departments,
   costHeads,
-  transactions,
+  transactions: allTransactions,
 }: {
   plans: PlanRow[];
   lines: PlanLineRow[];
@@ -133,6 +129,9 @@ export function FinancialPlanningPage({
   transactions: TransactionRow[];
 }) {
   const router = useRouter();
+  // Scoped by the global Finance filter bar — financialPlanningPage() in
+  // the source app calls filt() first, exactly like this.
+  const transactions = useFilteredFinanceRows(allTransactions);
   const [plans, setPlans] = useState<PlanRow[]>(initialPlans);
   const [lines, setLines] = useState<PlanLineRow[]>(initialLines);
   const [targets, setTargets] = useState<PlanTargetRow[]>(initialTargets);

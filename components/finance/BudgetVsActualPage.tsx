@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 
 // Direct structural/content port of the source app's budgetPage() (server
@@ -11,11 +12,7 @@ import type { FinanceState } from "@/lib/finance/ledgerData";
 // Action), same "Largest monthly overruns" / "Months below budget" split
 // panels, same closing notice banner verbatim. Only the visual
 // implementation (Sphaera's WidgetCard-less panel/Tailwind) replaces the
-// original's bespoke CSS — this is a re-skin, not a redesign. The global
-// head/country/query filter bar from the source isn't ported (Finance
-// pages here don't share that filter state), so the "clear filters for a
-// complete comparison" warning banner, which only fires when those filters
-// are active, never applies and is intentionally omitted.
+// original's bespoke CSS — this is a re-skin, not a redesign.
 
 function usd(value: number | null, compact = false): string {
   if (value === null) return "Not available";
@@ -69,7 +66,15 @@ type MonthRow = {
   awaitingActuals: boolean;
 };
 
-export function BudgetVsActualPage({ state }: { state: FinanceState }) {
+export function BudgetVsActualPage({ state: rawState }: { state: FinanceState }) {
+  // Scoped by the global Finance filter bar — budgetPage() in the source
+  // app calls filt() first, exactly like this.
+  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
+  const { filters } = useFinanceFilters();
+  // Direct port of the source's budgetOk() — department-level comparisons
+  // use approved cost-head budgets, but country/keyword filters can't be
+  // reliably matched to a budget, so the comparison warns when they're set.
+  const budgetOk = filters.country === "all" && !filters.query.trim();
   const activeDepartments = new Set(state.departments);
   const isOperating = (t: FinanceState["transactions"][number]) =>
     Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
@@ -117,6 +122,13 @@ export function BudgetVsActualPage({ state }: { state: FinanceState }) {
           Overspending is shown in red, savings in green. Select any month for all underlying payments.
         </p>
       </div>
+
+      {!budgetOk && (
+        <div className="mb-4 rounded-xl border border-tier-gold/30 bg-tier-gold/10 p-3 text-xs text-tier-gold">
+          Department-level comparisons use approved cost-head budgets. Country or keyword filters cannot be matched
+          to budgets reliably, so clear them for a complete comparison.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi

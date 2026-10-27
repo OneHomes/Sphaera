@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import Link from "next/link";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 
 type OverheadRule = { costHead: string; costNature: string; costBehaviour: string };
@@ -75,7 +76,20 @@ function Kpi({
   );
 }
 
-export function OverviewPage({ state, overheadRules }: { state: FinanceState; overheadRules: OverheadRule[] }) {
+export function OverviewPage({
+  state: rawState,
+  overheadRules,
+}: {
+  state: FinanceState;
+  overheadRules: OverheadRule[];
+}) {
+  // Scoped by the global Finance filter bar — overview() in the source app
+  // calls filt() first, exactly like this.
+  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
+  const { filters } = useFinanceFilters();
+  // Direct port of the source's budgetOk() — country/keyword filters can't
+  // be reliably matched to the company-wide monthly budget figures.
+  const budgetOk = filters.country === "all" && !filters.query.trim();
   const [fixedDept, setFixedDept] = useState<string>("all");
 
   const activeDepartments = new Set(state.departments);
@@ -168,9 +182,9 @@ export function OverviewPage({ state, overheadRules }: { state: FinanceState; ov
           title="Operating budget variance"
           value={budgetedMonths.length ? `${variance >= 0 ? "+" : ""}${usd(variance, true)}` : "Not available"}
           detail={
-            budgetedMonths.length
+            budgetOk
               ? `${budgetedMonths.length} months with actual budgets, ${variance > 0 ? "over" : "under"} budget`
-              : "No comparable months with both an actual and a budget yet"
+              : "Clear head/country filters for a total budget comparison"
           }
           color={variance > 0 ? "red" : "teal"}
           href="/finance/budget"
@@ -237,7 +251,7 @@ export function OverviewPage({ state, overheadRules }: { state: FinanceState; ov
         </WidgetCard>
 
         <WidgetCard
-          title="Where the current-year classified money goes"
+          title={filters.department !== "all" ? `Where ${filters.department} spending goes` : "Where the current-year classified money goes"}
           action={
             <Link href="/finance/explorer" className="text-[11px] text-ink-300 hover:text-ink-50">
               Open explorer ↗
