@@ -1,32 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
-import { useFilteredFinanceRows } from "./FinanceFilterContext";
+import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
+import { DonutWidget } from "./DonutWidget";
+import { ChartPicker, selectionAllows } from "./ChartPicker";
+import { useTablePager } from "./TablePager";
+import { effectiveCentre, effectiveHead, isOperating } from "@/lib/finance/financeReporting";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 
-// Direct structural/content port of the source app's headPage() (server
-// render function, index.html line 1036) — "Every cost head, with full
-// drilldown". Same 4 KPI cards (same titles/formulas/detail copy), same
-// donut-of-spend widget that switches from a by-head to a by-centre
-// breakdown once a head is selected, and the same table of cost heads with
-// transaction count / total ledger value / historical debt / top-3 cost
-// centres as clickable buttons. The source's "head"/"centre" vocabulary
-// maps onto this port's managementDepartment/managementCostHead fields
-// (see the source's effectiveHead()/effectiveCentre() helpers), matching
-// the convention already established in OverviewPage.tsx. Only the visual
-// implementation (recharts donut, Tailwind table) replaces the original's
-// bespoke SVG doughnut/CSS — this is a re-skin, not a redesign.
-//
-// The source's multi-select "chartPicker" (tick several heads to compare
-// combined spend, data-pick-head checkboxes) is ported below as a
-// self-contained comparison panel rather than the original's popup/dropdown
-// control — same tick-multiple-heads-to-compare behaviour, feeding a small
-// combined-total summary, without disturbing the single click-to-drill
-// donut/table interaction already in place.
-
-const DONUT_COLORS = ["#009c91", "#2d6c85", "#e9a14b", "#8167b8", "#6ab4cc", "#d66b6e", "#8dad67", "#d9b95c", "#b4bed1"];
+// Port of the source headPage().
 
 function usd(value: number, compact = false): string {
   if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
@@ -34,220 +17,97 @@ function usd(value: number, compact = false): string {
   return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
-function Kpi({
-  title,
-  value,
-  detail,
-  color,
-  href,
-  onClick,
-}: {
-  title: string;
-  value: string;
-  detail: string;
-  color?: "purple";
-  href?: string;
-  onClick?: () => void;
-}) {
-  const colorClass = color === "purple" ? "text-[#7965bd]" : "text-ink-50";
-  const content = (
-    <div className="rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
-      <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
+function Kpi({ title, value, detail, purple, href }: { title: string; value: string; detail: string; purple?: boolean; href: string }) {
+  return (
+    <Link href={href} className="relative block rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
+      <span className="absolute right-3 top-3 text-xs text-ink-500">↗</span>
+      <h4 className="pr-4 text-[11px] text-ink-500">{title}</h4>
+      <div className={`mt-1 text-xl font-semibold ${purple ? "text-[#8167b8]" : "text-ink-50"}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
-    </div>
+    </Link>
   );
-  if (href) {
-    return (
-      <Link href={href} className="block text-left">
-        {content}
-      </Link>
-    );
-  }
-  if (onClick) {
-    return (
-      <button type="button" onClick={onClick} className="block w-full text-left">
-        {content}
-      </button>
-    );
-  }
-  return content;
 }
 
-// groupCosts() + the top-8-plus-"Other" bucketing from the source's
-// donutWidget() (index.html ~line 784-789): proportions are based on
-// positive net costs only, with the smallest entries folded into "Other".
-function groupForDonut(rows: { key: string; value: number }[], otherLabel: string) {
-  const positives = rows.filter((r) => r.value > 0);
-  const largest = positives.slice(0, 8);
-  const remaining = positives.slice(8);
-  const other = remaining.length
-    ? [{ key: otherLabel, value: remaining.reduce((s, r) => s + r.value, 0) }]
-    : [];
-  return [...largest, ...other];
-}
+const explorerHref = (department: string, centre?: string) =>
+  `/finance/explorer?department=${encodeURIComponent(department)}${centre ? `&centre=${encodeURIComponent(centre)}` : ""}`;
 
 export function CostHeadsPage({ state: rawState }: { state: FinanceState }) {
-  // Scoped by the global Finance filter bar — headPage() in the source app
-  // calls filt() first, exactly like this.
-  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
-  const [selectedHead, setSelectedHead] = useState<string | null>(null);
-  const [compareHeads, setCompareHeads] = useState<Set<string>>(new Set());
-  const tableRef = useRef<HTMLDivElement>(null);
+  const source = useFilteredFinanceRows(rawState.transactions);
+  const { filters } = useFinanceFilters();
+  const [selectedHeads, setSelectedHeads] = useState<Set<string> | null>(null);
 
-  const activeDepartments = new Set(state.departments);
-  const isOperating = (t: FinanceState["transactions"][number]) =>
-    Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
+  const pickerRows = useMemo(() => {
+    const m = new Map<string, { value: number; count: number }>();
+    for (const t of source) {
+      const k = effectiveHead(t);
+      const e = m.get(k) ?? { value: 0, count: 0 };
+      e.value += t.amount;
+      e.count += 1;
+      m.set(k, e);
+    }
+    return Array.from(m.entries())
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => b.value - a.value);
+  }, [source]);
 
-  const tx = state.transactions;
+  const tx = useMemo(() => source.filter((t) => selectionAllows(selectedHeads, effectiveHead(t))), [source, selectedHeads]);
 
-  const byHead = useMemo(() => {
-    const m = new Map<
-      string,
-      { total: number; debt: number; count: number; centres: Map<string, number> }
-    >();
+  const list = useMemo(() => {
+    const by = new Map<string, { total: number; debt: number; count: number; cent: Map<string, number> }>();
     for (const t of tx) {
-      const head = t.managementDepartment || "Unallocated";
-      const centre = t.managementCostHead || "Needs allocation";
-      if (!m.has(head)) m.set(head, { total: 0, debt: 0, count: 0, centres: new Map() });
-      const h = m.get(head)!;
+      const head = effectiveHead(t);
+      const h = by.get(head) ?? { total: 0, debt: 0, count: 0, cent: new Map<string, number>() };
       h.total += t.amount;
       h.count += 1;
       if (t.debtPeriod !== "current") h.debt += t.amount;
-      h.centres.set(centre, (h.centres.get(centre) ?? 0) + t.amount);
+      h.cent.set(effectiveCentre(t), (h.cent.get(effectiveCentre(t)) ?? 0) + t.amount);
+      by.set(head, h);
     }
-    return Array.from(m.entries()).sort((a, b) => b[1].total - a[1].total);
+    return Array.from(by.entries()).sort((a, b) => b[1].total - a[1].total);
   }, [tx]);
 
-  const headDonutData = useMemo(
-    () => groupForDonut(byHead.map(([key, g]) => ({ key, value: g.total })), "Other heads"),
-    [byHead]
-  );
+  const byCentre = filters.department !== "all";
+  const donutRows = useMemo(() => {
+    const m = new Map<string, { value: number; count: number }>();
+    for (const t of tx) {
+      const k = byCentre ? effectiveCentre(t) : effectiveHead(t);
+      const e = m.get(k) ?? { value: 0, count: 0 };
+      e.value += t.amount;
+      e.count += 1;
+      m.set(k, e);
+    }
+    return Array.from(m.entries()).map(([name, v]) => ({ name, ...v }));
+  }, [tx, byCentre]);
 
-  const centreDonutData = useMemo(() => {
-    if (!selectedHead) return [];
-    const entry = byHead.find(([key]) => key === selectedHead);
-    if (!entry) return [];
-    const rows = Array.from(entry[1].centres.entries()).map(([key, value]) => ({ key, value }));
-    rows.sort((a, b) => b.value - a.value);
-    return groupForDonut(rows, "Other cost centres");
-  }, [byHead, selectedHead]);
-
-  const donutData = selectedHead ? centreDonutData : headDonutData;
-  const allMovements = tx.reduce((s, t) => s + t.amount, 0);
-  const currentOperating = tx.filter(isOperating).reduce((s, t) => s + t.amount, 0);
-  const historicalDebt = tx.filter((t) => t.debtPeriod !== "current").reduce((s, t) => s + t.amount, 0);
+  const { pageRows, pager } = useTablePager(list);
+  const sum = (rows: typeof tx) => rows.reduce((s, t) => s + t.amount, 0);
 
   return (
     <div className="p-6">
       <div className="mb-5">
         <h1 className="text-xl font-semibold text-ink-50">Every cost head, with full drilldown</h1>
         <p className="mt-1 text-sm text-ink-500">
-          Click a category to inspect individual payments. Historic debt remains against its original cost head but
-          is separately identified.
+          Click a category to inspect individual payments. Historic debt remains against its original cost head but is
+          separately identified.
         </p>
       </div>
 
-      <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-medium text-ink-50">Compare cost heads</h3>
-            <p className="mt-0.5 text-[11px] text-ink-500">
-              Tick several entries to compare their combined spending.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
-              {compareHeads.size} of {byHead.length} selected
-            </span>
-            <button
-              type="button"
-              onClick={() => setCompareHeads(new Set(byHead.map(([key]) => key)))}
-              className="rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-800"
-            >
-              Select all
-            </button>
-            <button
-              type="button"
-              onClick={() => setCompareHeads(new Set())}
-              className="rounded-lg border border-base-700 px-2 py-1 text-[11px] text-ink-300 hover:bg-base-800"
-            >
-              Clear all
-            </button>
-          </div>
-        </div>
-        <div className="grid max-h-56 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
-          {byHead.map(([key, g]) => (
-            <label
-              key={key}
-              className="flex items-center gap-2 rounded-lg border border-base-800 px-2.5 py-1.5 text-xs text-ink-300 hover:border-base-700"
-            >
-              <input
-                type="checkbox"
-                checked={compareHeads.has(key)}
-                onChange={() => {
-                  setCompareHeads((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(key)) next.delete(key);
-                    else next.add(key);
-                    return next;
-                  });
-                }}
-              />
-              <span className="truncate">
-                {key} <span className="text-ink-500">({usd(g.total, true)})</span>
-              </span>
-            </label>
-          ))}
-          {byHead.length === 0 && <p className="text-[11px] text-ink-500">No cost heads available for these filters.</p>}
-        </div>
-        {compareHeads.size > 0 && (
-          <div className="mt-3 rounded-lg border border-base-700 bg-base-800 p-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-ink-300">
-                Combined spend across {compareHeads.size} selected head{compareHeads.size === 1 ? "" : "s"}
-              </span>
-              <span className="font-semibold text-ink-50">
-                {usd(byHead.filter(([key]) => compareHeads.has(key)).reduce((s, [, g]) => s + g.total, 0))}
-              </span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {byHead
-                .filter(([key]) => compareHeads.has(key))
-                .map(([key, g]) => (
-                  <span key={key} className="rounded-full border border-base-700 px-2 py-0.5 text-[11px] text-ink-300">
-                    {key} ({usd(g.total, true)})
-                  </span>
-                ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <ChartPicker title="Select departments" rows={pickerRows} selected={selectedHeads} onChange={setSelectedHeads} />
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi
-          title="Cost heads"
-          value={String(byHead.length)}
-          detail="Recorded account-head categories"
-          onClick={() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-        />
-        <Kpi
-          title="All movements"
-          value={usd(allMovements, true)}
-          detail="Includes costs, transfers and other movements"
-          href="/finance/payments"
-        />
+        <Kpi title="Cost heads" value={String(list.length)} detail="Recorded account-head categories" href="/finance/cost-heads" />
+        <Kpi title="All movements" value={usd(sum(tx), true)} detail="Includes costs, transfers and other movements" href="/finance/payments" />
         <Kpi
           title="Current operating"
-          value={usd(currentOperating, true)}
+          value={usd(sum(tx.filter((t) => isOperating(t, rawState.departments))), true)}
           detail="Excludes marked historical debt"
-          href="/finance/payments"
+          href="/finance/payments?mode=operating"
         />
         <Kpi
           title="Historical debt"
-          value={usd(historicalDebt, true)}
+          value={usd(sum(tx.filter((t) => t.debtPeriod !== "current")), true)}
           detail="Marked payments across all heads"
-          color="purple"
+          purple
           href="/finance/historical-debt"
         />
       </div>
@@ -255,115 +115,68 @@ export function CostHeadsPage({ state: rawState }: { state: FinanceState }) {
       <div className="mt-4 rounded-xl border border-base-700 bg-base-900 p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-medium text-ink-50">
-            {selectedHead ? `Cost centres within ${selectedHead}` : "Cost heads, visual breakdown"}
+            {byCentre ? `Cost centres within ${filters.department}` : "Cost heads, visual breakdown"}
           </h3>
-          <div className="flex items-center gap-2">
-            {selectedHead && (
-              <button
-                onClick={() => setSelectedHead(null)}
-                className="rounded-full border border-base-700 px-2 py-0.5 text-[11px] text-ink-300 hover:text-ink-50"
-              >
-                Clear selection ×
-              </button>
-            )}
-            <Link href="/finance/explorer" className="text-[11px] text-ink-300 hover:text-ink-50">
-              Open full explorer ↗
-            </Link>
-          </div>
+          <Link href="/finance/explorer" className="rounded-lg border border-base-700 px-2.5 py-1 text-[11px] text-ink-300 hover:text-ink-50">
+            Open full explorer ↗
+          </Link>
         </div>
-        {donutData.length === 0 ? (
-          <p className="text-[11px] text-ink-500">
-            There is no spending in this selection. Change the filters above.
-          </p>
-        ) : (
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie
-                data={donutData}
-                dataKey="value"
-                nameKey="key"
-                innerRadius={55}
-                outerRadius={85}
-                onClick={(entry: unknown) => {
-                  const e = entry as { key?: string; payload?: { key?: string } };
-                  const key = e?.payload?.key ?? e?.key;
-                  if (!selectedHead && key && key !== "Other heads") setSelectedHead(key);
-                }}
-                className={selectedHead ? "" : "cursor-pointer"}
-              >
-                {donutData.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
-                formatter={(value, name) => [usd(Number(value ?? 0)), String(name)]}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        )}
-        <p className="mt-2 text-[11px] text-ink-500">
-          Click a doughnut slice to see where the money goes, right down to each payment.
-        </p>
+        <DonutWidget
+          wide
+          rows={donutRows}
+          otherLabel={byCentre ? "Other cost centres" : "Other heads"}
+          hrefFor={(name) => (byCentre ? explorerHref(filters.department, name) : explorerHref(name))}
+        />
       </div>
 
-      <div ref={tableRef} className="mt-4 overflow-x-auto rounded-xl border border-base-700">
-        <table className="w-full text-left text-xs">
-          <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-            <tr>
-              <th className="px-3 py-2">Account head</th>
-              <th className="px-3 py-2 text-right">Transactions</th>
-              <th className="px-3 py-2 text-right">Total ledger value</th>
-              <th className="px-3 py-2 text-right">Historical debt</th>
-              <th className="px-3 py-2">Cost centres</th>
-            </tr>
-          </thead>
-          <tbody>
-            {byHead.map(([key, g]) => {
-              const topCentres = Array.from(g.centres.entries()).sort((a, b) => b[1] - a[1]);
-              return (
-                <tr key={key} className="border-b border-base-800 text-ink-300 last:border-0 align-top">
-                  <td className="px-3 py-2">
-                    <button
-                      onClick={() => setSelectedHead(selectedHead === key ? null : key)}
-                      className={`font-medium hover:underline ${selectedHead === key ? "text-ink-50" : "text-ink-300"}`}
-                    >
-                      {key}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 text-right">{g.count}</td>
-                  <td className="px-3 py-2 text-right">{usd(g.total)}</td>
-                  <td className="px-3 py-2 text-right">{usd(g.debt)}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1.5">
-                      {topCentres.slice(0, 3).map(([centre, amount]) => (
-                        <button
-                          key={centre}
-                          onClick={() => setSelectedHead(key)}
-                          className="rounded-full border border-base-700 px-2 py-0.5 text-[11px] text-ink-300 hover:text-ink-50"
-                        >
-                          {centre} ({usd(amount, true)})
-                        </button>
-                      ))}
-                      {topCentres.length > 3 && (
-                        <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-500">
-                          +{topCentres.length - 3} more
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {byHead.length === 0 && (
+      <div className="mt-4 rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="overflow-x-auto rounded-xl border border-base-700">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-base-700 bg-base-900 text-ink-500">
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-ink-500">
-                  No cost heads recorded yet.
-                </td>
+                <th className="px-3 py-2">Account head</th>
+                <th className="px-3 py-2 text-right">Transactions</th>
+                <th className="px-3 py-2 text-right">Total ledger value</th>
+                <th className="px-3 py-2 text-right">Historical debt</th>
+                <th className="px-3 py-2">Cost centres</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {pageRows.map(([key, g]) => {
+                const centres = Array.from(g.cent.entries()).sort((a, b) => b[1] - a[1]);
+                return (
+                  <tr key={key} className="border-b border-base-800 align-top text-ink-300 last:border-0">
+                    <td className="px-3 py-2">
+                      <Link href={explorerHref(key)} className="font-medium text-ink-50 hover:underline">
+                        {key}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-right">{g.count}</td>
+                    <td className="px-3 py-2 text-right">{usd(g.total)}</td>
+                    <td className="px-3 py-2 text-right">{usd(g.debt)}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {centres.slice(0, 3).map(([centre, amount]) => (
+                          <Link
+                            key={centre}
+                            href={explorerHref(key, centre)}
+                            className="rounded-full border border-base-700 px-2 py-0.5 text-[11px] text-ink-300 hover:text-ink-50"
+                          >
+                            {centre} ({usd(amount, true)})
+                          </Link>
+                        ))}
+                        {centres.length > 3 && (
+                          <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-500">+{centres.length - 3} more</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {pager}
+        </div>
       </div>
     </div>
   );
