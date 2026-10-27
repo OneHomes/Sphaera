@@ -7,7 +7,7 @@ import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { DisputeModal } from "./DisputeModal";
 
 function usd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 function Kpi({

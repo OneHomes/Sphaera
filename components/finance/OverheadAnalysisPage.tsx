@@ -41,7 +41,7 @@ type CategoryFilter = "all" | "overhead" | "direct" | "balance" | "review" | "un
 type BehaviourFilter = "all" | "fixed" | "variable" | "mixed" | "oneoff" | "na";
 
 function usd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 /** Mirrors lib/finance/peopleOverheadsData.ts's overheadPair() for client-side UX. */

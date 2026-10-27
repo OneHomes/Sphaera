@@ -12,7 +12,7 @@ import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 const MAX_BULK_PAYMENTS = 5000;
 
 function usd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 export function BulkPaymentToolbar({

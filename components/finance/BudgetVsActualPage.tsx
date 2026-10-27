@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
+import { budgetOk as budgetOkFor, mo, monthlyNumbers, relevantMonths } from "@/lib/finance/financeReporting";
 
 // Direct structural/content port of the source app's budgetPage() (server
 // render function, index.html line 1035) — same 4 KPI cards (same titles/
@@ -18,13 +19,7 @@ function usd(value: number | null, compact = false): string {
   if (value === null) return "Not available";
   if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `$${Math.round(value).toLocaleString()}`;
-}
-
-function mo(month: string): string {
-  if (!month) return "";
-  const [y, m] = month.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 function Kpi({
@@ -32,11 +27,13 @@ function Kpi({
   value,
   detail,
   color,
+  href,
 }: {
   title: string;
   value: string;
   detail: string;
   color?: "teal" | "red" | "amber";
+  href: string;
 }) {
   const colorClass =
     color === "teal"
@@ -47,65 +44,34 @@ function Kpi({
           ? "text-status-alert"
           : "text-ink-50";
   return (
-    <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-      <h4 className="text-[11px] text-ink-500">{title}</h4>
+    <Link href={href} className="relative block rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
+      <span className="absolute right-3 top-3 text-xs text-ink-500">↗</span>
+      <h4 className="pr-4 text-[11px] text-ink-500">{title}</h4>
       <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
-    </div>
+    </Link>
   );
 }
 
-type MonthRow = {
-  month: string;
-  opex: number;
-  budget: number | null;
-  hasBudget: boolean;
-  collections: number;
-  debt: number;
-  variance: number | null;
-  awaitingActuals: boolean;
-};
+const monthHref = (month: string) => `/finance/payments?month=${encodeURIComponent(month)}`;
 
 export function BudgetVsActualPage({ state: rawState }: { state: FinanceState }) {
   // Scoped by the global Finance filter bar — budgetPage() in the source
   // app calls filt() first, exactly like this.
-  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
+  const tx = useFilteredFinanceRows(rawState.transactions);
   const { filters } = useFinanceFilters();
-  // Direct port of the source's budgetOk() — department-level comparisons
-  // use approved cost-head budgets, but country/keyword filters can't be
-  // reliably matched to a budget, so the comparison warns when they're set.
-  const budgetOk = filters.country === "all" && !filters.query.trim();
-  const activeDepartments = new Set(state.departments);
-  const isOperating = (t: FinanceState["transactions"][number]) =>
-    Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
+  const budgetOk = budgetOkFor(rawState, filters);
 
-  const monthRows: MonthRow[] = useMemo(() => {
-    return state.monthly.map((m) => {
-      const monthTx = state.transactions.filter((t) => t.month === m.month);
-      const opex = monthTx.filter(isOperating).reduce((s, t) => s + t.amount, 0);
-      const debt = monthTx.filter((t) => t.debtPeriod !== "current").reduce((s, t) => s + t.amount, 0);
-      const hasActual = monthTx.length > 0;
-      const hasBudget = m.opexBudget > 0;
-      const variance = !hasBudget || !hasActual ? null : opex - m.opexBudget;
-      return {
-        month: m.month,
-        opex,
-        budget: hasBudget ? m.opexBudget : null,
-        hasBudget,
-        collections: m.collections,
-        debt,
-        variance,
-        awaitingActuals: !hasActual,
-      };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.monthly, state.transactions, state.departments]);
+  const monthRows = useMemo(
+    () => relevantMonths(rawState, filters).map((m) => monthlyNumbers(tx, m, rawState, filters)),
+    [rawState, tx, filters]
+  );
 
   const budgetedMonths = monthRows.filter((m) => m.variance !== null);
   const bud = budgetedMonths.reduce((s, m) => s + (m.budget ?? 0), 0);
   const cur = budgetedMonths.reduce((s, m) => s + m.opex, 0);
   const netVariance = cur - bud;
-  const missing = monthRows.filter((m) => !m.hasBudget);
+  const missing = monthRows.filter((m) => m.budget === null);
 
   const over = monthRows
     .filter((m) => m.variance !== null && m.variance > 0)
@@ -135,23 +101,27 @@ export function BudgetVsActualPage({ state: rawState }: { state: FinanceState })
           title="Budget for months reported"
           value={usd(bud, true)}
           detail={`${budgetedMonths.length} months have budgets and recorded actuals`}
+          href="/finance/budget"
         />
         <Kpi
           title="Operating cost, budgeted months"
           value={usd(cur, true)}
           detail="Current-year costs in months with a budget"
+          href="/finance/payments?mode=operating"
         />
         <Kpi
           title="Net variance"
           value={budgetedMonths.length ? usd(netVariance, true) : "Awaiting actuals"}
           detail={budgetedMonths.length ? (netVariance > 0 ? "Operating overspend" : "Operating saving") : "No comparable actuals yet"}
           color={netVariance > 0 ? "red" : "teal"}
+          href="/finance/budget"
         />
         <Kpi
           title="Missing month budgets"
           value={String(missing.length)}
           detail="Enter budget figures to complete the comparison"
           color={missing.length ? "amber" : "teal"}
+          href="/finance/backups"
         />
       </div>
 
@@ -173,7 +143,11 @@ export function BudgetVsActualPage({ state: rawState }: { state: FinanceState })
             <tbody>
               {monthRows.map((x) => (
                 <tr key={x.month} className="border-b border-base-800 text-ink-300 last:border-0">
-                  <td className="px-3 py-2 font-medium text-ink-50">{mo(x.month)}</td>
+                  <td className="px-3 py-2 font-medium text-ink-50">
+                    <Link href={monthHref(x.month)} className="hover:underline">
+                      {mo(x.month)}
+                    </Link>
+                  </td>
                   <td className="px-3 py-2 text-right">{usd(x.opex)}</td>
                   <td className="px-3 py-2 text-right">{usd(x.budget)}</td>
                   <td className="px-3 py-2 text-right">
@@ -223,20 +197,20 @@ export function BudgetVsActualPage({ state: rawState }: { state: FinanceState })
           <h3 className="mb-2 text-sm font-medium text-ink-50">Largest monthly overruns</h3>
           {over.length === 0 && <p className="text-[11px] text-ink-500">No month overruns for the chosen period.</p>}
           {over.slice(0, 7).map((x) => (
-            <div key={x.month} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
+            <Link key={x.month} href={monthHref(x.month)} className="flex items-center justify-between border-b border-base-800 px-1 py-1.5 text-xs last:border-0 hover:bg-base-800">
               <strong className="text-ink-50">{mo(x.month)}</strong>
               <b className="text-status-inactive">+{usd(x.variance)}</b>
-            </div>
+            </Link>
           ))}
         </div>
         <div className="rounded-xl border border-base-700 bg-base-900 p-4">
           <h3 className="mb-2 text-sm font-medium text-ink-50">Months below budget</h3>
           {under.length === 0 && <p className="text-[11px] text-ink-500">No months below budget for the chosen period.</p>}
           {under.slice(0, 7).map((x) => (
-            <div key={x.month} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
+            <Link key={x.month} href={monthHref(x.month)} className="flex items-center justify-between border-b border-base-800 px-1 py-1.5 text-xs last:border-0 hover:bg-base-800">
               <strong className="text-ink-50">{mo(x.month)}</strong>
               <b className="text-status-active">{usd(x.variance)}</b>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

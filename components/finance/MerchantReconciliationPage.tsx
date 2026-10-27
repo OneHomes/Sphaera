@@ -92,7 +92,7 @@ const PAGE_SIZE = 15;
 const SUGGESTION_PAGE_SIZE = 5;
 
 function usd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 function csvEscape(value: string): string {

@@ -45,7 +45,7 @@ export type FinanceLedgerRow = {
   reportingSupplier: string | null;
   supplierNameApproved: boolean;
   dispute: { status: string; reason: string | null; financeOwner: string | null } | null;
-  departmentSplits: unknown[];
+  departmentSplits: { department: string; costHead: string; amountUsd: number }[];
   splitApprovedAt: string | null;
   overheadOverride: { costNature: string; costBehaviour: string } | null;
   sourceSheet: string | null;
@@ -62,6 +62,8 @@ export type FinanceState = {
   managementCostHeads: string[];
   legacyMappings: Awaited<ReturnType<typeof prisma.financeLegacyMapping.findMany>>;
   classifications: number;
+  // Latest approved plan per FY; its lines replace the monthly opex budget (source activePlan()/planLines()).
+  approvedPlans: { fyStart: number; lines: { month: string; department: string; budgetUsd: number }[] }[];
 };
 
 /**
@@ -84,7 +86,7 @@ export type FinanceState = {
  * rows are restricted.
  */
 export async function getFinanceState(departmentScope?: string[] | null): Promise<FinanceState> {
-  const [transactions, monthly, costHeads, departmentRows, managementCostHeadRows, legacyMappings, providers] =
+  const [transactions, monthly, costHeads, departmentRows, managementCostHeadRows, legacyMappings, providers, plans] =
     await Promise.all([
       prisma.financeTransaction.findMany({
         orderBy: [{ month: "asc" }, { paymentDate: "asc" }, { id: "asc" }],
@@ -102,7 +104,16 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
       prisma.financeManagementCostHead.findMany({ orderBy: { name: "asc" } }),
       prisma.financeLegacyMapping.findMany(),
       prisma.financeMerchantProvider.findMany({ include: { aliases: true } }),
+      prisma.financePlan.findMany({
+        where: { status: "Approved" },
+        orderBy: { version: "desc" },
+        include: { lines: { select: { month: true, department: true, budgetUsd: true } } },
+      }),
     ]);
+  const approvedPlans = new Map<number, FinanceState["approvedPlans"][number]>();
+  for (const p of plans) {
+    if (!approvedPlans.has(p.fyStart)) approvedPlans.set(p.fyStart, { fyStart: p.fyStart, lines: p.lines });
+  }
 
   const mappingByKey = new Map(
     legacyMappings.map((m) => [`${m.legacyHead}\u0000${m.legacyCentre}`, m])
@@ -204,6 +215,7 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
     managementCostHeads: managementCostHeadRows.map((h) => h.name),
     legacyMappings,
     classifications: await prisma.financeAllocation.count(),
+    approvedPlans: Array.from(approvedPlans.values()),
   };
 }
 

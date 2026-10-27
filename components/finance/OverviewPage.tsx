@@ -19,8 +19,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
-import { fyOf } from "@/lib/finance/financeFilters";
 import type { FinanceState } from "@/lib/finance/ledgerData";
+import {
+  budgetOk as budgetOkFor,
+  isOperating,
+  isUnidentified,
+  monthlyNumbers,
+  relevantMonths,
+  reportingRows,
+} from "@/lib/finance/financeReporting";
 
 type OverheadRule = { costHead: string; costNature: string; costBehaviour: string };
 
@@ -36,7 +43,7 @@ const exactUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 function usd(value: number, compact = false): string {
   if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 // Port of the source's `.donut-plot .segment:hover` thicker-ring rule.
@@ -117,13 +124,7 @@ export function OverviewPage({
   // calls filt() first, exactly like this.
   const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
   const { filters } = useFinanceFilters();
-  // Direct port of the source's budgetOk() — country/keyword filters can't
-  // be reliably matched to the company-wide monthly budget figures.
-  const noTextFilters = filters.country === "all" && !filters.query.trim();
-  const budgetOk =
-    noTextFilters &&
-    filters.department === "all" &&
-    !rawState.transactions.some((t) => !t.managementDepartment || !t.managementCostHead);
+  const budgetOk = budgetOkFor(rawState, filters);
   const [fixedDept, setFixedDept] = useState<string>("all");
   const [hoveredDonutIndex, setHoveredDonutIndex] = useState<number | undefined>(undefined);
   const router = useRouter();
@@ -133,46 +134,23 @@ export function OverviewPage({
     if (month) router.push(`/finance/payments?month=${encodeURIComponent(month)}`);
   };
 
-  const activeDepartments = new Set(state.departments);
-  const isOperating = (t: FinanceState["transactions"][number]) =>
-    Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
-
-  const operating = state.transactions.filter(isOperating);
+  const operating = reportingRows(state.transactions, filters.department).filter((t) => isOperating(t, state.departments));
   const debtRows = state.transactions.filter((t) => t.debtPeriod !== "current");
-  const unidentified = state.transactions.filter((t) => !t.managementDepartment || !t.managementCostHead);
+  const unidentified = state.transactions.filter(isUnidentified);
   const opex = operating.reduce((s, t) => s + t.amount, 0);
   const debt = debtRows.reduce((s, t) => s + t.amount, 0);
   const allMovements = state.transactions.reduce((s, t) => s + t.amount, 0);
 
-  // Direct port of relevantMonths() + monthlyNumbers(): the chart and the
-  // collections/budget KPIs follow the global FY / From / To filters, and a
-  // budget is only comparable when no department/country/keyword filter is
-  // narrowing actual spend (the stored budget is company-wide).
-  const monthSet = new Set([
-    ...rawState.monthly.map((m) => m.month),
-    ...rawState.transactions.map((t) => t.month),
-  ]);
-  const relevantMonths = Array.from(monthSet)
-    .sort()
-    .filter(
-      (m) =>
-        (filters.fy === "all" || String(fyOf(m)) === filters.fy) &&
-        (filters.start === "all" || m >= filters.start) &&
-        (filters.end === "all" || m <= filters.end)
-    );
-  const budgetComparable = noTextFilters && filters.department === "all";
-  const monthRows = relevantMonths.map((month) => {
-    const m = rawState.monthly.find((x) => x.month === month);
-    const monthOpex = operating.filter((t) => t.month === month).reduce((s, t) => s + t.amount, 0);
-    const hasActual = rawState.transactions.some((t) => t.month === month);
-    const budget = budgetComparable && m && m.opexBudget > 0 ? m.opexBudget : null;
+  const monthRows = relevantMonths(rawState, filters).map((month) => {
+    const n = monthlyNumbers(state.transactions, month, rawState, filters);
     return {
       month,
-      opex: monthOpex,
-      budget: budget ?? 0,
-      budgetAvailable: budget !== null,
-      collections: m?.collections ?? 0,
-      variance: budget !== null && hasActual ? monthOpex - budget : null,
+      opex: n.opex,
+      budget: n.budget ?? 0,
+      budgetAvailable: n.budget !== null,
+      collections: n.collections ?? 0,
+      hasCollections: n.collections !== null,
+      variance: n.variance,
     };
   });
   const cash = monthRows.reduce((s, m) => s + m.collections, 0);
@@ -277,7 +255,7 @@ export function OverviewPage({
         <Kpi
           title="Cash collections reported"
           value={usd(cash, true)}
-          detail={`${monthRows.filter((m) => m.collections > 0).length} months of collection figures available`}
+          detail={`${monthRows.filter((m) => m.hasCollections).length} months of collection figures available`}
           color="teal"
           href="/finance/budget"
         />

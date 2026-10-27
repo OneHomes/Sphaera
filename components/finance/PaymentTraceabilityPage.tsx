@@ -87,7 +87,7 @@ const SOURCE_KINDS = ["Bank account", "Company card", "Other"] as const;
 const BILLING_CYCLES = ["Monthly", "Quarterly", "Annual", "One-off", ""];
 
 function formatUsd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 function Kpi({ title, value, detail, color }: { title: string; value: string; detail: string; color?: string }) {

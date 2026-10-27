@@ -20,7 +20,7 @@ function financeFyName(fyStart: number): string {
 }
 
 function usd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 export function WeeklyCeoBriefPage({ state }: { state: FinanceState }) {

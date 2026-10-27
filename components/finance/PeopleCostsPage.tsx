@@ -64,7 +64,7 @@ type AllocationLineDraft = {
 };
 
 function usd(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 function Kpi({ title, value, detail }: { title: string; value: string; detail: string }) {

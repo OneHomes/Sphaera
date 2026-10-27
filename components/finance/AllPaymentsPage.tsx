@@ -29,7 +29,7 @@ const SHOW_OPTIONS: { value: ShowMode; label: string }[] = [
 function usd(value: number, compact = false): string {
   if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `$${Math.round(value).toLocaleString()}`;
+  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
 function Kpi({ title, value, detail, color }: { title: string; value: string; detail: string; color?: "purple" }) {

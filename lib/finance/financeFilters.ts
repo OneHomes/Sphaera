@@ -58,12 +58,12 @@ export function applyFinanceFilters(rows: FinanceLedgerRow[], filters: FinanceFi
     if (filters.fy !== "all" && String(fyOf(r.month)) !== String(filters.fy)) return false;
     if (filters.start !== "all" && r.month < filters.start) return false;
     if (filters.end !== "all" && r.month > filters.end) return false;
-    if (
-      filters.department !== "all" &&
-      r.managementDepartment !== filters.department &&
-      r.effectiveHead !== filters.department
-    ) {
-      return false;
+    if (filters.department !== "all") {
+      const belongs =
+        r.departmentSplits?.length > 0
+          ? r.departmentSplits.some((x) => x.department === filters.department)
+          : (r.managementDepartment || "Unallocated") === filters.department;
+      if (!belongs) return false;
     }
     if (filters.country !== "all" && (r.country ?? "") !== filters.country) return false;
     if (query) {
