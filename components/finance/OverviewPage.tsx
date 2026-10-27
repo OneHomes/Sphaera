@@ -24,9 +24,8 @@ type OverheadRule = { costHead: string; costNature: string; costBehaviour: strin
 const DONUT_COLORS = ["#14b8a6", "#ef4444", "#f59e0b", "#d4af37", "#9ca3af", "#7965bd", "#60a5fa", "#fb923c"];
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1000) {
-    return `$${(value / 1000).toFixed(0)}K`;
-  }
+  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
   return `$${Math.round(value).toLocaleString()}`;
 }
 

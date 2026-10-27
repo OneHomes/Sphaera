@@ -14,9 +14,8 @@ import { useFilteredFinanceRows } from "./FinanceFilterContext";
 // table as paymentPage(). Only the visual implementation changes.
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1000) {
-    return `$${(value / 1000).toFixed(0)}K`;
-  }
+  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
   return `$${Math.round(value).toLocaleString()}`;
 }
 
