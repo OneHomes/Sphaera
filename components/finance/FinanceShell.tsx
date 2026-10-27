@@ -4,7 +4,7 @@ import { Fragment, Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
-import { FinanceFilterProvider } from "./FinanceFilterContext";
+import { FinanceFilterProvider, useFinanceFilters } from "./FinanceFilterContext";
 import { FinanceFilterBar } from "./FinanceFilterBar";
 import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
 import {
@@ -99,13 +99,47 @@ function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }
   );
 }
 
+// Direct port of the source's renderTop() — `pageTitle` is just the
+// current NAV entry's label (index.html's own NAV array), never
+// page-specific computed text, so it's derivable here with zero changes
+// to any of the 22 screen components.
+function getPageTitle(pathname: string): string {
+  const all = [...FINANCE_NAV, ...BANK_CHILDREN];
+  return all.find((item) => item.href === pathname)?.label ?? FINANCE_NAV[0].label;
+}
+
+function fyLabel(year: number): string {
+  return `FY${year}/${String((year + 1) % 100).padStart(2, "0")}`;
+}
+
+// Direct port of renderTop()'s pageSubtitle ternary — static per screen,
+// except the default branch (every "viewing cost data" screen) which
+// reflects the global Financial year filter.
+function getPageSubtitle(pathname: string, fy: string): string {
+  if (pathname === "/finance/ask") return "Ask questions grounded in your own transaction database";
+  if (pathname === "/finance/banks" || pathname === "/finance/banks/funds") {
+    return "Fund-level balances, actual bank snapshots and future settlement forecasts";
+  }
+  if (pathname === "/finance/credit-cycle") return "Track invoices, card settlements, salary paydays and cash requirements";
+  if (pathname === "/finance/people") return "Attribute salary, commission and employer costs to each person without changing the ledger";
+  if (pathname === "/finance/disputes") return "Flag questionable payments for investigation with Finance";
+  if (pathname === "/finance/history") return "Review, audit and safely undo eligible changes";
+  if (pathname === "/finance/organise") return "Simplify historical source accounts into your departments and reusable cost heads";
+  if (pathname === "/finance/upload") return "Incrementally import future months with duplicate protection";
+  if (pathname === "/finance/erp") return "Three geographic ERPs, Finance-tagged S&M / Development allocations and bank mapping";
+  const fyPart = fy === "all" ? "All financial years" : fyLabel(Number(fy));
+  return `${fyPart} · Financial year November to October · Reporting currency USD`;
+}
+
 // Direct port of the source's persistent header (index.html line 537's
-// `<header class="top">` — the "SPHAERA / FINANCIAL INTELLIGENCE" eyebrow
-// plus "↻ Refresh" / "+ Import monthly data") — global, shown above the
-// filter bar on every Finance screen, not just Overview. Each screen's
-// own page title/subtitle render below this, untouched.
+// `<header class="top">`) — eyebrow + page title + subtitle on the left,
+// "↻ Refresh" / "+ Import monthly data" on the right, all in one row,
+// global on every Finance screen. Must render inside FinanceFilterProvider
+// (the subtitle's default branch reflects the Financial year filter).
 function FinanceActionBar() {
+  const pathname = usePathname();
   const router = useRouter();
+  const { filters } = useFinanceFilters();
   const [refreshing, setRefreshing] = useState(false);
 
   function handleRefresh() {
@@ -115,24 +149,28 @@ function FinanceActionBar() {
   }
 
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-base-800 bg-base-900 px-6 py-2.5">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-ink-500">Sphaera / Financial Intelligence</div>
-      <div className="flex items-center gap-2">
-      <button
-        onClick={handleRefresh}
-        disabled={refreshing}
-        className="flex items-center gap-1.5 rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-50"
-      >
-        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
-        Refresh
-      </button>
-      <Link
-        href="/finance/upload"
-        className="flex items-center gap-1.5 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:brightness-110"
-      >
-        <UploadCloud className="h-3.5 w-3.5" strokeWidth={1.75} />
-        Import monthly data
-      </Link>
+    <div className="flex items-start justify-between gap-4 border-b border-base-800 px-6 py-4">
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wide text-ink-500">Sphaera / Financial Intelligence</div>
+        <h1 className="mt-1 text-xl font-bold text-ink-50">{getPageTitle(pathname)}</h1>
+        <p className="mt-1 text-xs text-ink-500">{getPageSubtitle(pathname, filters.fy)}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-1.5 rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
+          Refresh
+        </button>
+        <Link
+          href="/finance/upload"
+          className="flex items-center gap-1.5 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:brightness-110"
+        >
+          <UploadCloud className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Import monthly data
+        </Link>
       </div>
     </div>
   );
@@ -199,9 +237,9 @@ export function FinanceShell({
         })}
       </nav>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-        <FinanceActionBar />
         <Suspense fallback={null}>
           <FinanceFilterProvider>
+            <FinanceActionBar />
             <FinanceFilterBar options={filterOptions} />
             {children}
           </FinanceFilterProvider>
