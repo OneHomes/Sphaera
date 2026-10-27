@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { getFinanceState } from "@/lib/finance/ledgerData";
+import { getUserDepartmentScope } from "@/lib/finance/departmentAccess";
 import { listOverheadHeadRules } from "@/lib/finance/peopleOverheadsData";
 import { OverheadAnalysisPage } from "@/components/finance/OverheadAnalysisPage";
 
@@ -15,20 +16,13 @@ export default async function FinanceOverheadsRoute() {
   }
 
   return withTenantPage(session, async (authUser) => {
-    const [state, rules] = await Promise.all([getFinanceState(), listOverheadHeadRules()]);
+    const scope = await getUserDepartmentScope(authUser.id);
+    const [state, rules] = await Promise.all([getFinanceState(scope), listOverheadHeadRules()]);
     return (
       <OverheadAnalysisPage
         costHeads={state.managementCostHeads}
-        transactions={state.transactions.map((t) => ({
-          id: t.id,
-          date: t.date,
-          month: t.month,
-          description: t.description,
-          amount: t.amount,
-          managementDepartment: t.managementDepartment,
-          managementCostHead: t.managementCostHead,
-          overheadOverride: t.overheadOverride,
-        }))}
+        departments={state.departments}
+        transactions={state.transactions}
         rules={rules}
         canEdit={authUser.canAccessFinancePayroll}
       />
