@@ -123,17 +123,21 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
       </div>
 
       <div className="mt-4">
-        <WidgetCard title="Check the file for new payments" icon={UploadCloud}>
-          <h3 className="text-sm font-medium text-ink-50">Select your updated sales and marketing workbook</h3>
-          <p className="mt-1 text-[11px] text-ink-500">
-            .xlsx format, existing Cost Centre Detail or monthly Sales & Marketing / Marketing tabs, 25 MB maximum
-          </p>
-          <form onSubmit={handleCheckFile} className="mt-3 space-y-2.5">
+        <div className="rounded-xl border border-base-700 bg-base-900 p-5">
+          <form
+            onSubmit={handleCheckFile}
+            className="flex flex-col items-center gap-2.5 rounded-xl border-2 border-dashed border-status-active/30 bg-base-800/40 px-4 py-10 text-center"
+          >
+            <UploadCloud className="h-6 w-6 text-ink-300" strokeWidth={1.5} />
+            <h3 className="text-sm font-semibold text-ink-50">Select your updated sales and marketing workbook</h3>
+            <p className="text-[11px] text-ink-500">
+              .xlsx format, existing Cost Centre Detail or monthly Sales &amp; Marketing / Marketing tabs, 25 MB maximum
+            </p>
             <input
               type="file"
               accept=".xlsx"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none file:mr-3 file:rounded-md file:border-0 file:bg-base-700 file:px-2 file:py-1 file:text-ink-50"
+              className="text-xs text-ink-300 file:mr-3 file:rounded-md file:border-0 file:bg-base-700 file:px-2 file:py-1 file:text-ink-50"
             />
             {error && <p className="text-xs text-status-inactive">{error}</p>}
             <button
@@ -144,12 +148,12 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
               {checking ? "Checking payments..." : "Check file for new payments"}
             </button>
           </form>
-          <p className="mt-3 text-[11px] text-ink-500">
+          <p className="mt-4 rounded-lg border border-base-700 bg-base-800/40 p-3 text-[11px] text-ink-300">
             Existing payments are compared using date, description, amount and country, including the number of
             identical entries. If the file contains November to July again, those rows should be skipped rather than
             imported twice. Changes you made to cost heads or debt categories remain saved.
           </p>
-        </WidgetCard>
+        </div>
       </div>
 
       {preview && (

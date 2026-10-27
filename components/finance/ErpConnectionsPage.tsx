@@ -62,7 +62,7 @@ export function ErpConnectionsPage({
   const [sources, setSources] = useState<ErpSource[]>(initialSources);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [region, setRegion] = useState<string>(ERP_REGIONS[0]);
+  const [region, setRegion] = useState<string>("");
   const [legalEntity, setLegalEntity] = useState("");
   const [environment, setEnvironment] = useState<string>(ERP_ENVIRONMENTS[0]);
   const [integrationMode, setIntegrationMode] = useState<string>(ERP_INTEGRATION_MODES[0]);
@@ -74,7 +74,7 @@ export function ErpConnectionsPage({
   function resetForm() {
     setEditingId(null);
     setName("");
-    setRegion(ERP_REGIONS[0]);
+    setRegion("");
     setLegalEntity("");
     setEnvironment(ERP_ENVIRONMENTS[0]);
     setIntegrationMode(ERP_INTEGRATION_MODES[0]);
@@ -233,6 +233,7 @@ export function ErpConnectionsPage({
             <div>
               <label className={fieldLabelClass}>ERP region</label>
               <select value={region} onChange={(e) => setRegion(e.target.value)} className={inputClass}>
+                <option value="">Choose region</option>
                 {ERP_REGIONS.map((r) => (
                   <option key={r} value={r}>
                     {r}
@@ -322,7 +323,7 @@ export function ErpConnectionsPage({
             from its ERP location, bank or legal entity. No connections are active until IT completes the API work.
           </p>
           <Link href="/finance/banks/funds" className="mt-2 inline-block text-[11px] text-ink-300 hover:text-ink-50">
-            Open Treasury Funds ↗
+            View treasury funds ↗
           </Link>
         </WidgetCard>
       </div>
@@ -335,7 +336,7 @@ export function ErpConnectionsPage({
           </p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {sources.map((s) => (
+          {sources.filter((s) => s.active || (s.region && s.region !== "Unassigned")).map((s) => (
               <div key={s.id} className="rounded-lg border border-base-700 bg-base-800 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
                   <span className="rounded-full bg-base-700 px-2 py-0.5 text-[10px] font-medium text-ink-300">
