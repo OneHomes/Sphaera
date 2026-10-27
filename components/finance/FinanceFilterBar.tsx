@@ -23,8 +23,8 @@ export function FinanceFilterBar({ options }: { options: FinanceFilterOptions })
   const [query, setQuery] = useState(filters.query);
 
   return (
-    <div className="grid grid-cols-2 gap-3 border-b border-base-800 bg-base-900 px-6 py-3 sm:grid-cols-3 lg:grid-cols-6">
-      <label className={fieldLabelClass}>
+    <div className="flex flex-wrap items-end gap-3 border-b border-base-800 bg-base-900 px-6 py-3">
+      <label className={`w-32 ${fieldLabelClass}`}>
         Financial year
         <select value={filters.fy} onChange={(e) => setFilter("fy", e.target.value)} className={selectClass}>
           <option value="all">All years</option>
@@ -35,7 +35,7 @@ export function FinanceFilterBar({ options }: { options: FinanceFilterOptions })
           ))}
         </select>
       </label>
-      <label className={fieldLabelClass}>
+      <label className={`w-32 ${fieldLabelClass}`}>
         From month
         <select value={filters.start} onChange={(e) => setFilter("start", e.target.value)} className={selectClass}>
           <option value="all">All months</option>
@@ -46,7 +46,7 @@ export function FinanceFilterBar({ options }: { options: FinanceFilterOptions })
           ))}
         </select>
       </label>
-      <label className={fieldLabelClass}>
+      <label className={`w-32 ${fieldLabelClass}`}>
         To month
         <select value={filters.end} onChange={(e) => setFilter("end", e.target.value)} className={selectClass}>
           <option value="all">All months</option>
@@ -57,7 +57,7 @@ export function FinanceFilterBar({ options }: { options: FinanceFilterOptions })
           ))}
         </select>
       </label>
-      <label className={fieldLabelClass}>
+      <label className={`w-52 ${fieldLabelClass}`}>
         Department
         <select value={filters.department} onChange={(e) => setFilter("department", e.target.value)} className={selectClass}>
           <option value="all">All departments</option>
@@ -68,7 +68,7 @@ export function FinanceFilterBar({ options }: { options: FinanceFilterOptions })
           ))}
         </select>
       </label>
-      <label className={fieldLabelClass}>
+      <label className={`w-32 ${fieldLabelClass}`}>
         Country
         <select value={filters.country} onChange={(e) => setFilter("country", e.target.value)} className={selectClass}>
           <option value="all">All countries</option>
@@ -79,7 +79,7 @@ export function FinanceFilterBar({ options }: { options: FinanceFilterOptions })
           ))}
         </select>
       </label>
-      <div className="flex items-end gap-2 sm:col-span-3 lg:col-span-1">
+      <div className="flex min-w-[280px] flex-1 items-end gap-2">
         <label className={`flex-1 ${fieldLabelClass}`}>
           Search payments
           <input

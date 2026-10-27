@@ -224,7 +224,7 @@ export function SpendingExplorerPage({ state: rawState }: { state: FinanceState 
         </button>
         {department && (
           <>
-            <span className="text-ink-600">›</span>
+            <span className="text-ink-500">›</span>
             <button
               onClick={() => {
                 setCentre(null);
@@ -238,7 +238,7 @@ export function SpendingExplorerPage({ state: rawState }: { state: FinanceState 
         )}
         {department && centre && (
           <>
-            <span className="text-ink-600">›</span>
+            <span className="text-ink-500">›</span>
             <span className="font-medium text-ink-50">{centre}</span>
           </>
         )}

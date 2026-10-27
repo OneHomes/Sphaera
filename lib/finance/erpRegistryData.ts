@@ -21,12 +21,8 @@ import { prisma } from "../prisma";
 // registry for multiple One Homes ERP systems. No direct ERP
 // connections.").
 
-export const ERP_REGIONS = ["Pakistan", "UAE", "UK & USA"] as const;
-export type ErpRegion = (typeof ERP_REGIONS)[number];
-
-export const ERP_ENVIRONMENTS = ["Production", "Test / UAT"] as const;
-
-export const ERP_INTEGRATION_MODES = ["Read-only C# API", "Read-only SQL Server bridge"] as const;
+import { ERP_REGIONS, ERP_ENVIRONMENTS, ERP_INTEGRATION_MODES, type ErpRegion } from "./erpConstants";
+export { ERP_REGIONS, ERP_ENVIRONMENTS, ERP_INTEGRATION_MODES, type ErpRegion };
 
 // Retained only for historic database compatibility with the source app's
 // schema. ERP ownership is geography (region), not funds — the source

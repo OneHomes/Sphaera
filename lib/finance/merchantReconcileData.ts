@@ -545,7 +545,7 @@ export async function buildMerchantReviewExportRows(params: {
     orderBy: [{ paymentDate: "asc" }, { id: "asc" }],
   });
   const reviews = await prisma.financeMerchantReview.findMany({
-    where: { transactionId: { in: transactions.map((t) => t.id) } },
+    where: { transaction: { month: { gte: start, lte: end } } },
   });
   const reviewByTx = new Map(reviews.map((r) => [r.transactionId, r]));
   const aliasMap = await getSupplierAliasMap();

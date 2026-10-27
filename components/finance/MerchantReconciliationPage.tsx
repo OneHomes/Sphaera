@@ -1077,14 +1077,14 @@ export function MerchantReconciliationPage({
         </div>
       )}
 
-      <p className="mt-4 flex items-center gap-1.5 text-[11px] text-ink-600">
+      <p className="mt-4 flex items-center gap-1.5 text-[11px] text-ink-500">
         <Store className="h-3 w-3" strokeWidth={1.75} />
         Vendor invoices are supporting documents. A suggested match is not a confirmed match. Review references,
         amounts and dates before linking, especially where a supplier bills several subscriptions using the same
         card.
       </p>
       {recentBatchCount > 0 && (
-        <p className="mt-1 text-[11px] text-ink-600">{recentBatchCount} recent review batch(es) on file.</p>
+        <p className="mt-1 text-[11px] text-ink-500">{recentBatchCount} recent review batch(es) on file.</p>
       )}
     </div>
   );

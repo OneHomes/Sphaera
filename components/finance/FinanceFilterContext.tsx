@@ -46,7 +46,10 @@ export function FinanceFilterProvider({ children }: { children: React.ReactNode 
   function setFilter(key: keyof FinanceFilters, value: string) {
     const params = new URLSearchParams(searchParams.toString());
     const paramKey = key === "department" ? "dept" : key === "query" ? "q" : key;
-    if (!value || value === "all") {
+    if (key === "fy") {
+      if (value === DEFAULT_FINANCE_FILTERS.fy) params.delete(paramKey);
+      else params.set(paramKey, value || "all");
+    } else if (!value || value === "all") {
       params.delete(paramKey);
     } else {
       params.set(paramKey, value);

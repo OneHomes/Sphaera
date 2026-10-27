@@ -24,8 +24,14 @@ export type FinanceFilters = {
   query: string;
 };
 
+function currentFy(): string {
+  const now = new Date();
+  return String(fyOf(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`));
+}
+
+// Source app opens on the current financial year, not "all years".
 export const DEFAULT_FINANCE_FILTERS: FinanceFilters = {
-  fy: "all",
+  fy: currentFy(),
   start: "all",
   end: "all",
   department: "all",
@@ -61,7 +67,10 @@ export function applyFinanceFilters(rows: FinanceLedgerRow[], filters: FinanceFi
     }
     if (filters.country !== "all" && (r.country ?? "") !== filters.country) return false;
     if (query) {
-      const haystack = `${r.description} ${r.reportingSupplier ?? ""} ${r.traceSupplier}`.toLowerCase();
+      const haystack = [
+        r.description, r.head, r.costCentre, r.country, r.id, r.paymentReference, r.erpPaymentId,
+        r.invoiceReference, r.traceSupplier, r.reportingSupplier, r.tracePurpose,
+      ].join(" ").toLowerCase();
       if (!haystack.includes(query)) return false;
     }
     return true;

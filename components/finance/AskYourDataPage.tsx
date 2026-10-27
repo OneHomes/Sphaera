@@ -142,7 +142,7 @@ export function AskYourDataPage() {
         </div>
       </WidgetCard>
 
-      <p className="mt-3 text-[11px] text-ink-600">
+      <p className="mt-3 text-[11px] text-ink-500">
         This is an API-connected analyst, not a general chat assistant. Selected financial aggregates and
         transaction details are sent to Sphaera&apos;s Janus to answer your question.
       </p>

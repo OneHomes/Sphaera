@@ -473,7 +473,7 @@ export function CreditCyclePage({
                       ))}
                     </ul>
                     {events.length > 6 && (
-                      <p className="mt-1 text-[10px] text-ink-600">+{events.length - 6} more in {monthTitle(key)}</p>
+                      <p className="mt-1 text-[10px] text-ink-500">+{events.length - 6} more in {monthTitle(key)}</p>
                     )}
                   </div>
                 );
@@ -623,7 +623,7 @@ export function CreditCyclePage({
                               View evidence
                             </a>
                           ) : (
-                            <span className="text-ink-600">No evidence attached</span>
+                            <span className="text-ink-500">No evidence attached</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -958,7 +958,7 @@ export function CreditCyclePage({
         )}
       </div>
 
-      <p className="mt-5 text-[11px] text-ink-600">
+      <p className="mt-5 text-[11px] text-ink-500">
         Forecast totals do not include unconfirmed sales receipts or all future purchases. Mixed currencies are
         intentionally not combined. Bank shortages require confirmation against the actual bank and the complete
         payment schedule.
@@ -1304,7 +1304,7 @@ function CardRuleModal({
             placeholder="Settlement bank payment-source ID (optional)"
             className={inputClass}
           />
-          <p className="text-[10px] text-ink-600">
+          <p className="text-[10px] text-ink-500">
             Leave the payment source blank until the settlement bank account is registered under Banks.
           </p>
           {error && <p className="text-xs text-status-inactive">{error}</p>}

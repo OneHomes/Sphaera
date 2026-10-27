@@ -195,7 +195,7 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
                     {x.description}
                   </td>
                   <td className="px-3 py-2">
-                    {x.managementDepartment ?? <span className="text-ink-600">Unallocated</span>}
+                    {x.managementDepartment ?? <span className="text-ink-500">Unallocated</span>}
                     <div className="text-[11px] text-ink-500">{x.managementCostHead ?? "Needs allocation"}</div>
                   </td>
                   <td className="px-3 py-2 text-right font-medium text-ink-50">{usd(x.amount)}</td>

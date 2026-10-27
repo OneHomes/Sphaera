@@ -764,7 +764,7 @@ export function BankAccountModal({
                 placeholder="Payment source ID (for payment traceability)"
                 className={inputClass}
               />
-              <p className="text-[10px] text-ink-600">Provide both ERP fields together, or leave both blank.</p>
+              <p className="text-[10px] text-ink-500">Provide both ERP fields together, or leave both blank.</p>
             </div>
           )}
 
@@ -963,7 +963,7 @@ export function MovementModal({
           >
             {isSaving ? "Saving…" : "Save movement"}
           </button>
-          <p className="text-[10px] text-ink-600">Saved to the treasury ledger. No changes posted to the ERP.</p>
+          <p className="text-[10px] text-ink-500">Saved to the treasury ledger. No changes posted to the ERP.</p>
         </form>
       </div>
     </div>

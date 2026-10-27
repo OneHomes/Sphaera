@@ -461,7 +461,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
                 <button
                   onClick={cancelRenameDept}
                   disabled={isRenaming}
-                  className="rounded-full border border-base-800 px-2 py-0.5 text-[10px] text-ink-500 hover:text-ink-200"
+                  className="rounded-full border border-base-800 px-2 py-0.5 text-[10px] text-ink-500 hover:text-ink-50"
                 >
                   Cancel
                 </button>
@@ -514,12 +514,12 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
               onAdded={(name) => setManagementCostHeads((prev) => (prev.includes(name) ? prev : [...prev, name].sort()))}
             />
           </div>
-          <div className="mt-3 rounded-lg border border-base-700 bg-base-800/60 p-3 text-[11px] text-ink-400">
+          <div className="mt-3 rounded-lg border border-base-700 bg-base-800/60 p-3 text-[11px] text-ink-300">
             <b className="text-ink-300">Based on standard accounting categories</b>, personnel, selling costs,
             premises, IT, professional services and bank costs. Departments show who owns the cost, cost heads
             describe what was purchased. Refunds, asset purchases, transfers and client collections should be
             reviewed separately before inclusion in operating spending.{" "}
-            <a href="https://www.xero.com/uk/glossary/chart-of-accounts/" target="_blank" rel="noopener noreferrer" className="text-ink-200 underline">
+            <a href="https://www.xero.com/uk/glossary/chart-of-accounts/" target="_blank" rel="noopener noreferrer" className="text-ink-50 underline">
               Xero chart of accounts
             </a>{" "}
             ·{" "}
@@ -527,7 +527,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
               href="https://quickbooks.intuit.com/learn-support/en-uk/help-article/chart-accounts/understanding-detail-types-quickbooks-online/L9IuTxhDc_GB_en_GB"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-ink-200 underline"
+              className="text-ink-50 underline"
             >
               QuickBooks expense categories
             </a>

@@ -20,7 +20,7 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
       <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
-      <p className="mt-1 text-[11px] text-ink-600">{detail}</p>
+      <p className="mt-1 text-[11px] text-ink-500">{detail}</p>
     </div>
   );
 }
@@ -253,7 +253,7 @@ export function DataBackupsPage({
             </div>
           )}
 
-          <p className="mt-4 text-[11px] text-ink-600">
+          <p className="mt-4 text-[11px] text-ink-500">
             A full SQL backup restore replaces the current database. A backup exported from the original standalone
             dashboard transfers the saved payment classifications only, without replacing the transactions already in
             SQL.
@@ -349,7 +349,7 @@ POST /api/finance/restore`}
             AI integration: Ask Your Data is answered by Sphaera&apos;s own Janus assistant, not a user-supplied
             OpenAI API key. No key or model configuration is needed on this screen.
           </p>
-          <p className="mt-3 text-[11px] text-ink-600">
+          <p className="mt-3 text-[11px] text-ink-500">
             See the project README for authentication and deployment notes before exposing Finance data beyond
             Sphaera itself.
           </p>

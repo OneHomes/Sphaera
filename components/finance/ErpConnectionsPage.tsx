@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Network, ClipboardCheck, Landmark, ShieldCheck, Workflow, Pencil } from "lucide-react";
 import Link from "next/link";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
-import { ERP_REGIONS, ERP_ENVIRONMENTS, ERP_INTEGRATION_MODES } from "@/lib/finance/erpRegistryData";
+import { ERP_REGIONS, ERP_ENVIRONMENTS, ERP_INTEGRATION_MODES } from "@/lib/finance/erpConstants";
 
 type ErpSource = {
   id: string;
@@ -177,7 +177,7 @@ export function ErpConnectionsPage({
           const rows = fundRowsByRegion.get(reg) ?? [];
           return (
             <WidgetCard key={reg} title={reg} icon={Network}>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-600">Regional ERP</p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-500">Regional ERP</p>
               <Tile label="Registered sources" value={regSources.length.toLocaleString()} />
               <div className="mt-3 flex items-center justify-between text-[11px] text-ink-300">
                 <span>Fund classification</span>
@@ -185,7 +185,7 @@ export function ErpConnectionsPage({
               </div>
               <div className="mt-2 space-y-1">
                 {rows.length === 0 ? (
-                  <p className="text-[11px] text-ink-600">No ERP fund-tagged movements received yet.</p>
+                  <p className="text-[11px] text-ink-500">No ERP fund-tagged movements received yet.</p>
                 ) : (
                   rows.map((r, i) => (
                     <div key={i} className="flex items-center justify-between text-[11px] text-ink-300">
@@ -284,7 +284,7 @@ export function ErpConnectionsPage({
               <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
               Active ERP registration
             </label>
-            <p className="text-[10px] text-ink-600">
+            <p className="text-[10px] text-ink-500">
               This registry stores non-secret connection metadata only. No live ERP connection is made here — never
               enter SQL passwords or API secrets.
             </p>
@@ -355,7 +355,7 @@ export function ErpConnectionsPage({
                 <p className="text-sm font-medium text-ink-50">{s.name}</p>
                 <p className="mt-1 text-[11px] text-ink-500">{s.legalEntity || "No legal entity set"}</p>
                 <p className="mt-1 text-[11px] text-ink-500">{s.integrationMode ?? "No integration mode set"}</p>
-                <p className="mt-1 truncate text-[11px] text-ink-600" title={s.endpointUrl ?? ""}>
+                <p className="mt-1 truncate text-[11px] text-ink-500" title={s.endpointUrl ?? ""}>
                   {s.endpointUrl || "No endpoint configured"}
                 </p>
                 <p className="mt-1 text-[11px] text-ink-500">

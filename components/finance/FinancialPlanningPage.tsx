@@ -306,7 +306,7 @@ export function FinancialPlanningPage({
           </select>
           <StatusBadge status={selectedPlan?.status ?? "Missing"} />
         </div>
-        <p className="mt-2 text-[11px] text-ink-600">
+        <p className="mt-2 text-[11px] text-ink-500">
           Approved figures cannot be edited. Revisions create a new numbered version and preserve the previous
           approved figures.
         </p>

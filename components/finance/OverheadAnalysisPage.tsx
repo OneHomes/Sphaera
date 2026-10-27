@@ -204,7 +204,7 @@ function PaymentReviewButton({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!canEdit) return <span className="text-[11px] text-ink-600">—</span>;
+  if (!canEdit) return <span className="text-[11px] text-ink-500">—</span>;
 
   if (!open) {
     return (

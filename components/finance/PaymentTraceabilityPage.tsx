@@ -684,7 +684,7 @@ export function PaymentTraceabilityPage({
 
             <div className="rounded-lg border border-base-700 p-3">
               <p className="text-xs font-medium text-ink-50">Email licences &amp; department ownership</p>
-              <p className="mt-1 text-[10px] text-ink-600">
+              <p className="mt-1 text-[10px] text-ink-500">
                 Record each email&apos;s bundle (for example M365 or M365 + Copilot), owning department and actual
                 licence cost in the subscription&apos;s currency. If any account has a price, all must have prices (0
                 for genuinely free seats). The total supplier payment is split in proportion to the prices, with
@@ -898,7 +898,7 @@ export function PaymentTraceabilityPage({
                     </tbody>
                   </table>
                 </div>
-                <p className="text-[10px] text-ink-600">
+                <p className="text-[10px] text-ink-500">
                   Approved months remain frozen until Finance deliberately replaces an approval. Slices are computed
                   in integer cents with largest-remainder apportionment, so they always sum back exactly to the
                   payment amount.

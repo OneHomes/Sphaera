@@ -24,7 +24,7 @@ import type { FinanceState } from "@/lib/finance/ledgerData";
 
 type OverheadRule = { costHead: string; costNature: string; costBehaviour: string };
 
-const DONUT_COLORS = ["#14b8a6", "#ef4444", "#f59e0b", "#d4af37", "#9ca3af", "#7965bd", "#60a5fa", "#fb923c"];
+const DONUT_COLORS = ["#009c91", "#2d6c85", "#e9a14b", "#8167b8", "#6ab4cc", "#d66b6e", "#8dad67", "#d9b95c", "#b4bed1"];
 
 function mo(month: string): string {
   const [y, m] = month.split("-").map(Number);
@@ -119,7 +119,11 @@ export function OverviewPage({
   const { filters } = useFinanceFilters();
   // Direct port of the source's budgetOk() — country/keyword filters can't
   // be reliably matched to the company-wide monthly budget figures.
-  const budgetOk = filters.country === "all" && !filters.query.trim();
+  const noTextFilters = filters.country === "all" && !filters.query.trim();
+  const budgetOk =
+    noTextFilters &&
+    filters.department === "all" &&
+    !rawState.transactions.some((t) => !t.managementDepartment || !t.managementCostHead);
   const [fixedDept, setFixedDept] = useState<string>("all");
   const [hoveredDonutIndex, setHoveredDonutIndex] = useState<number | undefined>(undefined);
   const router = useRouter();
@@ -156,7 +160,7 @@ export function OverviewPage({
         (filters.start === "all" || m >= filters.start) &&
         (filters.end === "all" || m <= filters.end)
     );
-  const budgetComparable = budgetOk && filters.department === "all";
+  const budgetComparable = noTextFilters && filters.department === "all";
   const monthRows = relevantMonths.map((month) => {
     const m = rawState.monthly.find((x) => x.month === month);
     const monthOpex = operating.filter((t) => t.month === month).reduce((s, t) => s + t.amount, 0);
@@ -364,14 +368,17 @@ export function OverviewPage({
             </Link>
           }
         >
+          <p className="mb-3 text-[11px] text-ink-500">
+            Click a doughnut slice to see where the money goes, right down to each payment.
+          </p>
           {donutData.length === 0 ? (
             <p className="py-8 text-center text-xs text-ink-500">
               There is no spending in this selection. Change the filters above.
             </p>
           ) : (
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="relative shrink-0 sm:w-[45%]">
-                <ResponsiveContainer width="100%" height={200}>
+            <div className="flex flex-col gap-4">
+              <div className="relative mx-auto w-full max-w-[260px]">
+                <ResponsiveContainer width="100%" height={210}>
                   <PieChart>
                     <Pie
                       data={donutData}
@@ -403,7 +410,7 @@ export function OverviewPage({
                   <p className="text-[10px] text-ink-500">positive net costs</p>
                 </div>
               </div>
-              <div className="flex-1 space-y-1.5">
+              <div className="space-y-1.5">
                 {donutData.map((item, i) => {
                   const share = donutTotal > 0 ? (item.value / donutTotal) * 100 : 0;
                   const row = (
@@ -446,9 +453,6 @@ export function OverviewPage({
               </div>
             </div>
           )}
-          <p className="mt-2 text-[11px] text-ink-500">
-            Click a doughnut slice to see where the money goes, right down to each payment.
-          </p>
           {remainingCosts.length > 0 && (
             <p className="mt-1 text-[11px] text-ink-500">
               The chart groups {remainingCosts.length} smaller entries as Other. Every individual cost centre and
@@ -584,7 +588,7 @@ export function OverviewPage({
         </div>
       </div>
 
-      <div className="mt-5 text-[11px] text-ink-600">
+      <div className="mt-5 text-[11px] text-ink-500">
         Initial dataset: November 2025 to July 2026. New months are included automatically after import. Any
         financial-year budget that has not been supplied is labelled unavailable, rather than assumed.
       </div>

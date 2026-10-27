@@ -130,7 +130,7 @@ export function PaymentsTable({
                     ) : t.reviewed ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-status-active" strokeWidth={1.75} />
                     ) : (
-                      <span className="text-ink-600">—</span>
+                      <span className="text-ink-500">—</span>
                     )}
                     {onDispute && !t.dispute && (
                       <button
