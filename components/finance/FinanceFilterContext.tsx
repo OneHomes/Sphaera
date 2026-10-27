@@ -12,12 +12,14 @@ import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 type FinanceFilterContextValue = {
   filters: FinanceFilters;
   setFilter: (key: keyof FinanceFilters, value: string) => void;
+  setFilters: (values: Partial<FinanceFilters>) => void;
   clearFilters: () => void;
 };
 
 const FinanceFilterContext = createContext<FinanceFilterContextValue>({
   filters: DEFAULT_FINANCE_FILTERS,
   setFilter: () => {},
+  setFilters: () => {},
   clearFilters: () => {},
 });
 
@@ -43,19 +45,25 @@ export function FinanceFilterProvider({ children }: { children: React.ReactNode 
     [searchParams]
   );
 
-  function setFilter(key: keyof FinanceFilters, value: string) {
+  function setFilters(values: Partial<FinanceFilters>) {
     const params = new URLSearchParams(searchParams.toString());
-    const paramKey = key === "department" ? "dept" : key === "query" ? "q" : key;
-    if (key === "fy") {
-      if (value === DEFAULT_FINANCE_FILTERS.fy) params.delete(paramKey);
-      else params.set(paramKey, value || "all");
-    } else if (!value || value === "all") {
-      params.delete(paramKey);
-    } else {
-      params.set(paramKey, value);
+    for (const [key, value] of Object.entries(values) as [keyof FinanceFilters, string][]) {
+      const paramKey = key === "department" ? "dept" : key === "query" ? "q" : key;
+      if (key === "fy") {
+        if (value === DEFAULT_FINANCE_FILTERS.fy) params.delete(paramKey);
+        else params.set(paramKey, value || "all");
+      } else if (!value || value === "all") {
+        params.delete(paramKey);
+      } else {
+        params.set(paramKey, value);
+      }
     }
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
+  }
+
+  function setFilter(key: keyof FinanceFilters, value: string) {
+    setFilters({ [key]: value });
   }
 
   function clearFilters() {
@@ -63,7 +71,7 @@ export function FinanceFilterProvider({ children }: { children: React.ReactNode 
   }
 
   return (
-    <FinanceFilterContext.Provider value={{ filters, setFilter, clearFilters }}>
+    <FinanceFilterContext.Provider value={{ filters, setFilter, setFilters, clearFilters }}>
       {children}
     </FinanceFilterContext.Provider>
   );

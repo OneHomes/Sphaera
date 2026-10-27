@@ -7,6 +7,7 @@ import { DisputeModal } from "./DisputeModal";
 import { PaymentsTable } from "./PaymentsTable";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
 import { useFilteredFinanceRows } from "./FinanceFilterContext";
+import { isOperating, isUnidentified, mo } from "@/lib/finance/financeReporting";
 
 // Direct structural/content port of the source app's paymentPage()
 // (index.html line 1039) — same "Show" filter, same drilldown chip, same
@@ -78,6 +79,7 @@ export function AllPaymentsPage({
   initialDepartmentFilter,
   initialMonthFilter,
   initialMode,
+  initialCostHeadFilter,
 }: {
   transactions: FinanceLedgerRow[];
   departments: string[];
@@ -86,6 +88,7 @@ export function AllPaymentsPage({
   initialDepartmentFilter?: string | null;
   initialMonthFilter?: string | null;
   initialMode?: string | null;
+  initialCostHeadFilter?: string | null;
 }) {
   // Scoped by the global Finance filter bar — paymentPage() in the source
   // app resolves its rows via txSelection(), which calls filt() first.
@@ -99,6 +102,7 @@ export function AllPaymentsPage({
   );
   const [drillDepartment, setDrillDepartment] = useState<string | null>(initialDepartmentFilter ?? null);
   const [drillMonth, setDrillMonth] = useState<string | null>(initialMonthFilter ?? null);
+  const [drillCostHead, setDrillCostHead] = useState<string | null>(initialCostHeadFilter ?? null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pageIds, setPageIds] = useState<string[]>([]);
   const [classifyTarget, setClassifyTarget] = useState<FinanceLedgerRow | null>(null);
@@ -108,23 +112,18 @@ export function AllPaymentsPage({
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
-  const activeDepartments = useMemo(() => new Set(departments), [departments]);
-  const isOperating = (t: FinanceLedgerRow) =>
-    Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
-  const isUnidentified = (t: FinanceLedgerRow) => !t.managementDepartment;
-
   const t = useMemo(() => {
     let out = rows;
-    if (mode === "operating") out = out.filter(isOperating);
+    if (mode === "operating") out = out.filter((x) => isOperating(x, departments));
     if (mode === "debt") out = out.filter((x) => x.debtPeriod !== "current");
     if (mode === "unidentified") out = out.filter(isUnidentified);
     if (mode === "review") out = out.filter((x) => x.reviewGroup === "Accounting review");
-    if (mode === "nonoperating") out = out.filter((x) => !isOperating(x));
+    if (mode === "nonoperating") out = out.filter((x) => !isOperating(x, departments));
     if (drillDepartment) out = out.filter((x) => x.managementDepartment === drillDepartment);
+    if (drillCostHead) out = out.filter((x) => (x.managementCostHead || "Needs allocation") === drillCostHead);
     if (drillMonth) out = out.filter((x) => x.month === drillMonth);
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, mode, drillDepartment, drillMonth]);
+  }, [rows, mode, drillDepartment, drillCostHead, drillMonth, departments]);
 
   async function handleLinkSubmit() {
     if (isLinking || !subscriptionId.trim() || selected.size === 0) return;
@@ -175,15 +174,16 @@ export function AllPaymentsPage({
             ))}
           </select>
         </label>
-        {(drillDepartment || drillMonth) && (
+        {(drillDepartment || drillMonth || drillCostHead) && (
           <button
             onClick={() => {
               setDrillDepartment(null);
               setDrillMonth(null);
+              setDrillCostHead(null);
             }}
             className="rounded-full border border-base-700 px-3 py-1 text-xs text-ink-300 hover:text-ink-50"
           >
-            Drilldown: {[drillMonth, drillDepartment].filter(Boolean).join(" · ")} ×
+            Drilldown: {[drillMonth && mo(drillMonth), drillDepartment, drillCostHead].filter(Boolean).join(" · ")} ×
           </button>
         )}
         <button

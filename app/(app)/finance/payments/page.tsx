@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function FinancePaymentsRoute({
   searchParams,
 }: {
-  searchParams: { department?: string; month?: string; mode?: string };
+  searchParams: { department?: string; month?: string; mode?: string; costHead?: string };
 }) {
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -30,6 +30,7 @@ export default async function FinancePaymentsRoute({
         initialDepartmentFilter={searchParams.department ?? null}
         initialMonthFilter={searchParams.month ?? null}
         initialMode={searchParams.mode ?? null}
+        initialCostHeadFilter={searchParams.costHead ?? null}
       />
     );
   });

@@ -211,12 +211,22 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
     transactions: scopedRows,
     monthly,
     costHeads,
-    departments: departmentRows.map((d) => d.name),
+    departments: sortDepartments(departmentRows.map((d) => d.name)),
     managementCostHeads: managementCostHeadRows.map((h) => h.name),
     legacyMappings,
     classifications: await prisma.financeAllocation.count(),
     approvedPlans: Array.from(approvedPlans.values()),
   };
+}
+
+// Source list_departments(): core departments first, then case-insensitive alphabetical.
+const DEPARTMENT_PRIORITY = ["Marketing", "Sales", "Development", "D & M Split cost"];
+function sortDepartments(names: string[]): string[] {
+  const rank = (n: string) => {
+    const i = DEPARTMENT_PRIORITY.indexOf(n);
+    return i === -1 ? DEPARTMENT_PRIORITY.length : i;
+  };
+  return [...names].sort((a, b) => rank(a) - rank(b) || a.toLowerCase().localeCompare(b.toLowerCase()));
 }
 
 export type FinanceFilterOptions = {
@@ -259,7 +269,7 @@ export async function getFinanceFilterOptions(): Promise<FinanceFilterOptions> {
   return {
     months,
     countries: countryRows.map((r) => r.country as string).sort(),
-    departments: departmentRows.map((r) => r.name),
+    departments: sortDepartments(departmentRows.map((r) => r.name)),
     fyYears,
   };
 }

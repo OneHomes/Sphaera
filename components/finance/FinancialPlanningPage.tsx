@@ -18,7 +18,9 @@ import {
 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
-import { useFilteredFinanceRows } from "./FinanceFilterContext";
+import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
+import { fyOf } from "@/lib/finance/financeFilters";
+import { effectiveCentre, effectiveHead, isOperating, mo, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 
 type PlanRow = {
@@ -56,7 +58,6 @@ type PreviewResult = {
   note?: string;
 };
 
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function fyName(fyStart: number): string {
   return `FY${fyStart}/${String((fyStart + 1) % 100).padStart(2, "0")}`;
@@ -80,10 +81,6 @@ function fiscalYearStartFromDate(d: Date): number {
   return month >= 11 ? year : year - 1;
 }
 
-function monthLabel(month: string): string {
-  const [y, m] = month.split("-").map(Number);
-  return `${MONTH_NAMES[(m ?? 1) - 1]} ${y}`;
-}
 
 function usd(value: number): string {
   return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
@@ -100,18 +97,25 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const style =
-    status === "Approved"
-      ? "bg-status-active/15 text-status-active"
-      : status === "Missing"
-        ? "bg-base-700 text-ink-500"
-        : "bg-status-alert/15 text-status-alert";
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>{status}</span>;
-}
 
 const inputClass =
   "w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500";
+
+function PlanKpi({ title, value, detail }: { title: string; value: string; detail: string }) {
+  return (
+    <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+      <h4 className="text-[11px] text-ink-500">{title}</h4>
+      <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
+      <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
+    </div>
+  );
+}
+
+function usdCompact(value: number): string {
+  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
+  return usd(value);
+}
 
 export function FinancialPlanningPage({
   plans: initialPlans,
@@ -129,8 +133,7 @@ export function FinancialPlanningPage({
   transactions: TransactionRow[];
 }) {
   const router = useRouter();
-  // Scoped by the global Finance filter bar — financialPlanningPage() in
-  // the source app calls filt() first, exactly like this.
+  const { filters, setFilters } = useFinanceFilters();
   const transactions = useFilteredFinanceRows(allTransactions);
   const [plans, setPlans] = useState<PlanRow[]>(initialPlans);
   const [lines, setLines] = useState<PlanLineRow[]>(initialLines);
@@ -148,201 +151,176 @@ export function FinancialPlanningPage({
     }
   }
 
-  // `plans` is already sorted fyStart desc, version desc (financePlanData()).
-  const latestApproved = plans.find((p) => p.status === "Approved") ?? null;
-  const selectedPlan = selectedPlanId
-    ? plans.find((p) => p.id === selectedPlanId) ?? null
-    : latestApproved ?? plans[0] ?? null;
+  // Source planningYear(): the planning page follows the global FY filter.
+  const year = filters.fy === "all" ? fiscalYearStartFromDate(new Date()) : Number(filters.fy);
+  const activePlanFor = (fy: number) =>
+    plans.filter((p) => p.fyStart === fy && p.status === "Approved").sort((a, b) => b.version - a.version)[0] ?? null;
+  const versions = plans.filter((p) => p.fyStart === year).sort((a, b) => b.version - a.version);
+  const plan = (selectedPlanId && versions.find((p) => p.id === selectedPlanId)) || activePlanFor(year) || versions[0] || null;
 
-  const headerFyStart = selectedPlan?.fyStart ?? fiscalYearStartFromDate(new Date());
-  const fyMonths = useMemo(() => fiscalYearMonths(headerFyStart), [headerFyStart]);
-  const fyMonthSet = useMemo(() => new Set(fyMonths), [fyMonths]);
-  const activeDeptSet = useMemo(() => new Set(departments), [departments]);
-
-  const planLines = useMemo(
-    () => (selectedPlan ? lines.filter((l) => l.planId === selectedPlan.id) : []),
-    [lines, selectedPlan]
-  );
+  // Source planningFilters(): department and month filters narrow the plan lines too.
+  const planLines = useMemo(() => {
+    let l = plan ? lines.filter((x) => x.planId === plan.id) : [];
+    if (filters.department !== "all") l = l.filter((x) => x.department === filters.department);
+    if (filters.start !== "all") l = l.filter((x) => x.month >= filters.start);
+    if (filters.end !== "all") l = l.filter((x) => x.month <= filters.end);
+    return l;
+  }, [lines, plan, filters.department, filters.start, filters.end]);
   const planTargets = useMemo(
-    () => (selectedPlan ? targets.filter((t) => t.planId === selectedPlan.id) : []),
-    [targets, selectedPlan]
-  );
-
-  const budgetTotal = planLines.reduce((s, l) => s + l.budgetUsd, 0);
-  const salesTotal = planTargets.reduce((s, t) => s + t.salesTargetUsd, 0);
-  const collectionsTotal = planTargets.reduce((s, t) => s + t.collectionsTargetUsd, 0);
-  const distinctCostHeads = new Set(planLines.map((l) => l.costHead));
-
-  const operatingInFy = useMemo(
     () =>
-      transactions.filter(
-        (t) =>
-          t.debtPeriod === "current" &&
-          t.managementDepartment &&
-          activeDeptSet.has(t.managementDepartment) &&
-          fyMonthSet.has(t.month)
-      ),
-    [transactions, activeDeptSet, fyMonthSet]
+      plan
+        ? targets.filter(
+            (x) =>
+              x.planId === plan.id &&
+              (filters.start === "all" || x.month >= filters.start) &&
+              (filters.end === "all" || x.month <= filters.end)
+          )
+        : [],
+    [targets, plan, filters.start, filters.end]
   );
-  const actualOpex = operatingInFy.reduce((s, t) => s + t.amount, 0);
 
-  const budgetByDept = new Map<string, number>();
-  for (const l of planLines) budgetByDept.set(l.department, (budgetByDept.get(l.department) ?? 0) + l.budgetUsd);
-  const actualByDept = new Map<string, number>();
-  for (const t of operatingInFy) {
-    const key = t.managementDepartment!;
-    actualByDept.set(key, (actualByDept.get(key) ?? 0) + t.amount);
-  }
-  const deptCompareRows = Array.from(new Set([...budgetByDept.keys(), ...actualByDept.keys()]))
-    .map((d) => ({ department: d, planned: budgetByDept.get(d) ?? 0, actual: actualByDept.get(d) ?? 0 }))
-    .sort((a, b) => b.planned - a.planned);
-  const donutData = deptCompareRows.filter((r) => r.planned > 0).map((r) => ({ name: r.department, value: r.planned }));
+  const tx = useMemo(
+    () => reportingRows(transactions, filters.department).filter((t) => isOperating(t, departments)),
+    [transactions, filters.department, departments]
+  );
+  const budget = planLines.reduce((s, l) => s + l.budgetUsd, 0);
+  const plannedSales = planTargets.reduce((s, t) => s + (t.salesTargetUsd || 0), 0);
+  const plannedCollections = planTargets.reduce((s, t) => s + (t.collectionsTargetUsd || 0), 0);
+  const actual = tx.reduce((s, t) => s + t.amount, 0);
 
-  const actualByKey = new Map<string, number>();
-  for (const t of operatingInFy) {
-    if (!t.managementCostHead || !t.managementDepartment) continue;
-    const key = `${t.managementDepartment}\u0000${t.managementCostHead}`;
-    actualByKey.set(key, (actualByKey.get(key) ?? 0) + t.amount);
-  }
-  const planByKey = new Map<string, { department: string; costHead: string; amount: number }>();
+  const deptRows = departments.map((dept) => ({
+    dept,
+    budget: planLines.filter((x) => x.department === dept).reduce((s, x) => s + x.budgetUsd, 0),
+    actual: tx.filter((t) => effectiveHead(t) === dept).reduce((s, t) => s + t.amount, 0),
+    count: planLines.filter((x) => x.department === dept).length,
+  }));
+  const donutData = deptRows.filter((x) => x.budget > 0).map((x) => ({ name: x.dept, value: x.budget }));
+
+  const headMap = new Map<string, { department: string; head: string; budget: number }>();
   for (const l of planLines) {
-    const key = `${l.department}\u0000${l.costHead}`;
-    const cur = planByKey.get(key) ?? { department: l.department, costHead: l.costHead, amount: 0 };
-    cur.amount += l.budgetUsd;
-    planByKey.set(key, cur);
+    const key = `${l.department} | ${l.costHead}`;
+    const o = headMap.get(key) ?? { department: l.department, head: l.costHead, budget: 0 };
+    o.budget += l.budgetUsd;
+    headMap.set(key, o);
   }
-  const costHeadRows = Array.from(planByKey.entries())
-    .map(([key, r]) => ({ ...r, actual: actualByKey.get(key) ?? 0 }))
-    .sort((a, b) => a.department.localeCompare(b.department) || a.costHead.localeCompare(b.costHead));
+  const heads = Array.from(headMap.values())
+    .map((x) => ({
+      ...x,
+      actual: tx
+        .filter((t) => effectiveHead(t) === x.department && effectiveCentre(t) === x.head)
+        .reduce((s, t) => s + t.amount, 0),
+    }))
+    .sort((a, b) => b.budget - a.budget);
 
-  const monthlyRows = fyMonths.map((m) => {
-    const target = planTargets.find((t) => t.month === m);
-    const hasBudgetLines = planLines.some((l) => l.month === m);
-    const monthBudget = hasBudgetLines ? planLines.filter((l) => l.month === m).reduce((s, l) => s + l.budgetUsd, 0) : null;
-    return {
-      month: m,
-      sales: target ? target.salesTargetUsd : null,
-      collections: target ? target.collectionsTargetUsd : null,
-      budget: monthBudget,
-    };
-  });
+  const monthlyRows = fiscalYearMonths(year)
+    .filter((m) => (filters.start === "all" || m >= filters.start) && (filters.end === "all" || m <= filters.end))
+    .map((m) => {
+      const target = planTargets.find((t) => t.month === m);
+      const c = planLines.filter((l) => l.month === m);
+      return {
+        month: m,
+        sales: target ? target.salesTargetUsd : null,
+        collections: target ? target.collectionsTargetUsd : null,
+        budget: c.length ? c.reduce((s, l) => s + l.budgetUsd, 0) : null,
+      };
+    });
 
-  const fyStarts = Array.from(new Set(plans.map((p) => p.fyStart))).sort((a, b) => b - a);
-  const yearRows = fyStarts.map((fy) => {
-    const versionsForFy = plans.filter((p) => p.fyStart === fy); // desc version order
-    const approvedForFy = versionsForFy.find((p) => p.status === "Approved");
-    const latestVersion = versionsForFy[0];
-    const basisPlan = approvedForFy ?? latestVersion;
-    const basisLines = lines.filter((l) => l.planId === basisPlan.id);
-    const annualBudget = basisLines.reduce((s, l) => s + l.budgetUsd, 0);
-    const months = new Set(fiscalYearMonths(fy));
-    const spend = transactions
-      .filter((t) => t.debtPeriod === "current" && t.managementDepartment && activeDeptSet.has(t.managementDepartment) && months.has(t.month))
-      .reduce((s, t) => s + t.amount, 0);
-    return {
-      fy,
-      latestVersionLabel: `v${latestVersion.version} ${latestVersion.status}`,
-      annualBudget: approvedForFy ? annualBudget : null,
-      spend,
-    };
-  });
+  const yearRows = Array.from(
+    new Set([2025, 2026, 2027, ...plans.map((p) => p.fyStart), ...allTransactions.map((t) => fyOf(t.month))])
+  )
+    .sort((a, b) => a - b)
+    .map((y) => {
+      const p = activePlanFor(y);
+      return {
+        fy: y,
+        plan: p,
+        annualBudget: p ? lines.filter((l) => l.planId === p.id).reduce((s, l) => s + l.budgetUsd, 0) : null,
+        spend: allTransactions
+          .filter((t) => fyOf(t.month) === y && isOperating(t, departments))
+          .reduce((s, t) => s + t.amount, 0),
+      };
+    });
 
   function handleExport() {
     const header = ["Department", "Cost Head", "Plan (selected period)", "Recorded actual"];
-    const rows = [header, ...costHeadRows.map((r) => [r.department, r.costHead, r.amount.toFixed(2), r.actual.toFixed(2)])];
+    const rows = [header, ...heads.map((r) => [r.department, r.head, r.budget.toFixed(2), r.actual.toFixed(2)])];
     const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `budget-lines-${fyName(headerFyStart)}.csv`;
+    a.download = `budget-lines-${fyName(year)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  const canRevise = latestApproved !== null && latestApproved.fyStart === headerFyStart;
-
-  const plansForSelectedFy = useMemo(
-    () => plans.filter((p) => p.fyStart === headerFyStart),
-    [plans, headerFyStart]
-  );
+  const canRevise = activePlanFor(year) !== null;
+  const status = plan ? plan.status : "No plan yet";
 
   return (
     <div className="p-6">
       <div className="mb-5">
-        <h2 className="text-xl font-semibold text-ink-50">
-          Financial planning, {fyName(headerFyStart)}
-        </h2>
+        <h2 className="text-xl font-semibold text-ink-50">Financial planning, {fyName(year)}</h2>
         <p className="mt-1 text-sm text-ink-500">
           Approved November to October targets and spending budgets. Actual spending comes from the ERP,
           independently of your plan.
         </p>
       </div>
 
-      <WidgetCard title="Financial year control" icon={CalendarRange}>
-        <p className="text-xs text-ink-500">
-          Enter the new year&apos;s targets directly, review them and lock the approved version in the SQL database.
-          No Excel upload required.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-ink-50">Financial year control</h3>
+            <p className="mt-1 text-[11px] text-ink-500">
+              Enter the new year&apos;s targets directly, review them and lock the approved version in the SQL
+              database. No Excel upload required.
+            </p>
+          </div>
           <button
             onClick={() => setShowPlanModal(true)}
             className="flex items-center gap-1.5 rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white"
           >
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
-            {canRevise ? "Create a revised plan" : "Start new financial year"}
+            {canRevise ? "Create a revised plan" : "Start new financial year"} ↗
           </button>
-          <select
-            value={selectedPlanId}
-            onChange={(e) => setSelectedPlanId(e.target.value)}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-2 text-xs text-ink-50 outline-none"
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="flex-1 text-[10px] font-medium uppercase tracking-wide text-ink-500">
+            Viewing version
+            <select
+              value={selectedPlanId}
+              onChange={(e) => setSelectedPlanId(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-base-700 bg-base-800 px-2.5 py-2 text-xs normal-case tracking-normal text-ink-50 outline-none"
+            >
+              <option value="">Latest approved plan</option>
+              {versions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  v{p.version} · {p.status} · {p.name ?? ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span
+            className={`mb-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+              plan?.status === "Approved" ? "bg-status-active/15 text-status-active" : "bg-status-alert/15 text-status-alert"
+            }`}
           >
-            <option value="">Latest approved plan</option>
-            {plansForSelectedFy.map((p) => (
-              <option key={p.id} value={p.id}>
-                v{p.version} · {p.status} · {p.name ?? ""}
-              </option>
-            ))}
-          </select>
-          <StatusBadge status={selectedPlan?.status ?? "Missing"} />
+            {status}
+            {plan ? ` · version ${plan.version}` : ""}
+          </span>
         </div>
         <p className="mt-2 text-[11px] text-ink-500">
           Approved figures cannot be edited. Revisions create a new numbered version and preserve the previous
           approved figures.
         </p>
-      </WidgetCard>
+      </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <WidgetCard title="Budget in selected view" icon={Banknote}>
-          <Tile
-            label="Cost-head budgets from the selected version"
-            value={selectedPlan ? usd(budgetTotal) : "No plan"}
-          />
-        </WidgetCard>
-        <WidgetCard title="Classified operating payments" icon={ListChecks}>
-          <Tile label={`${operatingInFy.length.toLocaleString()} payments`} value={usd(actualOpex)} />
-        </WidgetCard>
-        <WidgetCard title="Planned sales target" icon={Target}>
-          <Tile
-            label="Monthly targets in the approved plan, not actual sales"
-            value={selectedPlan && planTargets.length ? usd(salesTotal) : "No plan"}
-          />
-        </WidgetCard>
-        <WidgetCard title="Planned collections target" icon={Target}>
-          <Tile
-            label="Monthly targets in the approved plan, not actual receipts"
-            value={selectedPlan && planTargets.length ? usd(collectionsTotal) : "No plan"}
-          />
-        </WidgetCard>
-        <WidgetCard title="Budget status" icon={CheckCircle2}>
-          <div className="flex h-full flex-col justify-center gap-1">
-            <StatusBadge status={selectedPlan?.status ?? "Missing"} />
-            <p className="text-[11px] text-ink-500">Approved budgets are not overwritten by new draft uploads</p>
-          </div>
-        </WidgetCard>
-        <WidgetCard title="Cost heads planned" icon={ClipboardList}>
-          <Tile label="Editable through a new version upload" value={String(distinctCostHeads.size)} />
-        </WidgetCard>
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <PlanKpi title="Budget in selected view" value={plan ? usdCompact(budget) : "No plan"} detail="Cost-head budgets from the selected version" />
+        <PlanKpi title="Classified operating payments" value={usdCompact(actual)} detail={`${tx.length} actual payments in year and filters`} />
+        <PlanKpi title="Planned sales target" value={plan ? usd(plannedSales) : "No plan"} detail="Monthly targets in the approved plan, not actual sales" />
+        <PlanKpi title="Planned collections target" value={plan ? usd(plannedCollections) : "No plan"} detail="Monthly targets in the approved plan, not actual receipts" />
+        <PlanKpi title="Budget status" value={plan ? plan.status : "Missing"} detail="Approved budgets are not overwritten by new draft uploads" />
+        <PlanKpi title="Cost heads planned" value={String(heads.length)} detail="Editable through a new version upload" />
       </div>
 
       <div className="mt-4">
@@ -356,18 +334,18 @@ export function FinancialPlanningPage({
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                 <tr>
                   <th className="px-3 py-2">Month</th>
-                  <th className="px-3 py-2">Sales target</th>
-                  <th className="px-3 py-2">Collections target</th>
-                  <th className="px-3 py-2">Cost-head budget</th>
+                  <th className="px-3 py-2 text-right">Sales target</th>
+                  <th className="px-3 py-2 text-right">Collections target</th>
+                  <th className="px-3 py-2 text-right">Cost-head budget</th>
                 </tr>
               </thead>
               <tbody>
                 {monthlyRows.map((row) => (
                   <tr key={row.month} className="border-b border-base-800 text-ink-300 last:border-0">
-                    <td className="px-3 py-2 text-ink-50">{monthLabel(row.month)}</td>
-                    <td className="px-3 py-2">{row.sales !== null ? usd(row.sales) : "Not entered"}</td>
-                    <td className="px-3 py-2">{row.collections !== null ? usd(row.collections) : "Not entered"}</td>
-                    <td className="px-3 py-2">{row.budget !== null ? usd(row.budget) : "Not entered"}</td>
+                    <td className="px-3 py-2 text-ink-50">{mo(row.month)}</td>
+                    <td className="px-3 py-2 text-right">{row.sales !== null ? usd(row.sales) : "Not entered"}</td>
+                    <td className="px-3 py-2 text-right">{row.collections !== null ? usd(row.collections) : "Not entered"}</td>
+                    <td className="px-3 py-2 text-right">{row.budget !== null ? usd(row.budget) : "Not entered"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -378,10 +356,21 @@ export function FinancialPlanningPage({
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <WidgetCard title="Plan split by department" icon={PieChartIcon}>
-          {donutData.length > 0 ? (
+          {plan && donutData.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
+                <Pie
+                  data={donutData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={55}
+                  outerRadius={85}
+                  cursor="pointer"
+                  onClick={(_, i) => {
+                    const d = donutData[i];
+                    if (d) router.push(`/finance/explorer?department=${encodeURIComponent(d.name)}`);
+                  }}
+                >
                   {donutData.map((_, i) => (
                     <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                   ))}
@@ -393,7 +382,9 @@ export function FinancialPlanningPage({
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-xs text-ink-500">No budget lines in the selected plan.</p>
+            <p className="py-8 text-center text-xs text-ink-500">
+              {plan ? "There is no spending in this selection. Change the filters above." : "Upload a plan to see the budget allocation."}
+            </p>
           )}
         </WidgetCard>
 
@@ -403,25 +394,18 @@ export function FinancialPlanningPage({
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                 <tr>
                   <th className="px-3 py-2">Department</th>
-                  <th className="px-3 py-2">Planned budget</th>
-                  <th className="px-3 py-2">Recorded spending</th>
+                  <th className="px-3 py-2 text-right">Planned budget</th>
+                  <th className="px-3 py-2 text-right">Recorded spending</th>
                 </tr>
               </thead>
               <tbody>
-                {deptCompareRows.map((r) => (
-                  <tr key={r.department} className="border-b border-base-800 text-ink-300 last:border-0">
-                    <td className="px-3 py-2 text-ink-50">{r.department}</td>
-                    <td className="px-3 py-2">{usd(r.planned)}</td>
-                    <td className="px-3 py-2">{usd(r.actual)}</td>
+                {deptRows.map((r) => (
+                  <tr key={r.dept} className="border-b border-base-800 text-ink-300 last:border-0">
+                    <td className="px-3 py-2 text-ink-50">{r.dept}</td>
+                    <td className="px-3 py-2 text-right">{plan ? usd(r.budget) : "Not available"}</td>
+                    <td className="px-3 py-2 text-right">{usd(r.actual)}</td>
                   </tr>
                 ))}
-                {deptCompareRows.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="px-3 py-6 text-center text-ink-500">
-                      No department figures for this plan yet.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -445,45 +429,50 @@ export function FinancialPlanningPage({
             </button>
           }
         >
+          <p className="mb-3 text-[11px] text-ink-500">
+            The cost-head table responds to the selected FY, department and month filters. Click a cost head to
+            inspect its recorded payments.
+          </p>
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                 <tr>
                   <th className="px-3 py-2">Department</th>
                   <th className="px-3 py-2">Cost head</th>
-                  <th className="px-3 py-2">Full selected-period plan</th>
-                  <th className="px-3 py-2">Recorded actual</th>
+                  <th className="px-3 py-2 text-right">Full selected-period plan</th>
+                  <th className="px-3 py-2 text-right">Recorded actual</th>
                 </tr>
               </thead>
               <tbody>
-                {costHeadRows.map((r) => (
-                  <tr key={`${r.department}\u0000${r.costHead}`} className="border-b border-base-800 text-ink-300 last:border-0">
+                {heads.map((r) => (
+                  <tr key={`${r.department} | ${r.head}`} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2">{r.department}</td>
                     <td className="px-3 py-2 text-ink-50">
                       <button
-                        onClick={() => router.push(`/finance/payments?department=${encodeURIComponent(r.department)}`)}
+                        onClick={() =>
+                          router.push(
+                            `/finance/payments?mode=operating&department=${encodeURIComponent(r.department)}&costHead=${encodeURIComponent(r.head)}&fy=${year}`
+                          )
+                        }
                         className="hover:underline"
                       >
-                        {r.costHead} ↗
+                        {r.head} ↗
                       </button>
                     </td>
-                    <td className="px-3 py-2">{usd(r.amount)}</td>
-                    <td className="px-3 py-2">{usd(r.actual)}</td>
+                    <td className="px-3 py-2 text-right">{usd(r.budget)}</td>
+                    <td className="px-3 py-2 text-right">{usd(r.actual)}</td>
                   </tr>
                 ))}
-                {costHeadRows.length === 0 && (
+                {heads.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
-                      No cost-head budget lines in this plan.
+                      No plan uploaded for this year.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-          <p className="mt-2 text-[11px] text-ink-500">
-            Click a cost head on the Spending Explorer to inspect each payment behind these totals.
-          </p>
         </WidgetCard>
       </div>
 
@@ -495,31 +484,35 @@ export function FinancialPlanningPage({
                 <tr>
                   <th className="px-3 py-2">Financial year</th>
                   <th className="px-3 py-2">Latest approved version</th>
-                  <th className="px-3 py-2">Annual budget</th>
-                  <th className="px-3 py-2">Recorded operating spend</th>
+                  <th className="px-3 py-2 text-right">Annual budget</th>
+                  <th className="px-3 py-2 text-right">Recorded operating spend</th>
                 </tr>
               </thead>
               <tbody>
                 {yearRows.map((r) => (
                   <tr key={r.fy} className="border-b border-base-800 text-ink-300 last:border-0">
-                    <td className="px-3 py-2 text-ink-50">{fyName(r.fy)}</td>
-                    <td className="px-3 py-2">{r.latestVersionLabel}</td>
-                    <td className="px-3 py-2">{r.annualBudget !== null ? usd(r.annualBudget) : "No approved plan"}</td>
-                    <td className="px-3 py-2">{usd(r.spend)}</td>
+                    <td className="px-3 py-2 font-medium text-ink-50">
+                      <button
+                        onClick={() => {
+                          setSelectedPlanId("");
+                          setFilters({ fy: String(r.fy), start: "all", end: "all" });
+                        }}
+                        className="hover:underline"
+                      >
+                        {fyName(r.fy)}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">{r.plan ? `v${r.plan.version}` : "Not approved"}</td>
+                    <td className="px-3 py-2 text-right">{r.annualBudget !== null ? usd(r.annualBudget) : "Not available"}</td>
+                    <td className="px-3 py-2 text-right">{usd(r.spend)}</td>
                   </tr>
                 ))}
-                {yearRows.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
-                      No financial years recorded yet.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
           <p className="mt-2 text-[11px] text-ink-500">
-            Year-on-year totals are not comparable until a full financial year has been imported.
+            Year-on-year totals are not necessarily comparable until the entire FY has been imported and cost heads
+            are consistently classified.
           </p>
         </WidgetCard>
       </div>
@@ -528,7 +521,7 @@ export function FinancialPlanningPage({
         <CreatePlanModal
           departments={departments}
           costHeads={costHeads}
-          defaultYear={canRevise ? headerFyStart + 1 : headerFyStart}
+          defaultYear={year}
           onClose={() => setShowPlanModal(false)}
           onCreated={async () => {
             setShowPlanModal(false);
@@ -539,6 +532,7 @@ export function FinancialPlanningPage({
     </div>
   );
 }
+
 
 function CreatePlanModal({
   departments,
