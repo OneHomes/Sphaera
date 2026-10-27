@@ -29,26 +29,6 @@ export default async function FinancePeopleRoute() {
     }
 
     const [state, finance] = await Promise.all([getPersonCostState(), getFinanceState()]);
-
-    // Payment search pool for allocation: payroll-eligible cost heads only,
-    // matched case-insensitively against each payment's resolved
-    // management cost head.
-    const PAYROLL_HEADS = new Set(
-      ["Salaries", "Commissions", "Bonuses & Incentives", "Employer Payroll Taxes", "Staff Benefits & Pensions"].map(
-        (h) => h.toLowerCase()
-      )
-    );
-    const payments = finance.transactions
-      .filter((t) => t.managementCostHead && PAYROLL_HEADS.has(t.managementCostHead.toLowerCase()))
-      .map((t) => ({
-        id: t.id,
-        date: t.date,
-        description: t.description,
-        amount: t.amount,
-        managementCostHead: t.managementCostHead,
-        managementDepartment: t.managementDepartment,
-      }));
-
-    return <PeopleCostsPage state={state} departments={finance.departments} payments={payments} />;
+    return <PeopleCostsPage state={state} departments={finance.departments} transactions={finance.transactions} />;
   });
 }

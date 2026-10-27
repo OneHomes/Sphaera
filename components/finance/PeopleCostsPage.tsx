@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
+import { fyOf } from "@/lib/finance/financeFilters";
+import { effectiveCentre } from "@/lib/finance/financeReporting";
+import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 
 // Direct structural/content port of the source app's People Costs
 // screen — same header copy, same 4 KPI cards, same "cost per person"
@@ -48,6 +52,8 @@ type PersonCostState = {
 type PaymentOption = {
   id: string;
   date: string | Date;
+  month: string;
+  head: string | null;
   description: string;
   amount: number;
   managementCostHead: string | null;
@@ -63,9 +69,14 @@ type AllocationLineDraft = {
   note: string;
 };
 
+// Source peMoney(): exact USD with cents.
+const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return moneyFmt.format(Number(value) || 0);
 }
+
+// Source pePaymentChoices() qualifying heads.
+const QUALIFYING = new Set(["salaries", "commissions", "commissions agent", "bonuses & incentives", "employer payroll taxes", "staff benefits & pensions"]);
 
 function Kpi({ title, value, detail }: { title: string; value: string; detail: string }) {
   return (
@@ -84,39 +95,67 @@ function newDraftLine(): AllocationLineDraft {
 export function PeopleCostsPage({
   state,
   departments,
-  payments,
+  transactions,
 }: {
   state: PersonCostState;
   departments: string[];
-  payments: PaymentOption[];
+  transactions: FinanceLedgerRow[];
 }) {
   const [people, setPeople] = useState<Person[]>(state.people);
   const [allocations, setAllocations] = useState<Allocation[]>(state.allocations);
+  const { filters } = useFinanceFilters();
+  const filteredTx = useFilteredFinanceRows(transactions);
+  const payments: PaymentOption[] = useMemo(
+    () =>
+      filteredTx
+        .filter((t) => QUALIFYING.has(effectiveCentre(t).toLowerCase()) || QUALIFYING.has((t.head ?? "").toLowerCase()))
+        .filter((t) => !t.departmentSplits?.length)
+        .map((t) => ({
+          id: t.id,
+          date: t.date,
+          month: t.month,
+          description: t.description,
+          amount: t.amount,
+          head: t.head,
+          managementCostHead: effectiveCentre(t),
+          managementDepartment: t.managementDepartment,
+        })),
+    [filteredTx]
+  );
+  const countryById = useMemo(() => new Map(transactions.map((t) => [t.id, t.country])), [transactions]);
 
   // --- Cost per person -----------------------------------------------
   const [filterDept, setFilterDept] = useState<string>("all");
   const [filterPerson, setFilterPerson] = useState<string>("all");
 
-  const totalsByType = useMemo(() => {
-    const t: Record<string, number> = {};
-    for (const a of allocations) t[a.costType] = (t[a.costType] ?? 0) + a.amountUsd;
-    return t;
-  }, [allocations]);
-  const attributedSalary = totalsByType["Salary"] ?? 0;
-  const attributedCommission = totalsByType["Commission"] ?? 0;
-  const otherEmployerCosts = ["Bonus", "Employer taxes", "Benefits", "Other personnel"].reduce(
-    (s, k) => s + (totalsByType[k] ?? 0),
-    0
+  // Source: allocations are scoped by the global FY / month / country / department filters first.
+  const scopedAllocations = useMemo(
+    () =>
+      allocations.filter(
+        (a) =>
+          (filters.fy === "all" || fyOf(a.month) === Number(filters.fy)) &&
+          (filters.start === "all" || a.month >= filters.start) &&
+          (filters.end === "all" || a.month <= filters.end) &&
+          (filters.country === "all" || countryById.get(a.transactionId) === filters.country) &&
+          (filters.department === "all" || a.departmentSnapshot === filters.department)
+      ),
+    [allocations, filters, countryById]
   );
-  const totalAttributed = allocations.reduce((s, a) => s + a.amountUsd, 0);
 
   const filteredAllocations = useMemo(() => {
-    return allocations.filter((a) => {
+    return scopedAllocations.filter((a) => {
       if (filterDept !== "all" && (a.departmentSnapshot ?? "") !== filterDept) return false;
       if (filterPerson !== "all" && a.personId !== filterPerson) return false;
       return true;
     });
-  }, [allocations, filterDept, filterPerson]);
+  }, [scopedAllocations, filterDept, filterPerson]);
+
+  const attributedSalary = filteredAllocations.filter((a) => a.costType === "Salary").reduce((s, a) => s + a.amountUsd, 0);
+  const attributedCommission = filteredAllocations.filter((a) => a.costType === "Commission").reduce((s, a) => s + a.amountUsd, 0);
+  const otherEmployerCosts = filteredAllocations
+    .filter((a) => a.costType !== "Salary" && a.costType !== "Commission")
+    .reduce((s, a) => s + a.amountUsd, 0);
+  const totalAttributed = attributedSalary + attributedCommission + otherEmployerCosts;
 
   const costPerPerson = useMemo(() => {
     const map = new Map<
@@ -204,12 +243,17 @@ export function PeopleCostsPage({
   const [paymentSearch, setPaymentSearch] = useState("");
   const [onlyUnattributed, setOnlyUnattributed] = useState(false);
   const attributedIds = useMemo(() => new Set(allocations.map((a) => a.transactionId)), [allocations]);
+  const creditedById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of allocations) m.set(a.transactionId, (m.get(a.transactionId) ?? 0) + a.amountUsd);
+    return m;
+  }, [allocations]);
 
   const matchingPayments = useMemo(() => {
     const q = paymentSearch.trim().toLowerCase();
     return payments.filter((p) => {
       if (onlyUnattributed && attributedIds.has(p.id)) return false;
-      if (q && !p.description.toLowerCase().includes(q)) return false;
+      if (q && ![p.id, p.description, p.head ?? "", p.managementCostHead ?? ""].join(" ").toLowerCase().includes(q)) return false;
       return true;
     });
   }, [payments, paymentSearch, onlyUnattributed, attributedIds]);
@@ -304,7 +348,7 @@ export function PeopleCostsPage({
             note: l.note ?? null,
             updatedAt: new Date().toISOString(),
             paymentDescription: selectedPayment.description,
-            month: new Date(selectedPayment.date).toISOString().slice(0, 7),
+            month: selectedPayment.month,
             paymentDate: selectedPayment.date,
             paymentAmount: selectedPayment.amount,
             personName: person?.fullName ?? "",
@@ -322,10 +366,10 @@ export function PeopleCostsPage({
 
   const history = useMemo(
     () =>
-      [...allocations]
+      [...filteredAllocations]
         .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())
         .slice(0, 200),
-    [allocations]
+    [filteredAllocations]
   );
 
   const inputClass =
@@ -359,7 +403,7 @@ export function PeopleCostsPage({
               Department
               <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none">
                 <option value="all">All departments</option>
-                {snapshotDepartments.map((d) => (
+                {departments.map((d) => (
                   <option key={d} value={d}>
                     {d}
                   </option>
@@ -421,17 +465,23 @@ export function PeopleCostsPage({
             original department.
           </p>
           <form onSubmit={submitPerson} className="mb-4 space-y-2">
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className={inputClass} />
-            <select value={department} onChange={(e) => setDepartment(e.target.value)} className={inputClass}>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+            <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-ink-500">
+              Employee full name
+              <input value={name} maxLength={160} onChange={(e) => setName(e.target.value)} placeholder="Employee name" className={`${inputClass} normal-case tracking-normal`} />
+            </label>
+            <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-ink-500">
+              Current department
+              <select value={department} onChange={(e) => setDepartment(e.target.value)} className={`${inputClass} normal-case tracking-normal`}>
+                {departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="flex items-center gap-2 text-xs text-ink-300">
               <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-              Active
+              Active employee
             </label>
             {personError && <p className="text-xs text-status-inactive">{personError}</p>}
             <div className="flex gap-2">
@@ -473,7 +523,7 @@ export function PeopleCostsPage({
             <input
               value={paymentSearch}
               onChange={(e) => setPaymentSearch(e.target.value)}
-              placeholder="Search payment descriptions…"
+              placeholder="Supplier, payment ID, salary or commission"
               className="flex-1 rounded-lg border border-base-700 bg-base-800 px-2.5 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500"
             />
             <label className="flex items-center gap-1.5 text-xs text-ink-500">
@@ -489,8 +539,8 @@ export function PeopleCostsPage({
                     {p.description}
                   </p>
                   <p className="text-[10px] text-ink-500">
-                    {new Date(p.date).toLocaleDateString()} · {p.managementCostHead ?? "—"} · {usd(p.amount)}
-                    {attributedIds.has(p.id) && <span className="ml-1.5 text-status-active">· attributed</span>}
+                    {p.month} · {p.managementCostHead ?? "—"} · {usd(p.amount)} ·{" "}
+                    {creditedById.get(p.id) ? `${usd(creditedById.get(p.id)!)} attributed` : "Unattributed"}
                   </p>
                 </div>
                 <button
@@ -501,7 +551,7 @@ export function PeopleCostsPage({
                 </button>
               </div>
             ))}
-            {matchingPayments.length === 0 && <p className="p-2 text-xs text-ink-500">No payroll-eligible payments match this search.</p>}
+            {matchingPayments.length === 0 && <p className="p-2 text-xs text-ink-500">No matching payments in your current filters.</p>}
           </div>
           <p className="mt-2 text-[11px] text-ink-500">
             Showing {Math.min(80, matchingPayments.length)} of {matchingPayments.length}. Narrow search to find a
@@ -658,16 +708,16 @@ export function PeopleCostsPage({
                 {history.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-3 py-6 text-center text-ink-500">
-                      No allocation history recorded yet.
+                      No allocations yet.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-          {allocations.length > 200 && (
+          {filteredAllocations.length > 200 && (
             <p className="mt-2 text-[11px] text-ink-500">
-              Showing the latest 200 of {allocations.length.toLocaleString()} lines. Narrow the year, month,
+              Showing the latest 200 of {filteredAllocations.length.toLocaleString()} lines. Narrow the year, month,
               department or person for more detail.
             </p>
           )}
