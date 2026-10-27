@@ -99,10 +99,11 @@ function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }
   );
 }
 
-// Direct port of the source's persistent header actions (index.html
-// line 537's `<header class="top">` — "↻ Refresh" / "+ Import monthly
-// data") — global, shown above the filter bar on every Finance screen,
-// not just Overview.
+// Direct port of the source's persistent header (index.html line 537's
+// `<header class="top">` — the "SPHAERA / FINANCIAL INTELLIGENCE" eyebrow
+// plus "↻ Refresh" / "+ Import monthly data") — global, shown above the
+// filter bar on every Finance screen, not just Overview. Each screen's
+// own page title/subtitle render below this, untouched.
 function FinanceActionBar() {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
@@ -114,7 +115,9 @@ function FinanceActionBar() {
   }
 
   return (
-    <div className="flex items-center justify-end gap-2 border-b border-base-800 bg-base-900 px-6 py-2.5">
+    <div className="flex items-center justify-between gap-2 border-b border-base-800 bg-base-900 px-6 py-2.5">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-ink-500">Sphaera / Financial Intelligence</div>
+      <div className="flex items-center gap-2">
       <button
         onClick={handleRefresh}
         disabled={refreshing}
@@ -130,6 +133,7 @@ function FinanceActionBar() {
         <UploadCloud className="h-3.5 w-3.5" strokeWidth={1.75} />
         Import monthly data
       </Link>
+      </div>
     </div>
   );
 }
