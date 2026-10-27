@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   PieChart,
   Pie,
@@ -75,7 +76,8 @@ export function SpendingExplorerPage({ state: rawState }: { state: FinanceState 
     setRows(state.transactions);
   }, [state.transactions]);
   const [paymentView, setPaymentView] = useState<PaymentView>("operating");
-  const [department, setDepartment] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const [department, setDepartment] = useState<string | null>(() => searchParams.get("department"));
   const [centre, setCentre] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());

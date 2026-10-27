@@ -121,14 +121,33 @@ export function OverviewPage({
   const variance = actualForBudget - budgetTotal;
   const overBudgetCount = budgetedMonths.filter((m) => (m.variance ?? 0) > 0).length;
 
-  const spendByDepartment = new Map<string, number>();
+  const spendByDepartment = new Map<string, { value: number; count: number }>();
   for (const t of operating) {
     const key = t.managementDepartment!;
-    spendByDepartment.set(key, (spendByDepartment.get(key) ?? 0) + t.amount);
+    const entry = spendByDepartment.get(key) ?? { value: 0, count: 0 };
+    entry.value += t.amount;
+    entry.count += 1;
+    spendByDepartment.set(key, entry);
   }
-  const donutData = Array.from(spendByDepartment.entries())
-    .map(([name, value]) => ({ name, value }))
+  const groupedCosts = Array.from(spendByDepartment.entries())
+    .map(([name, { value, count }]) => ({ name, value, count }))
     .sort((a, b) => b.value - a.value);
+  // Direct port of donutWidget()'s "largest 8 + Other" grouping — the
+  // chart and its legend only ever show up to 9 slices, with every
+  // smaller entry rolled into one non-clickable "Other" row.
+  const positiveCosts = groupedCosts.filter((c) => c.value > 0);
+  const largestCosts = positiveCosts.slice(0, 8).map((c) => ({ ...c, other: false }));
+  const remainingCosts = positiveCosts.slice(8);
+  const otherCost = remainingCosts.length
+    ? {
+        name: "Other heads",
+        value: remainingCosts.reduce((s, c) => s + c.value, 0),
+        count: remainingCosts.reduce((s, c) => s + c.count, 0),
+        other: true,
+      }
+    : null;
+  const donutData = [...largestCosts, ...(otherCost ? [otherCost] : [])];
+  const donutTotal = positiveCosts.reduce((s, c) => s + c.value, 0);
 
   // "Fixed overheads by department" panel — rule lookup by the payment's
   // own managementCostHead, matching the source's ohRule(t) join exactly.
@@ -239,8 +258,9 @@ export function OverviewPage({
                 formatter={(value) => [`$${Number(value ?? 0).toLocaleString()}`]}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="collections" name="Collections" fill="#14b8a6" />
-              <Bar dataKey="opex" name="Operating spend" fill="#ef4444" />
+              <Bar dataKey="collections" name="Collections" fill="#a8a29e" />
+              <Bar dataKey="opex" name="Current-year operating spend" fill="#18181b" />
+              <Bar dataKey="budget" name="Operating budget" fill="#71717a" />
             </BarChart>
           </ResponsiveContainer>
           <p className="mt-2 text-[11px] text-ink-500">
@@ -257,22 +277,76 @@ export function OverviewPage({
             </Link>
           }
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
-                {donutData.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
-                formatter={(value, name) => [usd(Number(value ?? 0)), String(name)]}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+          {donutData.length === 0 ? (
+            <p className="py-8 text-center text-xs text-ink-500">
+              There is no spending in this selection. Change the filters above.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="relative shrink-0 sm:w-[45%]">
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
+                      {donutData.map((_, i) => (
+                        <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
+                      formatter={(value, name) => [usd(Number(value ?? 0)), String(name)]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <p className="text-sm font-semibold text-ink-50">{usd(donutTotal, true)}</p>
+                  <p className="text-[10px] text-ink-500">positive net costs</p>
+                </div>
+              </div>
+              <div className="flex-1 space-y-1.5">
+                {donutData.map((item, i) => {
+                  const share = donutTotal > 0 ? (item.value / donutTotal) * 100 : 0;
+                  const row = (
+                    <>
+                      <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-ink-50">{item.name}</span>
+                        <span className="block text-[10px] text-ink-500">
+                          {item.count.toLocaleString()} {item.count === 1 ? "payment" : "payments"}
+                          {!item.other && " · Click to explore"}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-xs font-semibold text-ink-50">{usd(item.value, true)}</span>
+                        <span className="block text-[10px] text-ink-500">{share.toFixed(1)}%</span>
+                      </span>
+                    </>
+                  );
+                  return item.other ? (
+                    <div key={item.name} className="flex items-start gap-2 rounded-lg px-2 py-1.5">
+                      {row}
+                    </div>
+                  ) : (
+                    <Link
+                      key={item.name}
+                      href={`/finance/explorer?department=${encodeURIComponent(item.name)}`}
+                      className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-base-800"
+                    >
+                      {row}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <p className="mt-2 text-[11px] text-ink-500">
             Click a doughnut slice to see where the money goes, right down to each payment.
           </p>
+          {remainingCosts.length > 0 && (
+            <p className="mt-1 text-[11px] text-ink-500">
+              The chart groups {remainingCosts.length} smaller entries as Other. Every individual cost centre and
+              payment remains accessible below.
+            </p>
+          )}
         </WidgetCard>
       </div>
 
