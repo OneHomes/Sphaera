@@ -342,7 +342,7 @@ export async function classifyTransaction(params: {
     }
   }
   const debtPeriod = params.debtPeriod ?? "current";
-  if (!["current", "2024-25", "older"].includes(debtPeriod)) {
+  if (!["current", "2024/25", "older"].includes(debtPeriod)) {
     return { ok: false, status: 400, error: "Invalid historical debt classification" };
   }
   const department = params.department ?? "";

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 
-const DEBT_PERIODS = ["current", "2024-25", "older"] as const;
+const DEBT_PERIODS = ["current", "2024/25", "older"] as const;
 
 export function ClassifyModal({
   transaction,

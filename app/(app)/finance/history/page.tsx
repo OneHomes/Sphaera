@@ -17,7 +17,7 @@ export default async function FinanceChangeHistoryRoute() {
   return withTenantPage(session, async () => {
     const [changes, auditEntries] = await Promise.all([
       getChangeHistory(),
-      prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 150 }),
+      prisma.auditLog.findMany({ where: { action: { startsWith: "finance_" } }, orderBy: { createdAt: "desc" }, take: 150 }),
     ]);
     const rows = changes.map((c) => ({
       id: c.id,
@@ -30,7 +30,7 @@ export default async function FinanceChangeHistoryRoute() {
     }));
     const auditRows = auditEntries.map((a) => ({
       id: a.id,
-      action: a.action,
+      action: a.action.replace(/^finance_/, ""),
       paymentId: a.targetId,
       actorEmail: a.actorEmail,
       createdAt: a.createdAt.toISOString(),

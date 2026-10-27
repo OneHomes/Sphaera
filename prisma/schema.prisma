@@ -1141,7 +1141,7 @@ model FinanceAllocation {
   centre         String?
   department     String?
   costHead       String?
-  debtPeriod     String             @default("current") // current | 2024-25 | older
+  debtPeriod     String             @default("current") // current | 2024/25 | older
   reviewed       Boolean            @default(false)
   note           String?            @db.NVarChar(Max)
   updatedAt      DateTime           @updatedAt

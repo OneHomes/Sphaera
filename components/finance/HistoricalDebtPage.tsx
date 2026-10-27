@@ -1,8 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useFilteredFinanceRows } from "./FinanceFilterContext";
-import type { FinanceState } from "@/lib/finance/ledgerData";
+import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
+import { PaymentsTable } from "./PaymentsTable";
+import { ClassifyModal } from "./ClassifyModal";
+import { relevantMonths } from "@/lib/finance/financeReporting";
+import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 
 // Direct structural/content port of the source app's debtPage() (server
 // render function, index.html line 1041) — same 4 KPI cards (same titles/
@@ -46,11 +49,6 @@ function Kpi({
   );
 }
 
-const PERIOD_LABEL: Record<string, string> = { "2024-25": "Historical 2024/25", older: "Historical older" };
-const PERIOD_BADGE: Record<string, string> = {
-  "2024-25": "bg-status-inactive/15 text-status-inactive",
-  older: "bg-[#7965bd]/15 text-[#7965bd]",
-};
 
 export function HistoricalDebtPage({ state: rawState }: { state: FinanceState }) {
   // Scoped by the global Finance filter bar — debtPage() in the source app
@@ -60,7 +58,7 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
   const [headFilter, setHeadFilter] = useState<string | null>(null);
 
   const t = useMemo(() => state.transactions.filter((x) => x.debtPeriod !== "current"), [state.transactions]);
-  const year = useMemo(() => t.filter((x) => x.debtPeriod === "2024-25"), [t]);
+  const year = useMemo(() => t.filter((x) => x.debtPeriod === "2024/25"), [t]);
   const older = useMemo(() => t.filter((x) => x.debtPeriod === "older"), [t]);
 
   const heads = useMemo(() => {
@@ -72,7 +70,10 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [t]);
 
-  const months = state.monthly.map((m) => m.month);
+  const { filters } = useFinanceFilters();
+  const months = relevantMonths(rawState, filters);
+  const [detail, setDetail] = useState<FinanceLedgerRow | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, { department: string | null; costHead: string | null }>>({});
 
   const sum = (rows: typeof t) => rows.reduce((s, x) => s + x.amount, 0);
 
@@ -80,8 +81,10 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
     let rows = t;
     if (monthFilter) rows = rows.filter((x) => x.month === monthFilter);
     if (headFilter) rows = rows.filter((x) => (x.managementDepartment || "Unallocated") === headFilter);
-    return rows.slice().sort((a, b) => b.amount - a.amount);
-  }, [t, monthFilter, headFilter]);
+    return rows
+      .map((x) => (overrides[x.id] ? { ...x, managementDepartment: overrides[x.id].department, managementCostHead: overrides[x.id].costHead } : x))
+      .sort((a, b) => b.amount - a.amount);
+  }, [t, monthFilter, headFilter, overrides]);
 
   const activeFilter = monthFilter ? `Month: ${mo(monthFilter)}` : headFilter ? `Head: ${headFilter}` : null;
 
@@ -175,61 +178,21 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
             </button>
           )}
         </div>
-        <div className="overflow-x-auto rounded-xl border border-base-700">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-              <tr>
-                <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2">Payee / payment description</th>
-                <th className="px-3 py-2">Department / cost head</th>
-                <th className="px-3 py-2 text-right">USD</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Review</th>
-              </tr>
-            </thead>
-            <tbody>
-              {table.map((x) => (
-                <tr key={x.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                  <td className="whitespace-nowrap px-3 py-2">{x.date ? new Date(x.date).toLocaleDateString() : x.month}</td>
-                  <td className="max-w-[320px] truncate px-3 py-2 text-ink-50" title={x.description}>
-                    {x.description}
-                  </td>
-                  <td className="px-3 py-2">
-                    {x.managementDepartment ?? <span className="text-ink-500">Unallocated</span>}
-                    <div className="text-[11px] text-ink-500">{x.managementCostHead ?? "Needs allocation"}</div>
-                  </td>
-                  <td className="px-3 py-2 text-right font-medium text-ink-50">{usd(x.amount)}</td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                        PERIOD_BADGE[x.debtPeriod] ?? "bg-status-alert/15 text-status-alert"
-                      }`}
-                    >
-                      {PERIOD_LABEL[x.debtPeriod] ?? x.debtPeriod}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    {x.reviewed ? (
-                      <span className="rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
-                        Reviewed
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">Recorded</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {table.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-ink-500">
-                    No payments match these filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <PaymentsTable rows={table} onRowClick={setDetail} />
       </div>
+      {detail && (
+        <ClassifyModal
+          transaction={detail}
+          departments={rawState.departments}
+          managementCostHeads={rawState.managementCostHeads}
+          costHeads={rawState.costHeads}
+          onClose={() => setDetail(null)}
+          onSaved={(u) => {
+            setOverrides((prev) => ({ ...prev, [detail.id]: u }));
+            setDetail(null);
+          }}
+        />
+      )}
     </div>
   );
 }

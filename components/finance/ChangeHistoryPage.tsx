@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { RotateCcw, ClipboardList, Undo2 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { useTablePager } from "./TablePager";
 
 export type ChangeHistoryRow = {
   id: string;
@@ -22,6 +23,19 @@ export type AuditLogRow = {
   createdAt: string;
 };
 
+// Source historyName labels.
+const HISTORY_NAME: Record<string, string> = {
+  classify: "Payment classification",
+  bulk_management_classify: "Bulk payment allocation",
+  dispute_review: "Finance dispute decision",
+  update_month: "Monthly management figures",
+};
+const historyName = (action: string) => {
+  const key = action.replace(/^finance_/, "");
+  return HISTORY_NAME[key] ?? key;
+};
+const shortId = (id: string) => id.replace(/^legacy-journal-/, "");
+
 export function ChangeHistoryPage({
   initialChanges,
   auditEntries,
@@ -33,6 +47,8 @@ export function ChangeHistoryPage({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { pageRows: changeRows, pager: changePager } = useTablePager(changes);
+  const { pageRows: auditRows, pager: auditPager } = useTablePager(auditEntries);
 
   async function handleUndo(id: string) {
     if (pendingId) return;
@@ -125,7 +141,7 @@ export function ChangeHistoryPage({
               </tr>
             </thead>
             <tbody>
-              {changes.map((c) => (
+              {changeRows.map((c) => (
                 <tr key={c.id} className="border-b border-base-800 text-ink-300 last:border-0">
                   <td className="whitespace-nowrap px-3 py-2">{new Date(c.changedAt).toLocaleString()}</td>
                   <td className="max-w-[320px] px-3 py-2">
@@ -133,7 +149,7 @@ export function ChangeHistoryPage({
                       {c.description}
                     </div>
                     <div className="mt-0.5 text-[11px] text-ink-500">
-                      {c.action} · #{c.id}
+                      {historyName(c.action)} · #{shortId(c.id)}
                     </div>
                   </td>
                   <td className="px-3 py-2">{c.actorEmail}</td>
@@ -182,6 +198,7 @@ export function ChangeHistoryPage({
               )}
             </tbody>
           </table>
+          {changePager}
         </div>
       </WidgetCard>
 
@@ -203,7 +220,7 @@ export function ChangeHistoryPage({
                 </tr>
               </thead>
               <tbody>
-                {auditEntries.map((a) => (
+                {auditRows.map((a) => (
                   <tr key={a.id} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="whitespace-nowrap px-3 py-2">{new Date(a.createdAt).toLocaleString()}</td>
                     <td className="px-3 py-2 text-ink-50">{a.action}</td>
@@ -224,6 +241,7 @@ export function ChangeHistoryPage({
                 )}
               </tbody>
             </table>
+            {auditPager}
           </div>
         </WidgetCard>
       </div>
