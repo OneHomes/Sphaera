@@ -1,5 +1,7 @@
 "use client";
 
+import { useTablePager } from "./TablePager";
+
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { FinanceState } from "@/lib/finance/ledgerData";
@@ -197,7 +199,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
 
-  const unidentified = (t: FinanceState["transactions"][number]) => !t.managementDepartment;
+  const unidentified = (t: FinanceState["transactions"][number]) => !t.managementDepartment || !t.managementCostHead;
 
   const source: SourceRow[] = useMemo(() => {
     const m = new Map<string, { head: string; centre: string; count: number; amount: number }>();
@@ -245,9 +247,27 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
   const awaitingAllocation = state.transactions.filter(unidentified);
 
   const spentByDept = departments.map((d) => {
-    const tx = state.transactions.filter((t) => t.managementDepartment === d);
+    const tx = state.transactions.filter((t) => !unidentified(t) && t.managementDepartment === d);
     return { key: d, total: tx.reduce((s, t) => s + t.amount, 0), count: tx.length };
   });
+
+  const { pageRows: pagedRows, pager: mapPager } = useTablePager(visibleRows);
+
+  async function createMapHead() {
+    const name = prompt("Name of the new cost head");
+    if (!name?.trim()) return;
+    const res = await fetch("/api/finance/cost-heads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    if (!res.ok) {
+      setMapError((await res.json().catch(() => null))?.error ?? "Could not create the cost head");
+      return;
+    }
+    setManagementCostHeads((prev) => (prev.includes(name.trim()) ? prev : [...prev, name.trim()].sort()));
+    setMapBulkHead(name.trim());
+  }
 
   function selectVisible() {
     setMapSelected(new Set(visibleRows.map((r) => r.key)));
@@ -487,7 +507,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
         {spentByDept.map((g) => (
           <Link
             key={g.key}
-            href={`/finance/payments?department=${encodeURIComponent(g.key)}`}
+            href={`/finance/explorer?department=${encodeURIComponent(g.key)}`}
             className="rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600"
           >
             <p className="text-[10px] uppercase tracking-wide text-ink-500">Department</p>
@@ -717,12 +737,12 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
                 </th>
                 <th className="px-3 py-2">Original Finance label</th>
                 <th className="px-3 py-2">Proposed / approved destination</th>
-                <th className="px-3 py-2">USD</th>
-                <th className="px-3 py-2">Payments</th>
+                <th className="px-3 py-2 text-right">USD</th>
+                <th className="px-3 py-2 text-right">Payments</th>
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((x) => (
+              {pagedRows.map((x) => (
                 <tr key={x.key} className="border-b border-base-800 text-ink-300 last:border-0">
                   <td className="px-3 py-2">
                     <input
@@ -748,8 +768,8 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
                       {x.source === "confirmed" ? "Confirmed by you" : x.source === "suggested" ? "Suggested, please verify" : "Not mapped"}
                     </div>
                   </td>
-                  <td className="px-3 py-2">{usd(x.amount)}</td>
-                  <td className="px-3 py-2">{x.count}</td>
+                  <td className="px-3 py-2 text-right">{usd(x.amount)}</td>
+                  <td className="px-3 py-2 text-right">{x.count}</td>
                 </tr>
               ))}
               {visibleRows.length === 0 && (
@@ -761,11 +781,12 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
               )}
             </tbody>
           </table>
+          {mapPager}
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <select value={mapBulkDept} onChange={(e) => setMapBulkDept(e.target.value)} className={`${inputClass} w-auto`}>
-            <option value="">Department…</option>
+            <option value="">Select department</option>
             {departments.map((d) => (
               <option key={d} value={d}>
                 {d}
@@ -773,13 +794,19 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
             ))}
           </select>
           <select value={mapBulkHead} onChange={(e) => setMapBulkHead(e.target.value)} className={`${inputClass} w-auto`}>
-            <option value="">Cost head…</option>
+            <option value="">Select cost head</option>
             {managementCostHeads.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
             ))}
           </select>
+          <button
+            onClick={createMapHead}
+            className="rounded-lg border border-base-700 px-2.5 py-1.5 text-[11px] text-ink-300 hover:text-ink-50"
+          >
+            + New head
+          </button>
           <button
             onClick={applyMappingBulk}
             disabled={isApplyingMap || !mapBulkDept || !mapBulkHead || chosen.length === 0}
