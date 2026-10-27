@@ -1,90 +1,41 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
-import type { FinanceState } from "@/lib/finance/ledgerData";
+import { useFinanceFilters } from "./FinanceFilterContext";
+import { fyOf } from "@/lib/finance/financeFilters";
 
-// Duplicated locally rather than imported from
-// lib/finance/financialPlanningData.ts — that file imports `prisma` and
-// `exceljs` at module scope, which must never end up in a client bundle
-// (confirmed: importing it here alone ballooned this page's JS from ~3KB
-// to ~389KB). Same precaution the Financial Planning screen's own
-// client component already takes for these exact two pure functions.
-function financeFiscalYearStart(date: Date): number {
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth() + 1;
-  return month >= 11 ? year : year - 1;
-}
-function financeFyName(fyStart: number): string {
-  return `FY${fyStart}/${String((fyStart + 1) % 100).padStart(2, "0")}`;
-}
+const fyName = (y: number) => `FY${y}/${String((y + 1) % 100).padStart(2, "0")}`;
 
-function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
-}
+// Port of the source weeklyPage(): opens the server-rendered brief and downloads its JSON.
+export function WeeklyCeoBriefPage() {
+  const { filters } = useFinanceFilters();
+  const now = new Date();
+  const year =
+    filters.fy === "all" ? fyOf(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`) : Number(filters.fy);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-export function WeeklyCeoBriefPage({ state }: { state: FinanceState }) {
-  const [showReport, setShowReport] = useState(false);
-
-  const fyLabel = useMemo(() => financeFyName(financeFiscalYearStart(new Date())), []);
-
-  const summary = useMemo(() => {
-    // Same "operating spend" definition as the overview screen: a payment
-    // with a current-year, active-department classification.
-    const activeDepartments = new Set(state.departments);
-    const isOperating = (t: FinanceState["transactions"][number]) =>
-      Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
-    const operating = state.transactions.filter(isOperating);
-    const opex = operating.reduce((s, t) => s + t.amount, 0);
-
-    const debtRows = state.transactions.filter((t) => t.debtPeriod !== "current");
-    const debt = debtRows.reduce((s, t) => s + t.amount, 0);
-
-    const unresolvedAllocations = state.transactions.filter((t) => !t.managementDepartment || !t.managementCostHead).length;
-
-    const latestMonth = state.monthly[state.monthly.length - 1] ?? null;
-    const byDept = new Map<string, number>();
-    if (latestMonth) {
-      for (const t of operating) {
-        if (t.month !== latestMonth.month) continue;
-        const key = t.managementDepartment!;
-        byDept.set(key, (byDept.get(key) ?? 0) + t.amount);
-      }
+  async function handleDownload() {
+    setDownloading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/finance/report/weekly?fy=${year}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Could not build the report");
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ceo-weekly-brief-${fyName(year).replace("/", "-")}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloading(false);
     }
-    const budgetByDepartment = Array.from(byDept.entries())
-      .map(([department, actual]) => ({ department, actual }))
-      .sort((a, b) => b.actual - a.actual);
-
-    return {
-      opex,
-      debt,
-      unresolvedAllocations,
-      currentMonth: latestMonth?.month ?? null,
-      currentMonthBudget: latestMonth?.opexBudget ?? null,
-      budgetByDepartment,
-    };
-  }, [state]);
-
-  function handleDownload() {
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      fiscalYear: fyLabel,
-      currentOperatingSpend: summary.opex,
-      historicalDebtCleared: summary.debt,
-      unresolvedAllocations: summary.unresolvedAllocations,
-      currentMonth: summary.currentMonth,
-      currentMonthApprovedBudget: summary.currentMonthBudget,
-      budgetByDepartment: summary.budgetByDepartment,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `weekly-ceo-brief-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   }
 
   return (
@@ -92,7 +43,7 @@ export function WeeklyCeoBriefPage({ state }: { state: FinanceState }) {
       <div className="mb-5">
         <h2 className="text-xl font-semibold text-ink-50">Weekly CEO financial brief</h2>
         <p className="mt-1 text-sm text-ink-500">
-          Generate a report from transactions and the approved annual plan for {fyLabel}.
+          Generate a report from transactions and the approved annual plan for {fyName(year)}.
         </p>
       </div>
 
@@ -103,68 +54,27 @@ export function WeeklyCeoBriefPage({ state }: { state: FinanceState }) {
 
       <WidgetCard title="Get your weekly report">
         <p className="text-xs text-ink-500">
-          Includes classified actual payments, historical debt cleared, unresolved allocations, and approved
-          budgets by department. All sourced directly from SQLite.
+          Includes classified actual payments, historical debt cleared, unresolved allocations, and approved budgets by
+          department. All sourced directly from Sphaera.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            onClick={() => setShowReport((v) => !v)}
+          <a
+            href={`/api/finance/report/weekly?fy=${year}&format=html`}
+            target="_blank"
+            rel="noopener"
             className="rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
           >
-            {showReport ? "Collapse report" : "Open readable CEO report ↗"}
-          </button>
+            Open readable CEO report ↗
+          </a>
           <button
             onClick={handleDownload}
-            className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50"
+            disabled={downloading}
+            className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-50"
           >
-            Download report data (JSON)
+            {downloading ? "Preparing…" : "Download report data (JSON)"}
           </button>
         </div>
-
-        {showReport && (
-          <div className="mt-4 rounded-lg border border-base-700 bg-base-800 p-4 text-xs text-ink-300">
-            <h4 className="mb-3 text-sm font-medium text-ink-50">Weekly CEO report — {fyLabel}</h4>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <p className="text-[11px] text-ink-500">Current operating spend</p>
-                <p className="mt-1 text-base font-semibold text-ink-50">{usd(summary.opex)}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-ink-500">Historical debt cleared</p>
-                <p className="mt-1 text-base font-semibold text-ink-50">{usd(summary.debt)}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-ink-500">Unresolved allocations</p>
-                <p className="mt-1 text-base font-semibold text-status-alert">{summary.unresolvedAllocations}</p>
-              </div>
-            </div>
-
-            <h5 className="mb-1.5 mt-4 text-xs font-medium text-ink-50">
-              Budget by department{summary.currentMonth ? ` · ${summary.currentMonth}` : ""}
-            </h5>
-            {summary.budgetByDepartment.length === 0 ? (
-              <p className="text-[11px] text-ink-500">No classified spend recorded for the current month.</p>
-            ) : (
-              <div>
-                {summary.budgetByDepartment.map((d) => (
-                  <div
-                    key={d.department}
-                    className="flex items-center justify-between border-b border-base-700 py-1"
-                  >
-                    <span className="text-ink-300">{d.department}</span>
-                    <span className="font-medium text-ink-50">{usd(d.actual)}</span>
-                  </div>
-                ))}
-                {summary.currentMonthBudget !== null && (
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-ink-500">
-                    <span>Total approved budget, {summary.currentMonth}</span>
-                    <span>{usd(summary.currentMonthBudget)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        {error && <p className="mt-2 text-xs text-status-inactive">{error}</p>}
       </WidgetCard>
     </div>
   );

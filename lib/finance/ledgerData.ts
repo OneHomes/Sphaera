@@ -63,7 +63,7 @@ export type FinanceState = {
   legacyMappings: Awaited<ReturnType<typeof prisma.financeLegacyMapping.findMany>>;
   classifications: number;
   // Latest approved plan per FY; its lines replace the monthly opex budget (source activePlan()/planLines()).
-  approvedPlans: { fyStart: number; lines: { month: string; department: string; budgetUsd: number }[] }[];
+  approvedPlans: { fyStart: number; version: number; lines: { month: string; department: string; budgetUsd: number }[] }[];
 };
 
 /**
@@ -112,7 +112,7 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
     ]);
   const approvedPlans = new Map<number, FinanceState["approvedPlans"][number]>();
   for (const p of plans) {
-    if (!approvedPlans.has(p.fyStart)) approvedPlans.set(p.fyStart, { fyStart: p.fyStart, lines: p.lines });
+    if (!approvedPlans.has(p.fyStart)) approvedPlans.set(p.fyStart, { fyStart: p.fyStart, version: p.version, lines: p.lines });
   }
 
   const mappingByKey = new Map(
