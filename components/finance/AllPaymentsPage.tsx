@@ -80,6 +80,7 @@ export function AllPaymentsPage({
   initialMonthFilter,
   initialMode,
   initialCostHeadFilter,
+  initialDescriptionFilter,
 }: {
   transactions: FinanceLedgerRow[];
   departments: string[];
@@ -89,6 +90,7 @@ export function AllPaymentsPage({
   initialMonthFilter?: string | null;
   initialMode?: string | null;
   initialCostHeadFilter?: string | null;
+  initialDescriptionFilter?: string | null;
 }) {
   // Scoped by the global Finance filter bar — paymentPage() in the source
   // app resolves its rows via txSelection(), which calls filt() first.
@@ -103,6 +105,7 @@ export function AllPaymentsPage({
   const [drillDepartment, setDrillDepartment] = useState<string | null>(initialDepartmentFilter ?? null);
   const [drillMonth, setDrillMonth] = useState<string | null>(initialMonthFilter ?? null);
   const [drillCostHead, setDrillCostHead] = useState<string | null>(initialCostHeadFilter ?? null);
+  const [drillDescription, setDrillDescription] = useState<string | null>(initialDescriptionFilter ?? null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pageIds, setPageIds] = useState<string[]>([]);
   const [classifyTarget, setClassifyTarget] = useState<FinanceLedgerRow | null>(null);
@@ -121,9 +124,10 @@ export function AllPaymentsPage({
     if (mode === "nonoperating") out = out.filter((x) => !isOperating(x, departments));
     if (drillDepartment) out = out.filter((x) => x.managementDepartment === drillDepartment);
     if (drillCostHead) out = out.filter((x) => (x.managementCostHead || "Needs allocation") === drillCostHead);
+    if (drillDescription) out = out.filter((x) => x.description === drillDescription);
     if (drillMonth) out = out.filter((x) => x.month === drillMonth);
     return out;
-  }, [rows, mode, drillDepartment, drillCostHead, drillMonth, departments]);
+  }, [rows, mode, drillDepartment, drillCostHead, drillDescription, drillMonth, departments]);
 
   async function handleLinkSubmit() {
     if (isLinking || !subscriptionId.trim() || selected.size === 0) return;
@@ -174,16 +178,17 @@ export function AllPaymentsPage({
             ))}
           </select>
         </label>
-        {(drillDepartment || drillMonth || drillCostHead) && (
+        {(drillDepartment || drillMonth || drillCostHead || drillDescription) && (
           <button
             onClick={() => {
               setDrillDepartment(null);
               setDrillMonth(null);
               setDrillCostHead(null);
+              setDrillDescription(null);
             }}
             className="rounded-full border border-base-700 px-3 py-1 text-xs text-ink-300 hover:text-ink-50"
           >
-            Drilldown: {[drillMonth && mo(drillMonth), drillDepartment, drillCostHead].filter(Boolean).join(" · ")} ×
+            Drilldown: {[drillMonth && mo(drillMonth), drillDepartment, drillCostHead, drillDescription].filter(Boolean).join(" · ")} ×
           </button>
         )}
         <button

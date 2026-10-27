@@ -77,6 +77,33 @@ export function FinanceFilterProvider({ children }: { children: React.ReactNode 
   );
 }
 
+type FinanceLookups = { sourceNames: Map<string, string>; subscriptionNames: Map<string, string> };
+const FinanceLookupContext = createContext<FinanceLookups>({ sourceNames: new Map(), subscriptionNames: new Map() });
+
+/** Name lookups shared by every Finance screen (payment sources, subscriptions). */
+export function FinanceLookupProvider({
+  paymentSources,
+  subscriptions,
+  children,
+}: {
+  paymentSources: { id: string; name: string }[];
+  subscriptions: { id: string; service: string }[];
+  children: React.ReactNode;
+}) {
+  const value = useMemo(
+    () => ({
+      sourceNames: new Map(paymentSources.map((s) => [s.id, s.name])),
+      subscriptionNames: new Map(subscriptions.map((s) => [s.id, s.service])),
+    }),
+    [paymentSources, subscriptions]
+  );
+  return <FinanceLookupContext.Provider value={value}>{children}</FinanceLookupContext.Provider>;
+}
+
+export function useFinanceLookups() {
+  return useContext(FinanceLookupContext);
+}
+
 export function useFinanceFilters() {
   return useContext(FinanceFilterContext);
 }

@@ -4,7 +4,7 @@ import { Fragment, Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
-import { FinanceFilterProvider, useFinanceFilters } from "./FinanceFilterContext";
+import { FinanceFilterProvider, FinanceLookupProvider, useFinanceFilters } from "./FinanceFilterContext";
 import { FinanceFilterBar } from "./FinanceFilterBar";
 import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
 import {
@@ -241,7 +241,9 @@ export function FinanceShell({
           <FinanceFilterProvider>
             <FinanceActionBar />
             <FinanceFilterBar options={filterOptions} />
-            {children}
+            <FinanceLookupProvider paymentSources={filterOptions.paymentSources} subscriptions={filterOptions.subscriptions}>
+              {children}
+            </FinanceLookupProvider>
           </FinanceFilterProvider>
         </Suspense>
       </div>

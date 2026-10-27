@@ -25,7 +25,7 @@ export function BulkPaymentToolbar({
   managementCostHeads,
   onApplied,
 }: {
-  mode: "review" | "payments";
+  mode: "review" | "payments" | "explorer";
   tx: FinanceLedgerRow[];
   pageIds: string[];
   selected: Set<string>;
@@ -38,6 +38,7 @@ export function BulkPaymentToolbar({
   const [costHead, setCostHead] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extraHeads, setExtraHeads] = useState<string[]>([]);
 
   const ids = new Set(tx.map((t) => t.id));
   const selectedInScope = Array.from(selected).filter((id) => ids.has(id));
@@ -64,6 +65,13 @@ export function BulkPaymentToolbar({
 
   async function handleApply() {
     if (isSaving || selectedInScope.length === 0 || !department || !costHead) return;
+    const total = selectedPayments.reduce((s, t) => s + t.amount, 0);
+    if (
+      !confirm(
+        `Reclassify ${selectedInScope.length} selected payments (total ${usd(total)}) to ${department} → ${costHead}?\n\nThis will change the management classification of every selected payment, including any existing classification. Original payment amounts, references and historical-debt tags are retained. The change will be recorded in Change History and can be undone if no later edits conflict.`
+      )
+    )
+      return;
     setIsSaving(true);
     setError(null);
     try {
@@ -86,6 +94,23 @@ export function BulkPaymentToolbar({
     }
   }
 
+  async function createHead() {
+    const name = prompt("Name of the new cost head");
+    if (!name?.trim()) return;
+    const res = await fetch("/api/finance/cost-heads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      setError(data?.error ?? "Could not create the cost head");
+      return;
+    }
+    setExtraHeads((prev) => [...prev, name.trim()]);
+    setCostHead(name.trim());
+  }
+
   const inputClass =
     "rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none";
 
@@ -94,12 +119,18 @@ export function BulkPaymentToolbar({
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="text-sm font-medium text-ink-50">
-            {mode === "review" ? "Bulk allocate unidentified payments" : "Reclassify multiple payments"}
+            {mode === "review"
+              ? "Bulk allocate unidentified payments"
+              : mode === "explorer"
+                ? "Bulk reclassify explorer payments"
+                : "Reclassify multiple payments"}
           </h3>
           <p className="mt-1 max-w-xl text-[11px] text-ink-500">
             {mode === "review"
-              ? "Tick individual rows, select this page, or select all filtered payments."
-              : "Tick payments to update their department and cost head in one action."}{" "}
+              ? "Tick individual rows, select this page, select all filtered payments or select a recurring payee below."
+              : mode === "explorer"
+                ? "Select payments from this explorer view, including across pages, then give them one department and cost head. Only payments matching the active explorer filters can be changed."
+                : "Tick payments to update their department and cost head in one action."}{" "}
             Original transaction details and debt tags remain unchanged.
           </p>
         </div>
@@ -152,12 +183,18 @@ export function BulkPaymentToolbar({
         </select>
         <select value={costHead} onChange={(e) => setCostHead(e.target.value)} className={inputClass}>
           <option value="">Assign cost head…</option>
-          {managementCostHeads.map((c) => (
+          {Array.from(new Set([...managementCostHeads, ...extraHeads])).sort().map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
         </select>
+        <button
+          onClick={createHead}
+          className="rounded-lg border border-base-700 px-2.5 py-1.5 text-[11px] text-ink-300 hover:text-ink-50"
+        >
+          + New head
+        </button>
         <button
           onClick={handleApply}
           disabled={isSaving || selectedInScope.length === 0 || !department || !costHead}
@@ -172,7 +209,8 @@ export function BulkPaymentToolbar({
       {selectedInScope.length > 0 && (
         <p className="mt-3 text-[11px] text-ink-500">
           This action affects exactly <b className="text-ink-300">{selectedInScope.length}</b> selected payments
-          totalling <b className="text-ink-300">{usd(selectedPayments.reduce((s, t) => s + t.amount, 0))}</b>. A
+          totalling <b className="text-ink-300">{usd(selectedPayments.reduce((s, t) => s + t.amount, 0))}</b>. You will be asked to
+          confirm before saving. A
           single Change History entry lets you undo this allocation if no later edits conflict.
         </p>
       )}

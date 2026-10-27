@@ -234,6 +234,8 @@ export type FinanceFilterOptions = {
   countries: string[];
   departments: string[];
   fyYears: number[];
+  paymentSources: { id: string; name: string }[];
+  subscriptions: { id: string; service: string }[];
 };
 
 /** FY runs November–October, matching every other fiscal-year calculation in this port. */
@@ -253,7 +255,7 @@ export function fyOf(month: string): number {
  * per navigation.
  */
 export async function getFinanceFilterOptions(): Promise<FinanceFilterOptions> {
-  const [monthRows, countryRows, departmentRows] = await Promise.all([
+  const [monthRows, countryRows, departmentRows, paymentSources, subscriptions] = await Promise.all([
     prisma.financeTransaction.findMany({ distinct: ["month"], select: { month: true }, orderBy: { month: "asc" } }),
     prisma.financeTransaction.findMany({
       distinct: ["country"],
@@ -261,6 +263,8 @@ export async function getFinanceFilterOptions(): Promise<FinanceFilterOptions> {
       where: { country: { not: null } },
     }),
     prisma.financeManagementDepartment.findMany({ orderBy: { name: "asc" }, select: { name: true } }),
+    prisma.financePaymentSource.findMany({ select: { id: true, name: true } }),
+    prisma.financeSubscription.findMany({ select: { id: true, service: true } }),
   ]);
 
   const months = monthRows.map((r) => r.month);
@@ -271,6 +275,8 @@ export async function getFinanceFilterOptions(): Promise<FinanceFilterOptions> {
     countries: countryRows.map((r) => r.country as string).sort(),
     departments: sortDepartments(departmentRows.map((r) => r.name)),
     fyYears,
+    paymentSources,
+    subscriptions,
   };
 }
 

@@ -1,21 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
+import { effectiveCentre, effectiveHead, hasCostSplit, isUnidentified, mo } from "@/lib/finance/financeReporting";
+import { useFinanceLookups } from "./FinanceFilterContext";
 
-// Direct structural port of the source app's shared txTable() render
-// function (index.html line 1038), used by both paymentPage() and
-// reviewPage() in the original. Column set narrowed per the rebuild spec
-// to: select / date / payee-description / department-or-unclassified /
-// cost head / amount / historical-debt type / review-dispute action.
-// Pagination matches the source's fixed 30-row page.
+// Port of the source txTable(): 30-row pages, reference/source column, shared-cost splits and review status.
 
 const PAGE_SIZE = 30;
 
 function usd(value: number): string {
   return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
+
+const pill = "rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap";
 
 export function PaymentsTable({
   rows,
@@ -26,6 +24,8 @@ export function PaymentsTable({
   onRowClick,
   onDispute,
   onPageIdsChange,
+  sourceNames,
+  subscriptionNames,
 }: {
   rows: FinanceLedgerRow[];
   selectable?: boolean;
@@ -35,7 +35,12 @@ export function PaymentsTable({
   onRowClick?: (row: FinanceLedgerRow) => void;
   onDispute?: (row: FinanceLedgerRow) => void;
   onPageIdsChange?: (ids: string[]) => void;
+  sourceNames?: Map<string, string>;
+  subscriptionNames?: Map<string, string>;
 }) {
+  const lookups = useFinanceLookups();
+  sourceNames = sourceNames ?? lookups.sourceNames;
+  subscriptionNames = subscriptionNames ?? lookups.subscriptionNames;
   const [page, setPage] = useState(0);
   const maxPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
   const safePage = Math.min(page, maxPage);
@@ -48,6 +53,48 @@ export function PaymentsTable({
     onPageIdsChange?.(pageIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageIdsKey]);
+
+  function reviewCell(x: FinanceLedgerRow) {
+    if (x.dispute?.status && x.dispute.status !== "Resolved") {
+      return (
+        <div className="flex items-center gap-1.5">
+          <span className={`${pill} bg-status-inactive/15 text-status-inactive`}>⚑ {x.dispute.status}</span>
+          <button
+            onClick={() => onRowClick?.(x)}
+            className="rounded-md border border-base-700 px-1.5 py-0.5 text-[10px] text-ink-300 hover:text-ink-50"
+          >
+            Review
+          </button>
+        </div>
+      );
+    }
+    const status = isUnidentified(x) ? (
+      <span className={`${pill} bg-status-alert/15 text-status-alert`}>Unclassified</span>
+    ) : x.reviewed ? (
+      <span className={`${pill} bg-status-active/15 text-status-active`}>Reviewed</span>
+    ) : x.reviewGroup === "Accounting review" ? (
+      <span className={`${pill} bg-status-inactive/15 text-status-inactive`}>Review</span>
+    ) : (
+      <span className={`${pill} border border-base-700 text-ink-300`}>Recorded</span>
+    );
+    return (
+      <div className="flex items-center gap-1.5">
+        {status}
+        {onDispute && !x.dispute && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDispute(x);
+            }}
+            title="File a dispute"
+            className="rounded-md border border-base-700 px-1.5 py-0.5 text-[10px] text-ink-500 hover:text-status-inactive"
+          >
+            ⚑
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -68,96 +115,79 @@ export function PaymentsTable({
               )}
               <th className="px-3 py-2">Date</th>
               <th className="px-3 py-2">Payee / payment description</th>
+              <th className="px-3 py-2">Bank reference / source</th>
               <th className="px-3 py-2">Department / cost head</th>
-              <th className="px-3 py-2">USD</th>
+              <th className="px-3 py-2 text-right">USD</th>
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Review</th>
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((t) => (
-              <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0 hover:bg-base-800/60">
+            {pageRows.map((x) => (
+              <tr key={x.id} className="border-b border-base-800 align-top text-ink-300 last:border-0 hover:bg-base-800/60">
                 {selectable && (
                   <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
-                      checked={selected?.has(t.id) ?? false}
-                      onChange={() => onToggle?.(t.id)}
+                      checked={selected?.has(x.id) ?? false}
+                      onChange={() => onToggle?.(x.id)}
                       className="h-3.5 w-3.5 rounded border-base-700 bg-base-800"
                     />
                   </td>
                 )}
-                <td className="whitespace-nowrap px-3 py-2">
-                  {t.date ? new Date(t.date).toLocaleDateString() : t.month}
-                </td>
-                <td
-                  className="max-w-[320px] cursor-pointer px-3 py-2"
-                  onClick={() => onRowClick?.(t)}
-                >
-                  <div className="truncate text-ink-50" title={t.description}>
-                    {t.description}
+                <td className="whitespace-nowrap px-3 py-2">{x.date ? new Date(x.date).toISOString().slice(0, 10) : mo(x.month)}</td>
+                <td className="max-w-[370px] px-3 py-2">
+                  <button onClick={() => onRowClick?.(x)} className="text-left font-medium text-ink-50 hover:underline">
+                    {x.description}
+                  </button>
+                  <div className="text-[11px] text-ink-500">
+                    {x.subscriptionId ? `↻ ${subscriptionNames?.get(x.subscriptionId) ?? "Subscription"} · ` : ""}
+                    {x.country ?? ""} · {x.sourceSheet || "Imported"}
                   </div>
-                  <div className="truncate text-[11px] text-ink-500">{t.month}</div>
-                </td>
-                <td className="px-3 py-2 cursor-pointer" onClick={() => onRowClick?.(t)}>
-                  {t.managementDepartment ? (
-                    <span className="text-ink-50">{t.managementDepartment}</span>
-                  ) : (
-                    <span className="rounded-full bg-status-alert/15 px-2 py-0.5 text-[11px] font-medium text-status-alert">
-                      Unclassified
-                    </span>
-                  )}
-                  <div className="text-[11px] text-ink-500">{t.managementCostHead ?? "—"}</div>
-                </td>
-                <td className="px-3 py-2 font-medium text-ink-50">{usd(t.amount)}</td>
-                <td className="px-3 py-2">
-                  {t.debtPeriod === "current" ? (
-                    <span className="rounded-full border border-base-700 px-2 py-0.5 text-[11px] text-ink-300">
-                      Current FY
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-[#7965bd]/15 px-2 py-0.5 text-[11px] font-medium text-[#7965bd]">
-                      Historical {t.debtPeriod}
-                    </span>
-                  )}
                 </td>
                 <td className="px-3 py-2">
-                  <div className="flex items-center gap-1.5">
-                    {t.dispute?.status && t.dispute.status !== "Resolved" ? (
-                      <span className="rounded-full bg-status-inactive/15 px-2 py-0.5 text-[11px] font-medium text-status-inactive">
-                        ⚑ {t.dispute.status}
-                      </span>
-                    ) : t.reviewed ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-status-active" strokeWidth={1.75} />
+                  <div className="text-[11px]">
+                    {x.paymentReference ? (
+                      <span className="text-ink-300">{x.paymentReference}</span>
                     ) : (
-                      <span className="text-ink-500">—</span>
-                    )}
-                    {onDispute && !t.dispute && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDispute(t);
-                        }}
-                        title="File a dispute"
-                        className="flex items-center gap-1 rounded-md border border-base-700 px-1.5 py-0.5 text-[10px] text-ink-500 hover:text-status-inactive"
-                      >
-                        <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
-                        Dispute
-                      </button>
+                      <span className={`${pill} bg-status-alert/15 text-status-alert`}>Missing reference</span>
                     )}
                   </div>
+                  <div className="mt-0.5 text-[11px] text-ink-500">
+                    {(x.paymentSourceId && sourceNames?.get(x.paymentSourceId)) || "Source not identified"}
+                  </div>
                 </td>
+                <td className="px-3 py-2">
+                  {hasCostSplit(x) ? (
+                    <>
+                      <span className={`${pill} bg-status-active/15 text-status-active`}>
+                        Shared cost · {x.departmentSplits.length} departments
+                      </span>
+                      <div className="mt-0.5 text-[11px] text-ink-500">
+                        {x.departmentSplits.map((z) => `${z.department} ${usd(z.amountUsd)}`).join(" · ")}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-ink-50">{effectiveHead(x)}</span>
+                      <div className="text-[11px] text-ink-500">{effectiveCentre(x)}</div>
+                    </>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold text-ink-50">{usd(x.amount)}</td>
+                <td className="px-3 py-2">
+                  {x.debtPeriod === "current" ? (
+                    <span className={`${pill} border border-base-700 text-ink-300`}>Current FY</span>
+                  ) : (
+                    <span className={`${pill} bg-[#8167b8]/15 text-[#8167b8]`}>Historical {x.debtPeriod}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">{reviewCell(x)}</td>
               </tr>
             ))}
-            {pageRows.length === 0 && (
-              <tr>
-                <td colSpan={selectable ? 7 : 6} className="px-3 py-6 text-center text-ink-500">
-                  No payments match these filters.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
+        {pageRows.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No payments match these filters.</p>}
       </div>
       <div className="mt-2 flex items-center justify-between text-[11px] text-ink-500">
         <span>
@@ -166,14 +196,14 @@ export function PaymentsTable({
         </span>
         <div className="flex gap-2">
           <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            onClick={() => setPage(Math.max(0, safePage - 1))}
             disabled={safePage === 0}
             className="rounded-lg border border-base-700 px-2.5 py-1 text-ink-300 hover:text-ink-50 disabled:opacity-40"
           >
             ← Previous
           </button>
           <button
-            onClick={() => setPage((p) => Math.min(maxPage, p + 1))}
+            onClick={() => setPage(Math.min(maxPage, safePage + 1))}
             disabled={safePage >= maxPage}
             className="rounded-lg border border-base-700 px-2.5 py-1 text-ink-300 hover:text-ink-50 disabled:opacity-40"
           >

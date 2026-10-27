@@ -2,38 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { useRouter, useSearchParams } from "next/navigation";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
-import { useFilteredFinanceRows } from "./FinanceFilterContext";
+import { PaymentsTable } from "./PaymentsTable";
+import { ClassifyModal } from "./ClassifyModal";
+import { DonutWidget } from "./DonutWidget";
+import { ChartPicker, selectionAllows } from "./ChartPicker";
+import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
+import { effectiveCentre, effectiveHead, hasCostSplit, isOperating, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 
-// Direct structural/content port of the source app's Spending Explorer
-// screen — same header copy, same payment-view basis switch, same
-// department jump-to, same 3-level drill (department -> cost centre ->
-// payment description) with a checkbox multi-select for filtering and a
-// clickable ranked list for drilling, same 4 KPI cards, same payments
-// table and closing caveat. Only the visual implementation (WidgetCard /
-// recharts / Tailwind) replaces the original's bespoke CSS/SVG.
+// Port of the source spendingExplorer(): department -> cost head -> description drill, URL-driven.
 
-const DONUT_COLORS = ["#14b8a6", "#ef4444", "#f59e0b", "#d4af37", "#9ca3af", "#7965bd", "#60a5fa", "#fb923c"];
-const UNCLASSIFIED_DEPT = "Unclassified";
-const UNLABELLED_CENTRE = "Unlabelled cost centre";
-
-type PaymentView = "operating" | "all" | "debt";
-
-const PAYMENT_VIEW_OPTIONS: { value: PaymentView; label: string }[] = [
-  { value: "operating", label: "Current-year operating costs" },
-  { value: "all", label: "All ledger payments" },
-  { value: "debt", label: "Historical debt only" },
-];
+type Basis = "operating" | "all" | "debt";
 
 function usd(value: number, compact = false): string {
   if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
@@ -41,20 +22,16 @@ function usd(value: number, compact = false): string {
   return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
 }
 
-type GroupRow = { name: string; value: number; count: number };
-
-function groupTransactions(rows: FinanceLedgerRow[], keyFn: (t: FinanceLedgerRow) => string): GroupRow[] {
-  const map = new Map<string, { value: number; count: number }>();
-  for (const t of rows) {
-    const key = keyFn(t);
-    const entry = map.get(key) ?? { value: 0, count: 0 };
-    entry.value += t.amount;
-    entry.count += 1;
-    map.set(key, entry);
+function groupCosts(tx: FinanceLedgerRow[], fn: (t: FinanceLedgerRow) => string) {
+  const m = new Map<string, { key: string; value: number; count: number }>();
+  for (const t of tx) {
+    const key = String(fn(t) || "Not specified");
+    const it = m.get(key) ?? { key, value: 0, count: 0 };
+    it.value += Number(t.amount) || 0;
+    it.count += 1;
+    m.set(key, it);
   }
-  return Array.from(map.entries())
-    .map(([name, { value, count }]) => ({ name, value, count }))
-    .sort((a, b) => b.value - a.value);
+  return Array.from(m.values()).sort((a, b) => b.value - a.value);
 }
 
 function Kpi({ title, value, detail }: { title: string; value: string; detail: string }) {
@@ -67,392 +44,305 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
   );
 }
 
-export function SpendingExplorerPage({ state: rawState }: { state: FinanceState }) {
-  // Scoped by the global Finance filter bar — spendingExplorer() in the
-  // source app calls filt() first, exactly like this.
-  const state = { ...rawState, transactions: useFilteredFinanceRows(rawState.transactions) };
-  const [rows, setRows] = useState(state.transactions);
-  useEffect(() => {
-    setRows(state.transactions);
-  }, [state.transactions]);
-  const [paymentView, setPaymentView] = useState<PaymentView>("operating");
+const belongsToDepartment = (t: FinanceLedgerRow, d: string) =>
+  hasCostSplit(t) ? t.departmentSplits.some((x) => x.department === d) : effectiveHead(t) === d;
+const belongsToCostHead = (t: FinanceLedgerRow, h: string) =>
+  hasCostSplit(t) ? t.departmentSplits.some((x) => x.costHead === h) : effectiveCentre(t) === h;
+
+export function SpendingExplorerPage({ state }: { state: FinanceState }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const [department, setDepartment] = useState<string | null>(() => searchParams.get("department"));
-  const [centre, setCentre] = useState<string | null>(() => searchParams.get("centre"));
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
+  const { filters } = useFinanceFilters();
+  const filtered = useFilteredFinanceRows(state.transactions);
+  const [rows, setRows] = useState(filtered);
+  useEffect(() => setRows(filtered), [filtered]);
 
-  const activeDepartments = useMemo(() => new Set(state.departments), [state.departments]);
-  const isOperating = (t: FinanceLedgerRow) =>
-    Boolean(t.managementDepartment) && activeDepartments.has(t.managementDepartment!) && t.debtPeriod === "current";
+  const [basis, setBasis] = useState<Basis>("operating");
+  const [selectedHeads, setSelectedHeads] = useState<Set<string> | null>(null);
+  const [selectedCentres, setSelectedCentres] = useState<Set<string> | null>(null);
+  const [paySelected, setPaySelected] = useState<Set<string>>(new Set());
+  const [pageIds, setPageIds] = useState<string[]>([]);
+  const [detail, setDetail] = useState<FinanceLedgerRow | null>(null);
 
-  const basisTransactions = useMemo(() => {
-    if (paymentView === "operating") return rows.filter(isOperating);
-    if (paymentView === "debt") return rows.filter((t) => t.debtPeriod !== "current");
+  const h = searchParams.get("department") || (filters.department !== "all" ? filters.department : null);
+  const c = searchParams.get("centre");
+  useEffect(() => {
+    setSelectedCentres(null);
+    setPaySelected(new Set());
+  }, [h, c]);
+
+  const go = (department: string | null, centre: string | null = null) => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete("department");
+    p.delete("centre");
+    if (department) p.set("department", department);
+    if (centre) p.set("centre", centre);
+    const qs = p.toString();
+    router.push(qs ? `/finance/explorer?${qs}` : "/finance/explorer");
+  };
+
+  const base = useMemo(() => {
+    if (basis === "operating") return rows.filter((t) => isOperating(t, state.departments));
+    if (basis === "debt") return rows.filter((t) => t.debtPeriod !== "current");
     return rows;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, paymentView, activeDepartments]);
+  }, [rows, basis, state.departments]);
+  const reportBase = useMemo(() => reportingRows(base, filters.department), [base, filters.department]);
 
-  const deptKey = (t: FinanceLedgerRow) => t.managementDepartment ?? UNCLASSIFIED_DEPT;
-  const centreKey = (t: FinanceLedgerRow) => t.effectiveCentre ?? UNLABELLED_CENTRE;
-  const descKey = (t: FinanceLedgerRow) => t.description || "(no description)";
-
-  const scoped = useMemo(() => {
-    let out = basisTransactions;
-    if (department) out = out.filter((t) => deptKey(t) === department);
-    if (department && centre) out = out.filter((t) => centreKey(t) === centre);
-    return out;
-  }, [basisTransactions, department, centre]);
-
-  const level = !department ? 0 : !centre ? 1 : 2;
-  const levelKeyFn = level === 0 ? deptKey : level === 1 ? centreKey : descKey;
-
-  const grouped = useMemo(() => groupTransactions(scoped, levelKeyFn), [scoped, level]);
-  const rankedCap = level === 2 ? 15 : 45;
-
-  const departmentOptions = useMemo(
-    () => groupTransactions(basisTransactions, deptKey).map((g) => g.name),
-    [basisTransactions]
+  const stage: "head" | "centre" | "description" = c ? "description" : h ? "centre" : "head";
+  const choices = useMemo(
+    () => groupCosts(h ? reportBase.filter((t) => effectiveHead(t) === h) : reportBase, h ? effectiveCentre : effectiveHead),
+    [reportBase, h]
   );
+  const selected = stage === "head" ? selectedHeads : stage === "centre" ? selectedCentres : null;
 
-  function resetAll() {
-    setDepartment(null);
-    setCentre(null);
-    setSelected(new Set());
-  }
+  const tx = useMemo(() => {
+    let out = base;
+    if (h) out = out.filter((t) => belongsToDepartment(t, h));
+    if (c) out = out.filter((t) => belongsToCostHead(t, c));
+    else if (!h)
+      out = out.filter((t) =>
+        hasCostSplit(t) ? t.departmentSplits.some((x) => selectionAllows(selectedHeads, x.department)) : selectionAllows(selectedHeads, effectiveHead(t))
+      );
+    else
+      out = out.filter((t) =>
+        hasCostSplit(t) ? t.departmentSplits.some((x) => selectionAllows(selectedCentres, x.costHead)) : selectionAllows(selectedCentres, effectiveCentre(t))
+      );
+    const dateKey = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+    return [...out].sort((a, b) => b.month.localeCompare(a.month) || dateKey(b.date).localeCompare(dateKey(a.date)) || b.amount - a.amount);
+  }, [base, h, c, selectedHeads, selectedCentres]);
 
-  function goToDepartment(name: string) {
-    setDepartment(name);
-    setCentre(null);
-    setSelected(new Set());
-  }
-
-  function goToCentre(name: string) {
-    setCentre(name);
-    setSelected(new Set());
-  }
-
-  function handleRowClick(name: string) {
-    if (level === 0) goToDepartment(name);
-    else if (level === 1) goToCentre(name);
-    else toggle(name);
-  }
-
-  function toggle(name: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }
-
-  const activeFilter = selected.size > 0;
-  const filteredTransactions = useMemo(() => {
-    if (!activeFilter) return scoped;
-    return scoped.filter((t) => selected.has(levelKeyFn(t)));
-  }, [scoped, selected, activeFilter, level]);
-
-  const selectedTotal = filteredTransactions.reduce((sum, t) => sum + t.amount, 0);
-  const scopedTotal = scoped.reduce((sum, t) => sum + t.amount, 0);
-  const sharePct = scopedTotal > 0 ? (selectedTotal / scopedTotal) * 100 : 0;
-  const expenditureNote =
-    paymentView === "operating"
+  const displayed = reportBase.filter(
+    (t) =>
+      (!h || effectiveHead(t) === h) &&
+      (!c || effectiveCentre(t) === c) &&
+      (!c && !h ? selectionAllows(selectedHeads, effectiveHead(t)) : !c ? selectionAllows(selectedCentres, effectiveCentre(t)) : true)
+  );
+  const groups = groupCosts(displayed, stage === "head" ? effectiveHead : stage === "centre" ? effectiveCentre : (x) => x.description);
+  const all = displayed.reduce((s, t) => s + t.amount, 0);
+  const baseAmount = (h ? reportBase.filter((t) => effectiveHead(t) === h) : reportBase).reduce((s, t) => s + t.amount, 0);
+  const percent = baseAmount > 0 ? `${((100 * all) / baseAmount).toFixed(1)}%` : "Not available";
+  const label = stage === "head" ? "Cost heads" : stage === "centre" ? `Cost heads within ${h}` : `Payment descriptions within ${c}`;
+  const headOptions = Array.from(new Set(filtered.map(effectiveHead))).sort();
+  const browseNote =
+    basis === "operating"
       ? "Classified current-year spending, excluding historical debt and unresolved movements"
-      : paymentView === "debt"
-      ? "Payments marked as historical debt"
-      : "All recorded payments, including movements that may not be expenses";
-  const paymentPageIds = filteredTransactions.slice(0, 200).map((t) => t.id);
+      : basis === "debt"
+        ? "Payments marked as historical debt"
+        : "All recorded payments, including movements that may not be expenses";
+  const selectedCount = selected === null ? choices.length : choices.filter((g) => selected.has(g.key)).length;
+  const budgetNote =
+    stage === "head" && basis === "operating" && filters.department === "all" && filters.country === "all" && !filters.query && selectedHeads === null
+      ? "The separate Budget vs Actual page shows the full operating budget. Use that page to assess overall budget variance."
+      : "The source does not allocate budgets to individual cost heads or cost centres. A reliable over/under-budget comparison is unavailable for this custom selection.";
+
+  const modeParam = basis === "operating" ? "operating" : basis === "debt" ? "debt" : "all";
+  const hrefFor = (name: string) =>
+    stage === "head"
+      ? `/finance/explorer?department=${encodeURIComponent(name)}`
+      : stage === "centre"
+        ? `/finance/explorer?department=${encodeURIComponent(h!)}&centre=${encodeURIComponent(name)}`
+        : `/finance/payments?mode=${modeParam}&department=${encodeURIComponent(h!)}&costHead=${encodeURIComponent(c!)}&description=${encodeURIComponent(name)}`;
+  const ledgerHref = `/finance/payments?mode=${modeParam}${h ? `&department=${encodeURIComponent(h)}` : ""}${c ? `&costHead=${encodeURIComponent(c)}` : ""}`;
+  const listCap = stage === "description" ? 15 : 45;
+
+  const fieldLabel = "flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-ink-500";
+  const fieldSelect = "rounded-lg border border-base-700 bg-base-800 px-2.5 py-2 text-xs normal-case tracking-normal text-ink-50 outline-none";
 
   return (
     <div className="p-6">
       <div className="mb-5">
         <h2 className="text-xl font-semibold text-ink-50">What is the money actually being spent on?</h2>
         <p className="mt-1 text-sm text-ink-500">
-          Select multiple departments or cost centres using checkboxes, then drill down to the payments behind
-          them. All figures respond to your month, country and payment filters.
+          Select multiple departments or cost centres using checkboxes, then drill down to the payments behind them. All
+          figures respond to your month, country and payment filters.
         </p>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs text-ink-500">
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <label className={fieldLabel}>
           Payment view
           <select
-            value={paymentView}
+            value={basis}
             onChange={(e) => {
-              setPaymentView(e.target.value as PaymentView);
-              resetAll();
+              setBasis(e.target.value as Basis);
+              setPaySelected(new Set());
             }}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
+            className={fieldSelect}
           >
-            {PAYMENT_VIEW_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
+            <option value="operating">Current-year operating costs</option>
+            <option value="all">All ledger payments</option>
+            <option value="debt">Historical debt only</option>
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-ink-500">
+        <label className={fieldLabel}>
           Open a department
-          <select
-            value={department ?? ""}
-            onChange={(e) => (e.target.value ? goToDepartment(e.target.value) : resetAll())}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50 outline-none"
-          >
-            <option value="">Choose a department…</option>
-            {departmentOptions.map((d) => (
-              <option key={d} value={d}>
-                {d}
+          <select value={h ?? "all"} onChange={(e) => go(e.target.value === "all" ? null : e.target.value)} className={fieldSelect}>
+            <option value="all">All available cost heads</option>
+            {headOptions.map((x) => (
+              <option key={x} value={x}>
+                {x}
               </option>
             ))}
           </select>
         </label>
-        <button
-          onClick={resetAll}
-          className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:text-ink-50"
-        >
+        <button onClick={() => go(null)} className="rounded-lg border border-base-700 px-3 py-2 text-xs text-ink-300 hover:text-ink-50">
           View all cost heads
         </button>
       </div>
 
-      <nav className="mb-4 flex flex-wrap items-center gap-1 text-xs">
-        <button
-          onClick={resetAll}
-          className={department ? "text-ink-300 hover:text-ink-50" : "font-medium text-ink-50"}
-        >
+      <nav className="mb-4 flex flex-wrap items-center gap-1.5 text-xs">
+        <button onClick={() => go(null)} className={h ? "text-status-active hover:underline" : "font-medium text-status-active"}>
           All cost heads
         </button>
-        {department && (
+        {h && (
           <>
             <span className="text-ink-500">›</span>
-            <button
-              onClick={() => {
-                setCentre(null);
-                setSelected(new Set());
-              }}
-              className={centre ? "text-ink-300 hover:text-ink-50" : "font-medium text-ink-50"}
-            >
-              {department}
+            <button onClick={() => go(h)} className={c ? "text-status-active hover:underline" : "font-medium text-ink-50"}>
+              {h}
             </button>
           </>
         )}
-        {department && centre && (
+        {c && (
           <>
             <span className="text-ink-500">›</span>
-            <span className="font-medium text-ink-50">{centre}</span>
+            <span className="font-medium text-ink-50">{c}</span>
           </>
         )}
       </nav>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi title="Selected expenditure" value={usd(selectedTotal, true)} detail={expenditureNote} />
-        <Kpi title="Payments in selection" value={filteredTransactions.length.toLocaleString()} detail="Individual ledger rows" />
-        {level < 2 ? (
-          <Kpi
-            title="Entries selected"
-            value={`${selected.size} / ${grouped.length}`}
-            detail="Use the checkboxes above to adjust this comparison"
-          />
-        ) : (
-          <Kpi title="Payment descriptions" value={String(grouped.length)} detail="Distinct descriptions at this level" />
-        )}
+      {stage === "head" && (
+        <ChartPicker title="Select departments" rows={choices} selected={selectedHeads} onChange={setSelectedHeads} />
+      )}
+      {stage === "centre" && (
+        <ChartPicker title={`Select cost heads in ${h}`} rows={choices} selected={selectedCentres} onChange={setSelectedCentres} />
+      )}
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi title="Selected expenditure" value={usd(all, true)} detail={browseNote} />
+        <Kpi title="Payments in selection" value={tx.length.toLocaleString()} detail="Individual source entries in this selection" />
         <Kpi
-          title={department ? "Share of department total" : "Share of filtered total"}
-          value={`${sharePct.toFixed(1)}%`}
-          detail="Share of the available signed net spend"
+          title={stage === "description" ? "Payment descriptions" : "Entries selected"}
+          value={stage === "description" ? groups.length.toLocaleString() : `${selectedCount} / ${choices.length}`}
+          detail={stage === "description" ? "Distinct transaction descriptions" : "Use the checkboxes above to adjust this comparison"}
         />
+        <Kpi title={`Share of ${h ? "department" : "filtered total"}`} value={percent} detail="Share of the available signed net spend" />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <WidgetCard
-          title={level === 0 ? "Cost heads" : level === 1 ? `Cost heads within ${department}` : `Payment descriptions within ${centre}`}
-          className="lg:col-span-3"
-          action={
-            <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">
-              Updates as you tick entries
-            </span>
-          }
-        >
-          <p className="mb-3 text-xs text-ink-500">
-            Doughnut proportions represent positive net costs. Click a coloured slice or legend entry for an
-            individual drilldown.
-          </p>
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie
-                data={grouped}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={60}
-                outerRadius={90}
-                paddingAngle={1}
-                onClick={(entry: any) => entry?.name && toggle(entry.name)}
-                cursor="pointer"
-              >
-                {grouped.map((entry, i) => (
-                  <Cell
-                    key={entry.name}
-                    fill={DONUT_COLORS[i % DONUT_COLORS.length]}
-                    opacity={!activeFilter || selected.has(entry.name) ? 1 : 0.25}
-                    stroke="#111113"
-                    strokeWidth={1}
-                  />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
-                formatter={(value, name) => [usd(Number(value ?? 0)), String(name)]}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="mt-2 flex max-h-[160px] flex-col gap-1 overflow-y-auto">
-            {grouped.map((g, i) => {
-              const checked = selected.has(g.name);
-              return (
-                <label
-                  key={g.name}
-                  className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1 text-xs hover:bg-base-800"
-                >
-                  <span className="flex items-center gap-2 text-ink-300">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggle(g.name)}
-                      className="h-3.5 w-3.5 rounded border-base-600 bg-base-800 accent-status-active"
-                    />
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
-                    {g.name}
-                  </span>
-                  <span className="shrink-0 text-ink-500">{usd(g.value)}</span>
-                </label>
-              );
-            })}
+        <div className="rounded-xl border border-base-700 bg-base-900 p-4 lg:col-span-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-medium text-ink-50">{label}</h3>
+            <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">Updates as you tick entries</span>
           </div>
-        </WidgetCard>
-
-        <WidgetCard
-          title={level === 0 ? "Selected departments" : level === 1 ? "Selected cost heads" : "Largest payment descriptions"}
-          className="lg:col-span-2"
-          action={
-            <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">
-              {level < 2 ? "Click a row to drill down" : "Click a row to filter"}
-            </span>
-          }
-        >
-          <p className="mb-3 text-xs text-ink-500">
-            These amounts use signed net ledger figures and may include adjustments or credits.
+          <p className="mb-3 text-[11px] text-ink-500">
+            Doughnut proportions represent positive net costs. Click a coloured slice or legend entry for an individual
+            drilldown.
           </p>
-          <div className="flex max-h-[320px] flex-col gap-1 overflow-y-auto">
-            {grouped.slice(0, rankedCap).map((g) => (
-              <button
-                key={g.name}
-                onClick={() => handleRowClick(g.name)}
-                className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-base-800 ${
-                  level === 2 && selected.has(g.name) ? "bg-base-800" : ""
-                }`}
+          <DonutWidget
+            wide
+            rows={groups.map((g) => ({ name: g.key, value: g.value, count: g.count }))}
+            otherLabel={stage === "head" ? "Other heads" : stage === "centre" ? "Other cost centres" : "Other payments"}
+            hrefFor={hrefFor}
+          />
+        </div>
+        <div className="rounded-xl border border-base-700 bg-base-900 p-4 lg:col-span-2">
+          <h3 className="text-sm font-medium text-ink-50">
+            {stage === "head" ? "Selected departments" : stage === "centre" ? "Selected cost heads" : "Largest payment descriptions"}
+          </h3>
+          <p className="mb-3 mt-1 text-[11px] text-ink-500">These amounts use signed net ledger figures and may include adjustments or credits.</p>
+          <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
+            {groups.slice(0, listCap).map((g) => (
+              <Link
+                key={g.key}
+                href={hrefFor(g.key)}
+                className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-base-800"
               >
-                <span className="truncate text-ink-300">{g.name}</span>
-                <span className="flex shrink-0 items-center gap-3">
-                  <span className="text-ink-500">{g.count} pmts</span>
-                  <span className="font-medium text-ink-50">{usd(g.value)}</span>
+                <span className="min-w-0">
+                  <strong className="block truncate text-ink-50">{g.key}</strong>
+                  <small className="text-[10px] text-ink-500">{g.count} payments</small>
                 </span>
-              </button>
+                <span className="shrink-0 font-semibold text-ink-50">{usd(g.value, true)} ↗</span>
+              </Link>
             ))}
-            {grouped.length === 0 && <p className="p-2 text-xs text-ink-500">No payments at this level.</p>}
+            {groups.length === 0 && <p className="py-4 text-center text-xs text-ink-500">Nothing selected. Tick one or more checkboxes above.</p>}
           </div>
-          {grouped.length > rankedCap && (
-            <p className="mt-2 text-[11px] text-ink-500">
-              {(grouped.length - rankedCap).toLocaleString()} additional items remain visible in the ledger.
-            </p>
+          {groups.length > listCap && (
+            <p className="mt-2 text-[11px] text-ink-500">{groups.length - listCap} additional items remain visible in the ledger.</p>
           )}
-        </WidgetCard>
+        </div>
       </div>
 
-      <p className="mt-4 text-xs text-ink-500">
-        Tick individual payments below, or use Select all filtered above to reclassify every matching payment across
-        pages. Chart category checkboxes filter the view; payment checkboxes select actual records to change.
-      </p>
-
-      <BulkPaymentToolbar
-        mode="payments"
-        tx={filteredTransactions}
-        pageIds={paymentPageIds}
-        selected={selectedPaymentIds}
-        setSelected={setSelectedPaymentIds}
-        departments={state.departments}
-        managementCostHeads={state.managementCostHeads}
-        onApplied={(ids, dept, costHead) => {
-          setRows((prev) =>
-            prev.map((r) => (ids.includes(r.id) ? { ...r, managementDepartment: dept, managementCostHead: costHead } : r))
-          );
-          setSelectedPaymentIds(new Set());
-        }}
-      />
-
       <div className="mt-4">
-        <WidgetCard
-          title={`Payments behind ${centre ?? department ?? "your selected cost heads"}`}
-          action={
-            <Link
-              href={department ? `/finance/payments?department=${encodeURIComponent(department)}` : "/finance/payments"}
-              className="text-[11px] text-ink-300 hover:text-ink-50"
-            >
-              Open these payments in full ledger ↗
-            </Link>
+        <BulkPaymentToolbar
+          mode="explorer"
+          tx={tx}
+          pageIds={pageIds}
+          selected={paySelected}
+          setSelected={setPaySelected}
+          departments={state.departments}
+          managementCostHeads={state.managementCostHeads}
+          onApplied={(ids, dept, costHead) => {
+            setRows((prev) => prev.map((r) => (ids.includes(r.id) ? { ...r, managementDepartment: dept, managementCostHead: costHead } : r)));
+            setPaySelected(new Set());
+          }}
+        />
+      </div>
+
+      <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-ink-50">Payments behind {c || h || "your selected cost heads"}</h3>
+          <Link href={ledgerHref} className="rounded-lg border border-base-700 px-2.5 py-1 text-[11px] text-ink-300 hover:text-ink-50">
+            Open these payments in full ledger ↗
+          </Link>
+        </div>
+        <p className="mb-3 text-[11px] text-ink-500">
+          Tick individual payments below, or use Select all filtered above to reclassify every matching payment across
+          pages. Chart category checkboxes filter the view; payment checkboxes select actual records to change.
+        </p>
+        <PaymentsTable
+          rows={tx}
+          selectable
+          selected={paySelected}
+          onToggle={(id) =>
+            setPaySelected((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })
           }
-        >
-          <div className="overflow-x-auto rounded-xl border border-base-700">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-                <tr>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2">Department</th>
-                  <th className="px-3 py-2 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTransactions.slice(0, 200).map((t) => (
-                  <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                    <td className="px-3 py-1.5">{t.date ? new Date(t.date).toLocaleDateString() : t.month}</td>
-                    <td className="max-w-[320px] truncate px-3 py-1.5" title={t.description}>
-                      {t.description}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      {t.managementDepartment ?? (
-                        <span className="rounded-full bg-status-alert/15 px-2 py-0.5 text-[11px] font-medium text-status-alert">
-                          {UNCLASSIFIED_DEPT}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5 text-right">{usd(t.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filteredTransactions.length === 0 && (
-              <p className="p-4 text-center text-xs text-ink-500">No payments match the current selection.</p>
-            )}
-            {filteredTransactions.length > 200 && (
-              <p className="border-t border-base-800 p-2 text-center text-[11px] text-ink-500">
-                Showing first 200 of {filteredTransactions.length.toLocaleString()} matching payments.
-              </p>
-            )}
-          </div>
-        </WidgetCard>
+          onToggleAllPage={(ids, on) =>
+            setPaySelected((prev) => {
+              const next = new Set(prev);
+              ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+              return next;
+            })
+          }
+          onPageIdsChange={setPageIds}
+          onRowClick={setDetail}
+        />
       </div>
 
       <div className="mt-4 rounded-lg border border-status-alert/30 bg-status-alert/10 px-3 py-2 text-[11px] text-status-alert">
-        {level === 0 && paymentView === "operating" && !activeFilter ? (
-          "The separate Budget vs Actual page shows the full operating budget. Use that page to assess overall budget variance."
-        ) : (
-          <>
-            Budget comparisons are not available for a custom cost-head or cost-centre selection like this one — the
-            operating budget is only defined by month and department. Some ledger entries shown here may be
-            transfers, refunds or collections rather than genuine expenditure, and should be read with that in mind.
-          </>
-        )}
+        {budgetNote} Certain ledger entries may be transfers, refunds or collections, not genuine expenditure. Confirm the
+        accounting treatment before making management decisions.
       </div>
+
+      {detail && (
+        <ClassifyModal
+          transaction={detail}
+          departments={state.departments}
+          managementCostHeads={state.managementCostHeads}
+          costHeads={state.costHeads}
+          onClose={() => setDetail(null)}
+          onSaved={({ department, costHead }) => {
+            setRows((prev) =>
+              prev.map((r) => (r.id === detail.id ? { ...r, managementDepartment: department, managementCostHead: costHead } : r))
+            );
+            setDetail(null);
+          }}
+        />
+      )}
     </div>
   );
 }
