@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
-import { getTreasuryState } from "@/lib/finance/treasuryData";
+import { getTreasuryStateWithForecast } from "@/lib/finance/treasuryForecast";
 import { BanksPage } from "@/components/finance/BanksPage";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,8 @@ export default async function FinanceBanksRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
-    const state = await getTreasuryState();
+  return withTenantPage(session, async (authUser) => {
+    const state = await getTreasuryStateWithForecast(Boolean(authUser.canAccessFinancePayroll));
     return <BanksPage state={state} />;
   });
 }

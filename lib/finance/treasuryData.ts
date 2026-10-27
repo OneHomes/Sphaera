@@ -512,7 +512,7 @@ export type CreditForecastEvent = {
   date: string; // YYYY-MM-DD
   amount: number;
   kind?: string;
-  detailId?: string;
+  detailId?: string | null;
   label?: string;
 };
 

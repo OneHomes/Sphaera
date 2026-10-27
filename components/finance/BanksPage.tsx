@@ -14,12 +14,14 @@ import {
   Receipt,
   CreditCard,
 } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 
-type FundName = "S&M" | "Development" | "Unallocated";
+export type FundName = "S&M" | "Development" | "Unallocated";
 
-type BankRow = {
+export type BankRow = {
   id: string;
   label: string;
   bank: string | null;
@@ -42,6 +44,7 @@ type BankRow = {
   allocatedTotal: number;
   reconciliationDifference: number | null;
   commitments: number;
+  committedByFund?: Record<FundName, number>;
   fundedLessCommitments: number;
   pendingPayouts: number;
   verifiedCash: boolean;
@@ -151,11 +154,211 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
+export function trMoney(n: number | null | undefined, currency?: string | null): string {
+  if (n === null || n === undefined) return "Awaiting ERP / FX";
+  try {
+    return new Intl.NumberFormat("en-GB", { style: "currency", currency: currency || "USD", maximumFractionDigits: 2 }).format(n);
+  } catch {
+    return `${currency ?? ""} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`.trim();
+  }
+}
+
+/** Source trNativeGroups(): per-currency totals, never mixed. */
+export function trNativeGroups(
+  rows: { currency: string | null; physicalBalance: number | null; commitments: number }[],
+  key: "physicalBalance" | "commitments"
+): string {
+  const out = new Map<string, number>();
+  for (const x of rows) {
+    const v = x[key];
+    if (v === null || v === undefined) continue;
+    const c = x.currency ?? "USD";
+    out.set(c, (out.get(c) ?? 0) + Number(v));
+  }
+  return Array.from(out.entries()).map(([c, n]) => trMoney(n, c)).join(" · ") || "Awaiting account balances";
+}
+
+export function TrKpi({ title, value, detail, amber }: { title: string; value: string; detail: string; amber?: boolean }) {
+  return (
+    <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+      <h4 className="text-[11px] text-ink-500">{title}</h4>
+      <div className={`mt-1 text-xl font-semibold ${amber ? "text-status-alert" : "text-ink-50"}`}>{value}</div>
+      <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
+    </div>
+  );
+}
+
+export function TreasuryPendingNotice() {
+  return (
+    <div className="mb-4 flex items-start gap-2 rounded-xl border border-status-alert/30 bg-status-alert/10 p-3 text-xs text-status-alert">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+      <p>
+        <strong>ERP integration pending.</strong> Bank balances are shown only when supplied by the ERP. Fund
+        allocations may be recorded manually or imported from Finance-approved ERP fund tags and are not
+        automatically verified bank cash. Do not treat a fund allocation as a confirmed available bank balance until
+        reconciliation is complete.
+      </p>
+    </div>
+  );
+}
+
+/** Source trFilters() + trLinks(): treasury tab links, entity/currency/ERP filters and refresh. */
+export function TreasuryToolbar({
+  legalEntities,
+  currencies,
+  erpSources,
+  entityFilter,
+  currencyFilter,
+  erpFilter,
+  onEntity,
+  onCurrency,
+  onErp,
+  onReload,
+  reloading,
+}: {
+  legalEntities: string[];
+  currencies: string[];
+  erpSources: { id: string; name: string; region: string | null }[];
+  entityFilter: string;
+  currencyFilter: string;
+  erpFilter: string;
+  onEntity: (v: string) => void;
+  onCurrency: (v: string) => void;
+  onErp: (v: string) => void;
+  onReload: () => void;
+  reloading: boolean;
+}) {
+  const linkClass = "rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50";
+  const selectClass = "mt-1 rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs normal-case tracking-normal text-ink-50";
+  const labelClass = "flex flex-col text-[10px] font-medium uppercase tracking-wide text-ink-500";
+  return (
+    <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-base-700 bg-base-900 p-3">
+      <Link href="/finance/banks/funds" className={linkClass}>Treasury Funds</Link>
+      <Link href="/finance/banks" className={linkClass}>Banks &amp; Accounts</Link>
+      <Link href="/finance/credit-cycle" className={linkClass}>Credit Cycle</Link>
+      <label className={labelClass}>
+        Legal entity
+        <select value={entityFilter} onChange={(e) => onEntity(e.target.value)} className={selectClass}>
+          <option value="all">All entities</option>
+          {legalEntities.map((x) => (
+            <option key={x} value={x}>{x}</option>
+          ))}
+        </select>
+      </label>
+      <label className={labelClass}>
+        Bank currency
+        <select value={currencyFilter} onChange={(e) => onCurrency(e.target.value)} className={selectClass}>
+          <option value="all">All currencies</option>
+          {currencies.map((x) => (
+            <option key={x} value={x}>{x}</option>
+          ))}
+        </select>
+      </label>
+      <label className={labelClass}>
+        Regional ERP
+        <select value={erpFilter} onChange={(e) => onErp(e.target.value)} className={selectClass}>
+          <option value="all">All three ERPs</option>
+          {erpSources.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.region || "Unassigned"} · {x.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        onClick={onReload}
+        disabled={reloading}
+        className="flex items-center gap-1 rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:text-ink-50 disabled:opacity-50"
+      >
+        <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} strokeWidth={1.75} /> Refresh
+      </button>
+    </div>
+  );
+}
+
+/** Source trBankListItem(): one clickable account row with fund badges and reconciliation state. */
+export function BankListItem({
+  bank: x,
+  erpSources,
+  selected,
+  onClick,
+  onlyFund,
+  committedForFund,
+}: {
+  bank: BankRow;
+  erpSources: { id: string; region: string | null }[];
+  selected?: boolean;
+  onClick: () => void;
+  onlyFund?: FundName;
+  committedForFund?: number;
+}) {
+  const parts = (Object.entries(x.allocations) as [FundName, number][]).filter(([, v]) => v !== 0);
+  const gap = x.reconciliationDifference;
+  const metric = onlyFund ? x.allocations[onlyFund] : x.physicalBalance;
+  const region = erpSources.find((e) => e.id === x.erpSourceId)?.region || "Unmapped";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`block w-full rounded-lg border p-3 text-left transition hover:border-base-600 ${
+        selected ? "border-base-600 bg-base-800" : "border-base-700 bg-base-900"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <b className="text-xs text-ink-50">
+            {x.bank ?? "Bank"} · {x.label}
+          </b>
+          <div className="mt-0.5 text-[11px] text-ink-500">
+            {x.legalEntity ?? "—"} · {x.country || "Country not set"} · {x.currency ?? "—"} ·{" "}
+            {x.maskedAccount || "Masked account not set"} · ERP {region} / {x.erpAccountNumber || x.erpAccountId || "not mapped"}
+          </div>
+        </div>
+        <div className="text-right">
+          <strong className="text-sm text-ink-50">{trMoney(metric, x.currency)}</strong>
+          <div className="text-[11px] text-ink-500">{onlyFund ? `${onlyFund} allocation` : "Latest ERP ledger balance"} ↗</div>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {parts.length ? (
+          parts.map(([f, n]) => (
+            <span key={f} className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">
+              {f} {trMoney(n, x.currency)}
+            </span>
+          ))
+        ) : (
+          <span className="rounded-full bg-status-alert/15 px-2 py-0.5 text-[11px] text-status-alert">Fund allocations not yet entered</span>
+        )}
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] ${
+            gap !== null && Math.abs(gap) < 0.01 ? "bg-status-active/15 text-status-active" : "bg-status-alert/15 text-status-alert"
+          }`}
+        >
+          {gap === null ? "ERP balance pending" : Math.abs(gap) < 0.01 ? "Reconciled" : `Difference ${trMoney(gap, x.currency)}`}
+        </span>
+      </div>
+      <div className="mt-1.5 text-[11px] text-ink-500">
+        {x.asOf ? `ERP as of ${new Date(x.asOf).toLocaleDateString("en-GB")}` : "No ERP snapshot"} ·{" "}
+        {onlyFund
+          ? `Confirmed mapped fund commitments ${trMoney(committedForFund ?? 0, x.currency)} · indicative headroom ${trMoney(
+              x.allocations[onlyFund] - (committedForFund ?? 0),
+              x.currency
+            )}${x.usdPerUnit ? ` · USD equivalent ${trMoney(x.allocations[onlyFund] * x.usdPerUnit, "USD")}` : ""}`
+          : x.commitments
+            ? `Due commitments ${trMoney(x.commitments, x.currency)}`
+            : "No mapped upcoming commitments"}
+      </div>
+    </button>
+  );
+}
+
 export function BanksPage({ state: initialState }: { state: TreasuryState }) {
   const [state, setState] = useState<TreasuryState>(initialState);
   const [modalBank, setModalBank] = useState<BankRow | "new" | null>(null);
   const [reloading, setReloading] = useState(false);
-  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const [selectedBankId, setSelectedBankId] = useState<string | null>(() => searchParams.get("bank"));
   const [showMovementModal, setShowMovementModal] = useState(false);
   const [entityFilter, setEntityFilter] = useState("all");
   const [currencyFilter, setCurrencyFilter] = useState("all");
@@ -197,192 +400,80 @@ export function BanksPage({ state: initialState }: { state: TreasuryState }) {
   );
   const selectedBank = state.banks.find((b) => b.id === selectedBankId) ?? null;
 
-  const verifiedCount = scopedBanks.filter((b) => b.verifiedCash).length;
-  const totalCommitments = scopedBanks.reduce((s, b) => s + b.commitments, 0);
+  const unreconciled = scopedBanks.filter(
+    (b) => b.reconciliationDifference !== null && Math.abs(b.reconciliationDifference) > 0.01
+  ).length;
 
   return (
     <div className="p-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Banks &amp; Accounts</h1>
           <p className="mt-1 text-sm text-ink-500">
             One row per real bank account. Click an account for its physical ERP balance, fund allocations,
             transactions, exceptions and expected payouts.
-            {!state.integrationConnected && " · No live processor/ERP feed connected"}
           </p>
         </div>
         <button
           onClick={() => setModalBank("new")}
-          className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white"
+          className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white"
         >
-          <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> + Add bank account
+          <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add bank account
         </button>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-base-700 bg-base-900 p-3">
-        <label className="flex flex-col gap-1 text-[11px] text-ink-500">
-          Legal entity
-          <select
-            value={entityFilter}
-            onChange={(e) => setEntityFilter(e.target.value)}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50"
-          >
-            <option value="all">All entities</option>
-            {legalEntities.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] text-ink-500">
-          Bank currency
-          <select
-            value={currencyFilter}
-            onChange={(e) => setCurrencyFilter(e.target.value)}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50"
-          >
-            <option value="all">All currencies</option>
-            {currencies.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] text-ink-500">
-          Regional ERP
-          <select
-            value={erpFilter}
-            onChange={(e) => setErpFilter(e.target.value)}
-            className="rounded-lg border border-base-700 bg-base-800 px-2 py-1.5 text-xs text-ink-50"
-          >
-            <option value="all">All three ERPs</option>
-            {activeErpSources.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.region || "Unassigned"} · {x.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={reload}
-          disabled={reloading}
-          className="flex items-center gap-1 rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:text-ink-50 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} strokeWidth={1.75} /> Refresh
-        </button>
+      <TreasuryPendingNotice />
+
+      <TreasuryToolbar
+        legalEntities={legalEntities}
+        currencies={currencies}
+        erpSources={activeErpSources}
+        entityFilter={entityFilter}
+        currencyFilter={currencyFilter}
+        erpFilter={erpFilter}
+        onEntity={setEntityFilter}
+        onCurrency={setCurrencyFilter}
+        onErp={setErpFilter}
+        onReload={reload}
+        reloading={reloading}
+      />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <TrKpi title="Bank accounts" value={String(scopedBanks.length)} detail="Registered by legal entity" />
+        <TrKpi title="ERP ledger cash" value={trNativeGroups(scopedBanks, "physicalBalance")} detail="Totals grouped by currency, not mixed" />
+        <TrKpi
+          title="Unreconciled banks"
+          value={String(unreconciled)}
+          detail="Open a bank to review the difference"
+          amber={unreconciled > 0}
+        />
+        <TrKpi title="Upcoming reserved bills" value={trNativeGroups(scopedBanks, "commitments")} detail="Known card, payroll and invoice obligations" />
       </div>
 
-      <div className="mb-4 flex items-start gap-2 rounded-xl border border-status-alert/30 bg-status-alert/10 p-3 text-xs text-status-alert">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
-        <p>
-          <strong>ERP integration pending.</strong> Bank balances are shown only when supplied by the ERP. Fund
-          allocations may be recorded manually or imported from Finance-approved ERP fund tags and are not
-          automatically verified bank cash. Do not treat a fund allocation as a confirmed available bank balance
-          until reconciliation is complete.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <WidgetCard title="Bank Accounts" icon={Landmark}>
-          <Tile label="Registered" value={scopedBanks.length.toLocaleString()} />
-        </WidgetCard>
-        <WidgetCard title="Verified Cash" icon={CheckCircle2}>
-          <Tile label="Reconciled within 1 cent" value={`${verifiedCount} / ${scopedBanks.length}`} />
-        </WidgetCard>
-        <WidgetCard title="Outstanding Commitments" icon={Wallet}>
-          <Tile label="Reserved, not yet paid" value={formatAmount(totalCommitments)} />
-        </WidgetCard>
-      </div>
-
-      <div className="mt-4">
-        <WidgetCard title="Bank register" icon={Landmark}
-          action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{scopedBanks.length} accounts</span>}
-        >
-            <div className="overflow-x-auto rounded-xl border border-base-700">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-                  <tr>
-                    <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2">Bank</th>
-                    <th className="px-3 py-2">Legal Entity</th>
-                    <th className="px-3 py-2">Currency</th>
-                    <th className="px-3 py-2">Physical Balance</th>
-                    <th className="px-3 py-2">Allocated</th>
-                    <th className="px-3 py-2">Reconciliation</th>
-                    <th className="px-3 py-2">Commitments</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scopedBanks.map((b) => (
-                    <tr
-                      key={b.id}
-                      onClick={() => setSelectedBankId(selectedBankId === b.id ? null : b.id)}
-                      className={`cursor-pointer border-b border-base-800 text-ink-300 last:border-0 hover:bg-base-800/40 ${
-                        selectedBankId === b.id ? "bg-base-800/60" : ""
-                      }`}
-                    >
-                      <td className="px-3 py-2 text-ink-50">
-                        {b.label}
-                        {b.maskedAccount && <span className="text-ink-500"> · {b.maskedAccount}</span>}
-                      </td>
-                      <td className="px-3 py-2">{b.bank ?? "—"}</td>
-                      <td className="px-3 py-2">{b.legalEntity ?? "—"}</td>
-                      <td className="px-3 py-2">{b.currency ?? "—"}</td>
-                      <td className="px-3 py-2">{formatAmount(b.physicalBalance, b.currency)}</td>
-                      <td className="px-3 py-2">{formatAmount(b.allocatedTotal, b.currency)}</td>
-                      <td className="px-3 py-2">
-                        {b.reconciliationDifference === null ? (
-                          <span className="text-ink-500">Awaiting ERP</span>
-                        ) : (
-                          formatAmount(b.reconciliationDifference, b.currency)
-                        )}
-                      </td>
-                      <td className="px-3 py-2">{formatAmount(b.commitments, b.currency)}</td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                            b.active ? "bg-status-active/15 text-status-active" : "bg-status-inactive/15 text-status-inactive"
-                          }`}
-                        >
-                          {b.active ? "Active" : "Inactive"}
-                        </span>
-                        {b.verifiedCash && (
-                          <span className="ml-1 rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
-                            Verified
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setModalBank(b);
-                          }}
-                          className="text-ink-500 hover:text-ink-300"
-                        >
-                          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {scopedBanks.length === 0 && (
-                    <tr>
-                      <td colSpan={10} className="px-3 py-6 text-center text-ink-500">
-                        No bank accounts registered. Create them first, then link their ERP account IDs to pull
-                        balances automatically.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {reloading && <p className="mt-2 text-[11px] text-ink-500">Refreshing…</p>}
-          </WidgetCard>
+      <div className="mt-4 rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-medium text-ink-50">Bank register</h3>
+          <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{scopedBanks.length} accounts</span>
+        </div>
+        {scopedBanks.length === 0 ? (
+          <p className="py-6 text-center text-xs text-ink-500">
+            No bank accounts registered. Create them first, then link their ERP account IDs to pull balances
+            automatically.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {scopedBanks.map((b) => (
+              <BankListItem
+                key={b.id}
+                bank={b}
+                erpSources={erpSources}
+                selected={selectedBankId === b.id}
+                onClick={() => setSelectedBankId(selectedBankId === b.id ? null : b.id)}
+              />
+            ))}
+          </div>
+        )}
+        {reloading && <p className="mt-2 text-[11px] text-ink-500">Refreshing…</p>}
       </div>
 
       {selectedBank && (
@@ -962,6 +1053,195 @@ export function MovementModal({
             className="w-full rounded-lg bg-ink-50 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
           >
             {isSaving ? "Saving…" : "Save movement"}
+          </button>
+          <p className="text-[10px] text-ink-500">Saved to the treasury ledger. No changes posted to the ERP.</p>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+const SETTLEMENT_STATUSES = ["Pending", "Scheduled", "In transit", "Paid", "Failed", "Cancelled"] as const;
+
+/** Source trEditor('settlement'): record a Stripe / Trust Payments payout and optionally match it to a bank credit. */
+export function SettlementModal({
+  banks,
+  movements,
+  onClose,
+  onSaved,
+}: {
+  banks: Pick<BankRow, "id" | "label" | "bank" | "currency">[];
+  movements: { id: string; bankAccountId: string; txnDate: string | Date; amount?: number; allocatedAmount: number; currency: string; reference: string | null; sourceUid: string }[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [f, setF] = useState({
+    provider: "Stripe",
+    payoutId: "",
+    bankAccountId: "",
+    legalEntity: "",
+    merchantAccount: "",
+    currency: "",
+    gross: "0",
+    fees: "0",
+    refunds: "0",
+    disputes: "0",
+    reserve: "0",
+    otherAdjustments: "0",
+    expectedDate: "",
+    status: "Pending",
+    fund: "S&M",
+    actualDate: "",
+    reconciledLedgerId: "",
+    note: "",
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setF((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const credits = Array.from(
+    new Map(movements.filter((m) => (m.amount ?? m.allocatedAmount) > 0).map((m) => [m.id, m])).values()
+  );
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finance/treasury/settlement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Failed to record settlement");
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const label = "flex flex-col gap-1 text-[11px] text-ink-500";
+  const num = (k: keyof typeof f, title: string) => (
+    <label className={label}>
+      {title}
+      <input type="number" step="0.01" value={f[k]} onChange={set(k)} className={inputClass} />
+    </label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-2xl rounded-xl border border-base-700 bg-base-900 p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-ink-50">Record processor settlement</h2>
+          <button onClick={onClose} className="text-ink-500 hover:text-ink-300">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            <label className={label}>
+              Processor
+              <select value={f.provider} onChange={set("provider")} className={inputClass}>
+                <option>Stripe</option>
+                <option>Trust Payments</option>
+              </select>
+            </label>
+            <label className={label}>
+              Provider payout ID
+              <input value={f.payoutId} onChange={set("payoutId")} placeholder="Unique settlement ID" className={inputClass} />
+            </label>
+            <label className={label}>
+              Destination bank
+              <select value={f.bankAccountId} onChange={set("bankAccountId")} className={inputClass}>
+                <option value="">Select bank</option>
+                {banks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label} · {b.bank ?? "—"} · {b.currency ?? "—"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={label}>
+              Legal entity
+              <input value={f.legalEntity} onChange={set("legalEntity")} placeholder="Account owning entity" className={inputClass} />
+            </label>
+            <label className={label}>
+              Merchant account reference
+              <input value={f.merchantAccount} onChange={set("merchantAccount")} placeholder="Merchant ID" className={inputClass} />
+            </label>
+            <label className={label}>
+              Settlement currency
+              <input value={f.currency} onChange={set("currency")} maxLength={3} placeholder="GBP" className={inputClass} />
+            </label>
+            {num("gross", "Gross cleared receipts")}
+            {num("fees", "Processor fees")}
+            {num("refunds", "Refunds")}
+            {num("disputes", "Disputes / chargebacks")}
+            {num("reserve", "Reserves / withholdings")}
+            {num("otherAdjustments", "Other net adjustment (+/-)")}
+            <label className={label}>
+              Expected bank arrival
+              <input type="date" value={f.expectedDate} onChange={set("expectedDate")} className={inputClass} />
+            </label>
+            <label className={label}>
+              Status
+              <select value={f.status} onChange={set("status")} className={inputClass}>
+                {SETTLEMENT_STATUSES.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            </label>
+            <label className={label}>
+              Fund
+              <select value={f.fund} onChange={set("fund")} className={inputClass}>
+                <option>S&amp;M</option>
+                <option>Development</option>
+                <option>Unallocated</option>
+              </select>
+            </label>
+            <label className={label}>
+              Actual bank arrival (when paid)
+              <input type="date" value={f.actualDate} onChange={set("actualDate")} className={inputClass} />
+            </label>
+            <label className={`${label} sm:col-span-2`}>
+              Match to bank credit
+              <select value={f.reconciledLedgerId} onChange={set("reconciledLedgerId")} className={inputClass}>
+                <option value="">Not reconciled</option>
+                {credits.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {new Date(m.txnDate).toISOString().slice(0, 10)} · {banks.find((b) => b.id === m.bankAccountId)?.label ?? ""} ·{" "}
+                    {trMoney(m.amount ?? m.allocatedAmount, m.currency)} · {m.reference || m.sourceUid}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className={label}>
+            Notes
+            <textarea
+              value={f.note}
+              onChange={set("note")}
+              rows={2}
+              placeholder="Estimated date from settlement rules until processor confirms"
+              className={inputClass}
+            />
+          </label>
+          {error && (
+            <p className="flex items-center gap-1 text-xs text-status-inactive">
+              <AlertTriangle className="h-3 w-3" strokeWidth={1.75} /> {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={isSaving || !f.payoutId.trim() || !f.bankAccountId}
+            className="w-full rounded-lg bg-ink-50 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
+          >
+            {isSaving ? "Saving…" : "Save settlement"}
           </button>
           <p className="text-[10px] text-ink-500">Saved to the treasury ledger. No changes posted to the ERP.</p>
         </form>
