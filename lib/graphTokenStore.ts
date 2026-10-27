@@ -48,7 +48,23 @@ export async function refreshGraphToken(refreshToken: string) {
 export async function getValidGraphAccessToken(
   userId: string
 ): Promise<{ accessToken?: string; graphError?: string }> {
-  const stored = await prisma.graphToken.findUnique({ where: { userId } });
+  // This runs inside NextAuth's session() callback, which fires on every
+  // getServerSession() call — i.e. multiple times per page navigation
+  // (root layout, Finance layout, the page itself all call it
+  // independently). A transient DB hiccup here (e.g. the connection pool
+  // briefly exhausted under concurrent requests) must NOT throw: an
+  // uncaught error from this callback makes NextAuth treat the whole
+  // session as invalid, which looks exactly like a random logout to the
+  // user even though their cookie/login was fine. Graph being
+  // momentarily unavailable is fine — losing the user's session over it
+  // is not.
+  let stored;
+  try {
+    stored = await prisma.graphToken.findUnique({ where: { userId } });
+  } catch (err) {
+    console.error("Failed to read Graph token (session continues without it):", err);
+    return { graphError: "GraphTokenLookupError" };
+  }
   if (!stored) return {};
 
   if (stored.expiresAt.getTime() > Date.now()) {

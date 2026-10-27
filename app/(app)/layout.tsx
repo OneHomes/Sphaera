@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getOrCreateCurrentUser } from "@/lib/currentUser";
 import { shouldShowWelcome } from "@/lib/dailyWelcome";
 import { AppShell } from "@/components/shell/AppShell";
 import { withTenantPage } from "@/lib/withTenant";
@@ -20,19 +19,31 @@ export default async function AppLayout({
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
+  return withTenantPage(session, async (authUser) => {
     // PRD AE01 — Agents get redirected to the dedicated /onboarding route
     // (app/(onboarding)/) for a full-screen daily welcome/target-review
     // sequence before the rest of the app shell; Admins/Managers go
     // straight in. Gated on the fresh DB role, not the session-cached one
     // — a role change made directly in the database (e.g. via Prisma
     // Studio while testing) should take effect without a re-login.
-    const dbUser = await getOrCreateCurrentUser(session);
-    if (
-      dbUser.role === "AGENT" &&
-      shouldShowWelcome(dbUser, (session as { signedInAt?: number }).signedInAt)
-    ) {
-      redirect("/onboarding");
+    //
+    // authUser (above) already resolved this same User row once via
+    // withTenantPage's getFreshAuthUser() — re-fetching the full row here
+    // via getOrCreateCurrentUser() was a second redundant DB round-trip
+    // for every single page load under this layout (every page). Only
+    // the two welcome-specific fields AuthUser doesn't carry are fetched
+    // here, and only for the role that can actually need them.
+    if (authUser.role === "AGENT") {
+      const welcomeFields = await prisma.user.findUnique({
+        where: { id: authUser.id },
+        select: { lastWelcomeAckDate: true, lastWelcomeAckSignedInAt: true },
+      });
+      if (
+        welcomeFields &&
+        shouldShowWelcome(welcomeFields, (session as { signedInAt?: number }).signedInAt)
+      ) {
+        redirect("/onboarding");
+      }
     }
 
     // Real closed-revenue leaderboard for the persistent top bar — sums
@@ -63,7 +74,7 @@ export default async function AppLayout({
       <AppShell
         session={session}
         leaderboard={leaderboard}
-        canAccessFinance={dbUser.canAccessFinance}
+        canAccessFinance={authUser.canAccessFinance}
       >
         {children}
       </AppShell>
