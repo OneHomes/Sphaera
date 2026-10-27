@@ -1846,3 +1846,25 @@ model FinanceMerchantAlias {
   @@unique([organizationId, alias])
   @@map("finance_merchant_aliases")
 }
+
+// Department-scoped Finance access ("Head of Department" permission
+// model, 2026-10-27). A user with canAccessFinance=true but ZERO rows
+// here sees every department (the existing unrestricted default — e.g.
+// Finance team/Admins). A user with ONE OR MORE rows is scoped to only
+// those departments: lib/finance/departmentAccess.ts resolves this into
+// a department allow-list, lib/finance/ledgerData.ts's getFinanceState()
+// filters transactions by it, and FinanceShell.tsx hides the
+// admin/ops-only screens (Organise Costs, Treasury, ERP, etc.) that
+// aren't relevant to a department-scoped viewer.
+model FinanceDepartmentAccess {
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  department     String
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, department])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("finance_department_access")
+}

@@ -20,7 +20,13 @@ export async function PATCH(
         return NextResponse.json({ error: "User not found" }, { status: 404 });
       }
 
-      const data: { role?: Role; teamId?: string | null; canExportData?: boolean } = {};
+      const data: {
+        role?: Role;
+        teamId?: string | null;
+        canExportData?: boolean;
+        canAccessFinance?: boolean;
+        canAccessFinancePayroll?: boolean;
+      } = {};
 
       if ("role" in body) {
         if (!ROLES.includes(body.role)) {
@@ -37,6 +43,14 @@ export async function PATCH(
         data.canExportData = !!body.canExportData;
       }
 
+      if ("canAccessFinance" in body) {
+        data.canAccessFinance = !!body.canAccessFinance;
+      }
+
+      if ("canAccessFinancePayroll" in body) {
+        data.canAccessFinancePayroll = !!body.canAccessFinancePayroll;
+      }
+
       const updated = await prisma.user.update({
         where: { id: params.id },
         data,
@@ -51,6 +65,17 @@ export async function PATCH(
       }
       if (data.canExportData !== undefined && data.canExportData !== existing.canExportData) {
         changeDescriptions.push(`export rights: ${existing.canExportData} -> ${data.canExportData}`);
+      }
+      if (data.canAccessFinance !== undefined && data.canAccessFinance !== existing.canAccessFinance) {
+        changeDescriptions.push(`finance access: ${existing.canAccessFinance} -> ${data.canAccessFinance}`);
+      }
+      if (
+        data.canAccessFinancePayroll !== undefined &&
+        data.canAccessFinancePayroll !== existing.canAccessFinancePayroll
+      ) {
+        changeDescriptions.push(
+          `finance payroll access: ${existing.canAccessFinancePayroll} -> ${data.canAccessFinancePayroll}`
+        );
       }
 
       if (changeDescriptions.length > 0) {
@@ -70,6 +95,8 @@ export async function PATCH(
         role: updated.role,
         teamId: updated.teamId,
         canExportData: updated.canExportData,
+        canAccessFinance: updated.canAccessFinance,
+        canAccessFinancePayroll: updated.canAccessFinancePayroll,
       });
     });
   } catch (err) {

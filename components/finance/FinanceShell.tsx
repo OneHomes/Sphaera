@@ -28,6 +28,7 @@ import {
   ChevronDown,
   Building2,
   Wallet,
+  ShieldCheck,
 } from "lucide-react";
 
 // Exact order/grouping of the source app's NAV array (index.html:549) —
@@ -40,6 +41,7 @@ type FinanceNavItem = {
   label: string;
   icon: typeof LayoutDashboard;
   payrollOnly?: boolean;
+  adminOnly?: boolean;
 };
 
 const FINANCE_NAV: FinanceNavItem[] = [
@@ -65,6 +67,7 @@ const FINANCE_NAV: FinanceNavItem[] = [
   { href: "/finance/erp", label: "ERP Connections", icon: Network },
   { href: "/finance/ask", label: "Ask Your Data", icon: Sparkles },
   { href: "/finance/backups", label: "Data & Backups", icon: Settings, payrollOnly: true },
+  { href: "/finance/admin/department-access", label: "Department Access", icon: ShieldCheck, adminOnly: true },
 ];
 
 const BANK_CHILDREN = [
@@ -95,9 +98,11 @@ function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }
 export function FinanceShell({
   children,
   canAccessFinancePayroll,
+  isAdmin,
 }: {
   children: React.ReactNode;
   canAccessFinancePayroll: boolean;
+  isAdmin: boolean;
 }) {
   const pathname = usePathname();
   const [banksOpen, setBanksOpen] = useState(
@@ -112,6 +117,7 @@ export function FinanceShell({
       >
         {FINANCE_NAV.map((item) => {
           if (item.payrollOnly && !canAccessFinancePayroll) return null;
+          if (item.adminOnly && !isAdmin) return null;
           const node = <NavLink key={item.href} item={item} isActive={pathname === item.href} />;
           if (item.href !== BANKS_INSERT_AFTER) return node;
           // Insert the expandable "Banks" group right after Financial

@@ -26,6 +26,10 @@ export default async function FinanceLayout({ children }: { children: React.Reac
       );
     }
 
-    return <FinanceShell canAccessFinancePayroll={authUser.canAccessFinancePayroll}>{children}</FinanceShell>;
+    return (
+      <FinanceShell canAccessFinancePayroll={authUser.canAccessFinancePayroll} isAdmin={authUser.role === "ADMIN"}>
+        {children}
+      </FinanceShell>
+    );
   });
 }

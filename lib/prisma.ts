@@ -127,6 +127,7 @@ const TENANT_SCOPED_MODELS = new Set<Prisma.ModelName>([
   "FinanceMerchantInvoiceLink",
   "FinanceMerchantProvider",
   "FinanceMerchantAlias",
+  "FinanceDepartmentAccess",
 ]);
 
 // findUnique/findUniqueOrThrow deliberately excluded: Prisma requires

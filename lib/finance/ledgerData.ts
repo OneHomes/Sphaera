@@ -71,7 +71,18 @@ export type FinanceState = {
  * override > legacy mapping), and resolves the reporting-supplier label
  * (merchant alias > raw trace supplier > description).
  */
-export async function getFinanceState(): Promise<FinanceState> {
+/**
+ * `departmentScope`: pass the result of `getUserDepartmentScope()` (see
+ * lib/finance/departmentAccess.ts) — `null`/omitted means unrestricted
+ * (every department, the default for Finance/Admin users); an array
+ * restricts the returned `transactions` to only payments whose resolved
+ * department is in that list (a "Head of Department" view). The
+ * `departments`/`managementCostHeads` reference lists are NOT filtered —
+ * taxonomy classification logic (e.g. `isOperating`) needs the true
+ * registry regardless of who's viewing; only the actual financial data
+ * rows are restricted.
+ */
+export async function getFinanceState(departmentScope?: string[] | null): Promise<FinanceState> {
   const [transactions, monthly, costHeads, departmentRows, managementCostHeadRows, legacyMappings, providers] =
     await Promise.all([
       prisma.financeTransaction.findMany({
@@ -179,8 +190,12 @@ export async function getFinanceState(): Promise<FinanceState> {
     };
   });
 
+  const scopedRows = departmentScope
+    ? rows.filter((r) => r.managementDepartment && departmentScope.includes(r.managementDepartment))
+    : rows;
+
   return {
-    transactions: rows,
+    transactions: scopedRows,
     monthly,
     costHeads,
     departments: departmentRows.map((d) => d.name),

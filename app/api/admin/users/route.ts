@@ -46,6 +46,8 @@ export async function GET() {
           teamId: u.teamId,
           teamName: u.team?.name ?? null,
           canExportData: u.canExportData,
+          canAccessFinance: u.canAccessFinance,
+          canAccessFinancePayroll: u.canAccessFinancePayroll,
           createdAt: u.createdAt.toISOString(),
           activeLeadCount: u._count.assignedLeads,
           activeOpportunityCount: oppCountByUser.get(u.id) ?? 0,
