@@ -2,7 +2,8 @@
 
 import { Fragment, Suspense, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { RefreshCw } from "lucide-react";
 import { FinanceFilterProvider } from "./FinanceFilterContext";
 import { FinanceFilterBar } from "./FinanceFilterBar";
 import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
@@ -98,6 +99,41 @@ function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }
   );
 }
 
+// Direct port of the source's persistent header actions (index.html
+// line 537's `<header class="top">` — "↻ Refresh" / "+ Import monthly
+// data") — global, shown above the filter bar on every Finance screen,
+// not just Overview.
+function FinanceActionBar() {
+  const router = useRouter();
+  const [refreshing, setRefreshing] = useState(false);
+
+  function handleRefresh() {
+    setRefreshing(true);
+    router.refresh();
+    setTimeout(() => setRefreshing(false), 600);
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-2 border-b border-base-800 bg-base-900 px-6 py-2.5">
+      <button
+        onClick={handleRefresh}
+        disabled={refreshing}
+        className="flex items-center gap-1.5 rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-50"
+      >
+        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
+        Refresh
+      </button>
+      <Link
+        href="/finance/upload"
+        className="flex items-center gap-1.5 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:brightness-110"
+      >
+        <UploadCloud className="h-3.5 w-3.5" strokeWidth={1.75} />
+        Import monthly data
+      </Link>
+    </div>
+  );
+}
+
 export function FinanceShell({
   children,
   canAccessFinancePayroll,
@@ -159,6 +195,7 @@ export function FinanceShell({
         })}
       </nav>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <FinanceActionBar />
         <Suspense fallback={null}>
           <FinanceFilterProvider>
             <FinanceFilterBar options={filterOptions} />

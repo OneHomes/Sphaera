@@ -42,7 +42,7 @@ export function AskYourDataPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Something went wrong.");
+        setError(data.detail ? `${data.error ?? "Something went wrong."} (${data.detail})` : data.error ?? "Something went wrong.");
         setMessages(nextMessages);
         return;
       }

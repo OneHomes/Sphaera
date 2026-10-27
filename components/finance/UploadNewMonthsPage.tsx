@@ -1,18 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { UploadCloud, AlertTriangle, FileSpreadsheet, History } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { UploadCloud, FileSpreadsheet, History } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 
 // Direct structural port of the source app's "Upload more months" screen
 // (import a ledger/cost-centre-detail XLSX, preview before saving, approve
-// or cancel, then a running import history). The backend that actually
-// parses an uploaded XLSX was never part of the Stage 3/4 port — see the
-// doc comments on the two routes this screen calls
-// (app/api/finance/ledger/import/{preview,commit}/route.ts) — so both
-// calls below always surface an honest HTTP 501, never a fabricated
-// preview. The "Import review" panel's shape mirrors the original screen
-// exactly and will render for real the moment that backend exists.
+// or cancel, then a running import history) — backed by a real parser
+// (lib/finance/ledgerImportData.ts) that reads the same "Cost Centre
+// Detail" / monthly Marketing/Sales & OH tabs the source app does, with
+// the same date/description/amount/country fingerprint-based duplicate
+// detection. Nothing is written until "Approve and add" is clicked.
 
 type ImportHistoryRow = {
   id: string;
@@ -24,6 +23,9 @@ type ImportHistoryRow = {
   createdAt: string | Date;
 };
 
+type ParsedLedgerRow = Record<string, unknown>;
+type MonthlyFigures = Record<string, unknown>;
+
 type PreviewResult = {
   filename: string;
   rowsChecked: number;
@@ -33,9 +35,12 @@ type PreviewResult = {
   invalidRows: number;
   monthsAdded: string[];
   mode: string;
+  sheets: string[];
   warning: string;
-  newHeads: string[];
+  newHeads: { head: string; centre: string }[];
   sampleNewPayments: Array<{ month: string; description: string; amountUsd: number; head: string }>;
+  newRows: ParsedLedgerRow[];
+  monthlyData: MonthlyFigures[];
 };
 
 function usd(value: number): string {
@@ -43,11 +48,11 @@ function usd(value: number): string {
 }
 
 export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHistoryRow[] }) {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [checking, setChecking] = useState(false);
   const [approving, setApproving] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
-  const [notImplemented, setNotImplemented] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [approved, setApproved] = useState(false);
 
@@ -59,7 +64,6 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
     }
     setChecking(true);
     setError(null);
-    setNotImplemented(null);
     setPreview(null);
     setApproved(false);
     try {
@@ -67,10 +71,6 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
       formData.append("file", file);
       const res = await fetch("/api/finance/ledger/import/preview", { method: "POST", body: formData });
       const data = await res.json().catch(() => null);
-      if (res.status === 501) {
-        setNotImplemented(data?.error ?? "Ledger XLSX import is not yet implemented");
-        return;
-      }
       if (!res.ok) throw new Error(data?.error ?? "Failed to check file");
       setPreview(data as PreviewResult);
     } catch (err) {
@@ -84,20 +84,22 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
     if (!preview) return;
     setApproving(true);
     setError(null);
-    setNotImplemented(null);
     try {
       const res = await fetch("/api/finance/ledger/import/commit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: preview.filename }),
+        body: JSON.stringify({
+          filename: preview.filename,
+          mode: preview.mode,
+          sheets: preview.sheets,
+          newRows: preview.newRows,
+          monthlyData: preview.monthlyData,
+        }),
       });
       const data = await res.json().catch(() => null);
-      if (res.status === 501) {
-        setNotImplemented(data?.error ?? "Ledger XLSX import is not yet implemented");
-        return;
-      }
       if (!res.ok) throw new Error(data?.error ?? "Failed to add payments to SQL");
       setApproved(true);
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -117,18 +119,6 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
         <p className="mt-1 text-sm text-ink-500">
           Upload the original One Homes Excel format. The system reads transaction-level rows, checks existing
           payments and shows a preview before anything is saved.
-        </p>
-      </div>
-
-      <div className="rounded-xl border border-status-alert/30 bg-status-alert/5 p-3.5">
-        <p className="flex items-center gap-1.5 text-xs font-medium text-status-alert">
-          <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.75} />
-          Known backend gap
-        </p>
-        <p className="mt-1 text-[11px] text-ink-300">
-          Parsing and validating an uploaded ledger XLSX was not part of the Stage 3/4 backend port. The form below
-          calls the real API routes, but those routes currently return &quot;not yet implemented&quot; (HTTP 501)
-          rather than a fabricated preview. This is a backend gap, not a UI bug.
         </p>
       </div>
 
@@ -159,13 +149,6 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
             identical entries. If the file contains November to July again, those rows should be skipped rather than
             imported twice. Changes you made to cost heads or debt categories remain saved.
           </p>
-
-          {notImplemented && (
-            <div className="mt-4 rounded-lg border border-status-alert/30 bg-status-alert/10 p-3">
-              <p className="text-xs font-medium text-status-alert">Not yet implemented</p>
-              <p className="mt-1 text-[11px] text-ink-300">{notImplemented}</p>
-            </div>
-          )}
         </WidgetCard>
       </div>
 
@@ -254,12 +237,6 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
             </div>
 
             {approved && <p className="mt-3 text-xs text-status-active">Payments added to SQL.</p>}
-            {notImplemented && (
-              <div className="mt-3 rounded-lg border border-status-alert/30 bg-status-alert/10 p-3">
-                <p className="text-xs font-medium text-status-alert">Not yet implemented</p>
-                <p className="mt-1 text-[11px] text-ink-300">{notImplemented}</p>
-              </div>
-            )}
 
             <div className="mt-3 flex gap-2">
               <button

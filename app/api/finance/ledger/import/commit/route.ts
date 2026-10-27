@@ -1,19 +1,37 @@
 import { NextResponse } from "next/server";
+import { commitLedgerImport } from "@/lib/finance/ledgerImportData";
+import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
-// Honest stub: see preview/route.ts's doc comment — committing a new
-// month's ledger import has no backend logic in this port yet. Returns
-// 501 rather than pretending to write anything.
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    return await withTenant(async (authUser) => {
+    return await withTenant(async (authUser, session) => {
       if (!authUser.canAccessFinance) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      return NextResponse.json(
-        { error: "Ledger XLSX import is not yet implemented" },
-        { status: 501 }
-      );
+      const body = await request.json();
+      if (!body.filename || !Array.isArray(body.newRows)) {
+        return NextResponse.json({ error: "Re-check the file first — the preview result is missing." }, { status: 400 });
+      }
+      try {
+        const result = await commitLedgerImport({
+          filename: String(body.filename),
+          mode: String(body.mode ?? ""),
+          sheets: Array.isArray(body.sheets) ? body.sheets.map(String) : [],
+          newRows: body.newRows,
+          monthlyData: Array.isArray(body.monthlyData) ? body.monthlyData : [],
+        });
+        await logAudit({
+          actorId: authUser.id,
+          actorEmail: session.user?.email ?? "unknown",
+          action: "finance_ledger_import_committed",
+          targetId: result.importId,
+          details: `Imported ${body.filename}: ${result.added} new payment(s), ${result.addedAmount} USD`,
+        });
+        return NextResponse.json(result);
+      } catch (err) {
+        return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to add payments" }, { status: 400 });
+      }
     });
   } catch (err) {
     if (err instanceof UnauthenticatedError) {

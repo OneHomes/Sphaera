@@ -1,22 +1,25 @@
 import { NextResponse } from "next/server";
+import { previewLedgerImport } from "@/lib/finance/ledgerImportData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
-// Honest stub: importing a new month's ledger/cost-centre-detail XLSX was
-// not part of the Stage 3/4 backend port (no parsing/validation logic
-// exists in lib/finance for it yet, unlike the source app's
-// /api/import/preview). This route exists so the Upload New Months screen
-// has something to call, but it deliberately returns 501 rather than
-// fabricating a fake preview.
-export async function POST() {
+export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser) => {
       if (!authUser.canAccessFinance) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      return NextResponse.json(
-        { error: "Ledger XLSX import is not yet implemented" },
-        { status: 501 }
-      );
+      const formData = await request.formData();
+      const file = formData.get("file");
+      if (!(file instanceof File)) {
+        return NextResponse.json({ error: "Select a file to upload" }, { status: 400 });
+      }
+      const buffer = Buffer.from(await file.arrayBuffer());
+      try {
+        const preview = await previewLedgerImport(buffer, file.name);
+        return NextResponse.json(preview);
+      } catch (err) {
+        return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to read file" }, { status: 400 });
+      }
     });
   } catch (err) {
     if (err instanceof UnauthenticatedError) {
