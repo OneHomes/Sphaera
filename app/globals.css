@@ -25,6 +25,13 @@ body {
   outline-offset: 2px;
 }
 
+/* Recharts surfaces take focus on click; the ring drew a box over the whole chart. */
+.recharts-wrapper,
+.recharts-wrapper *,
+.recharts-surface {
+  outline: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -317,14 +317,23 @@ export function OverviewPage({
               <XAxis dataKey="month" stroke="#71717a" fontSize={10} tickFormatter={(m: string) => `${mo(m).split(" ")[0]} ${m.slice(2, 4)}`} />
               <YAxis stroke="#71717a" fontSize={10} tickFormatter={(v: number) => usd(v, true)} />
               <Tooltip
-                contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
-                labelFormatter={(m) => mo(String(m))}
-                formatter={(value, name, item) => [
-                  name === "Operating budget" && !(item?.payload as { budgetAvailable?: boolean })?.budgetAvailable
-                    ? "Not available"
-                    : exactUsd.format(Number(value ?? 0)),
-                  String(name),
-                ]}
+                shared={false}
+                cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                content={({ active, payload }) => {
+                  const p = active && payload?.[0];
+                  if (!p) return null;
+                  const row = p.payload as { month: string; budgetAvailable?: boolean };
+                  const value =
+                    p.name === "Operating budget" && !row.budgetAvailable ? "Not available" : exactUsd.format(Number(p.value ?? 0));
+                  return (
+                    <div className="flex flex-col rounded-md border border-base-700 bg-base-800 px-2.5 py-1.5 text-[11px] shadow-lg">
+                      <span className="text-ink-500">
+                        {mo(row.month)} · {String(p.name)}
+                      </span>
+                      <strong className="text-ink-50">{value}</strong>
+                    </div>
+                  );
+                }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="collections" name="Collections" fill="#a8a29e" cursor="pointer" onClick={openMonth} />

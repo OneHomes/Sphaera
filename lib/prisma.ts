@@ -152,6 +152,13 @@ const WHERE_FILTERED_OPERATIONS = new Set([
   "groupBy",
 ]);
 
+// Bumped on every Finance* write so in-process Finance caches (lib/finance/ledgerData.ts) self-invalidate.
+const WRITE_OPERATIONS = new Set(["create", "createMany", "update", "updateMany", "upsert", "delete", "deleteMany"]);
+const financeWriteVersions = new Map<string, number>();
+export function financeWriteVersion(organizationId: string): number {
+  return financeWriteVersions.get(organizationId) ?? 0;
+}
+
 export const prisma = base.$extends({
   query: {
     $allModels: {
@@ -159,34 +166,41 @@ export const prisma = base.$extends({
         if (!TENANT_SCOPED_MODELS.has(model as Prisma.ModelName)) {
           return query(args);
         }
-
-        const organizationId = await resolveOrganizationId();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const a = args as any;
-
-        if (operation === "create") {
-          a.data = { organizationId, ...a.data };
-        } else if (operation === "createMany") {
-          if (Array.isArray(a.data)) {
-            a.data = a.data.map((row: Record<string, unknown>) => ({ organizationId, ...row }));
-          }
-        } else if (operation === "upsert") {
-          // organizationId first, `...where`/`...create` spread after — an
-          // explicit organizationId already present in either (e.g. a
-          // public route like invites/accept that isn't inside a
-          // withTenant() context and names a specific org by hand) wins
-          // over the ambient/fallback value, same as `create` below.
-          a.where = { organizationId, ...a.where };
-          a.create = { organizationId, ...a.create };
-        } else if (WHERE_FILTERED_OPERATIONS.has(operation)) {
-          a.where = { organizationId, ...a.where };
+        if (model.startsWith("Finance") && WRITE_OPERATIONS.has(operation)) {
+          const org = await resolveOrganizationId();
+          const result = await query(await scope(operation, args));
+          financeWriteVersions.set(org, financeWriteVersion(org) + 1);
+          return result;
         }
-
-        return query(a);
+        return query(await scope(operation, args));
       },
     },
   },
 });
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function scope(operation: string, args: any) {
+  const organizationId = await resolveOrganizationId();
+  const a = args;
+  if (operation === "create") {
+    a.data = { organizationId, ...a.data };
+  } else if (operation === "createMany") {
+    if (Array.isArray(a.data)) {
+      a.data = a.data.map((row: Record<string, unknown>) => ({ organizationId, ...row }));
+    }
+  } else if (operation === "upsert") {
+    // organizationId first, `...where`/`...create` spread after — an
+    // explicit organizationId already present in either (e.g. a
+    // public route like invites/accept that isn't inside a
+    // withTenant() context and names a specific org by hand) wins
+    // over the ambient/fallback value, same as `create` below.
+    a.where = { organizationId, ...a.where };
+    a.create = { organizationId, ...a.create };
+  } else if (WHERE_FILTERED_OPERATIONS.has(operation)) {
+    a.where = { organizationId, ...a.where };
+  }
+  return a;
+}
 
 if (process.env.NODE_ENV !== "production") {
   (globalForPrisma as unknown as { prisma?: typeof prisma }).prisma = prisma;

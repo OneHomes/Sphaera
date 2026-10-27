@@ -1,4 +1,4 @@
-import { prisma } from "../prisma";
+import { prisma, tenantContext, financeWriteVersion } from "../prisma";
 import { logReversible, revisionItems } from "./changeJournal";
 
 // Core ledger/taxonomy logic, ported from the source Python app's
@@ -15,8 +15,6 @@ export type FinanceLedgerRow = {
   description: string;
   costCentre: string | null;
   head: string | null;
-  assignedCentre: string | null;
-  assignedHead: string | null;
   effectiveHead: string | null;
   effectiveCentre: string | null;
   amount: number;
@@ -29,8 +27,6 @@ export type FinanceLedgerRow = {
   // legacy mapping suggestion, exactly like the source's fetch_state.
   managementDepartment: string | null;
   managementCostHead: string | null;
-  managementSource: string; // 'payment' | the mapping's own source ('suggested'|'pending'|...)
-  hasManagementOverride: boolean;
   paymentReference: string;
   erpPaymentId: string;
   invoiceReference: string;
@@ -43,14 +39,10 @@ export type FinanceLedgerRow = {
   sourceAmount: number | null;
   traceReviewed: boolean;
   reportingSupplier: string | null;
-  supplierNameApproved: boolean;
   dispute: { status: string; reason: string | null; financeOwner: string | null } | null;
   departmentSplits: { department: string; costHead: string; amountUsd: number }[];
-  splitApprovedAt: string | null;
   overheadOverride: { costNature: string; costBehaviour: string } | null;
   sourceSheet: string | null;
-  sourceRow: number | null;
-  sourceFile: string | null;
   country: string | null;
 };
 
@@ -85,7 +77,25 @@ export type FinanceState = {
  * registry regardless of who's viewing; only the actual financial data
  * rows are restricted.
  */
+// In-process cache: the ledger mega-join is ~3s against Azure SQL and every Finance page needs it.
+// Entries are dropped on any Finance* write in this process (financeWriteVersion) and after
+// CACHE_TTL_MS to bound staleness from writes on other instances.
+const CACHE_TTL_MS = 30_000;
+const stateCache = new Map<string, { at: number; version: number; value: Promise<FinanceState> }>();
+
 export async function getFinanceState(departmentScope?: string[] | null): Promise<FinanceState> {
+  const org = tenantContext.getStore()?.organizationId ?? "default";
+  const key = `${org}|${departmentScope ? [...departmentScope].sort().join(",") : "*"}`;
+  const version = financeWriteVersion(org);
+  const hit = stateCache.get(key);
+  if (hit && hit.version === version && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
+  const value = loadFinanceState(departmentScope);
+  stateCache.set(key, { at: Date.now(), version, value });
+  value.catch(() => stateCache.delete(key));
+  return value;
+}
+
+async function loadFinanceState(departmentScope?: string[] | null): Promise<FinanceState> {
   const [transactions, monthly, costHeads, departmentRows, managementCostHeadRows, legacyMappings, providers, plans] =
     await Promise.all([
       prisma.financeTransaction.findMany({
@@ -137,7 +147,6 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
     const effectiveHead = assignedHead || t.originalHead;
     const effectiveCentre = assignedCentre || t.originalCentre;
 
-    const hasManagementOverride = Boolean(a?.department && a?.costHead);
     const mapping =
       mappingByKey.get(`${effectiveHead ?? ""}\u0000${effectiveCentre ?? ""}`) ??
       mappingByKey.get(`${t.originalHead ?? ""}\u0000${t.originalCentre ?? ""}`);
@@ -149,7 +158,6 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
       aliasToProvider.get(traceSupplierKey) ??
       trace?.supplier ??
       t.description;
-    const supplierNameApproved = aliasToProvider.has(descriptionKey) || aliasToProvider.has(traceSupplierKey);
 
     return {
       id: t.id,
@@ -158,8 +166,6 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
       description: t.description,
       costCentre: t.originalCentre,
       head: t.originalHead,
-      assignedCentre,
-      assignedHead,
       effectiveHead,
       effectiveCentre,
       amount: t.amountUsd,
@@ -169,8 +175,6 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
       note: a?.note ?? null,
       managementDepartment: a?.department ?? mapping?.department ?? null,
       managementCostHead: a?.costHead ?? mapping?.costHead ?? null,
-      managementSource: hasManagementOverride ? "payment" : mapping?.source ?? "pending",
-      hasManagementOverride,
       paymentReference: trace?.paymentReference ?? "",
       erpPaymentId: trace?.erpPaymentId ?? "",
       invoiceReference: trace?.erpInvoiceId ?? "",
@@ -183,7 +187,6 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
       sourceAmount: trace?.sourceAmount ?? null,
       traceReviewed: trace?.reviewed ?? false,
       reportingSupplier,
-      supplierNameApproved,
       dispute: t.disputedCharge
         ? {
             status: t.disputedCharge.status,
@@ -192,13 +195,10 @@ export async function getFinanceState(departmentScope?: string[] | null): Promis
           }
         : null,
       departmentSplits: t.paymentCostSplit ? JSON.parse(t.paymentCostSplit.breakdownJson) : [],
-      splitApprovedAt: t.paymentCostSplit?.approvedAt?.toISOString() ?? null,
       overheadOverride: t.overheadOverride
         ? { costNature: t.overheadOverride.costNature, costBehaviour: t.overheadOverride.costBehaviour }
         : null,
       sourceSheet: t.sourceSheet,
-      sourceRow: t.sourceRow,
-      sourceFile: t.sourceFile,
       country: t.country,
     };
   });
