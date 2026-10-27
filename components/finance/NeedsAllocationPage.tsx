@@ -151,7 +151,7 @@ export function NeedsAllocationPage({
   const [pageIds, setPageIds] = useState<string[]>([]);
   const [classifyTarget, setClassifyTarget] = useState<FinanceLedgerRow | null>(null);
 
-  const tx = useMemo(() => rows.filter((t) => !t.managementDepartment), [rows]);
+  const tx = useMemo(() => rows.filter((t) => !t.managementDepartment || !t.managementCostHead), [rows]);
   const others = useMemo(
     () => rows.filter((t) => t.reviewGroup === "Accounting review" && Boolean(t.managementDepartment)),
     [rows]

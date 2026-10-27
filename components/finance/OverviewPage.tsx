@@ -26,6 +26,13 @@ type OverheadRule = { costHead: string; costNature: string; costBehaviour: strin
 
 const DONUT_COLORS = ["#14b8a6", "#ef4444", "#f59e0b", "#d4af37", "#9ca3af", "#7965bd", "#60a5fa", "#fb923c"];
 
+function mo(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
+
+const exactUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function usd(value: number, compact = false): string {
   if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
@@ -83,8 +90,9 @@ function Kpi({
             ? "text-status-alert"
             : "text-ink-50";
   const content = (
-    <div className="rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
-      <h4 className="text-[11px] text-ink-500">{title}</h4>
+    <div className="relative rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
+      {href && <span className="absolute right-3 top-3 text-xs text-ink-500">↗</span>}
+      <h4 className="pr-4 text-[11px] text-ink-500">{title}</h4>
       <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
@@ -127,7 +135,7 @@ export function OverviewPage({
 
   const operating = state.transactions.filter(isOperating);
   const debtRows = state.transactions.filter((t) => t.debtPeriod !== "current");
-  const unidentified = state.transactions.filter((t) => !t.managementDepartment);
+  const unidentified = state.transactions.filter((t) => !t.managementDepartment || !t.managementCostHead);
   const opex = operating.reduce((s, t) => s + t.amount, 0);
   const debt = debtRows.reduce((s, t) => s + t.amount, 0);
   const allMovements = state.transactions.reduce((s, t) => s + t.amount, 0);
@@ -158,6 +166,7 @@ export function OverviewPage({
       month,
       opex: monthOpex,
       budget: budget ?? 0,
+      budgetAvailable: budget !== null,
       collections: m?.collections ?? 0,
       variance: budget !== null && hasActual ? monthOpex - budget : null,
     };
@@ -209,10 +218,16 @@ export function OverviewPage({
   // "Fixed overheads by department" panel — rule lookup by the payment's
   // own managementCostHead, matching the source's ohRule(t) join exactly.
   const ruleByHead = new Map(overheadRules.map((r) => [r.costHead, r]));
+  const ohRule = (t: FinanceState["transactions"][number]) => {
+    if (t.overheadOverride) return { nature: t.overheadOverride.costNature, behaviour: t.overheadOverride.costBehaviour, reviewed: true };
+    const rule = ruleByHead.get(t.managementCostHead ?? "Needs allocation");
+    return rule ? { nature: rule.costNature, behaviour: rule.costBehaviour, reviewed: true } : { nature: "review", behaviour: "na", reviewed: false };
+  };
   const fixedOverheadRows = operating.filter((t) => {
-    const rule = t.managementCostHead ? ruleByHead.get(t.managementCostHead) : undefined;
-    return rule?.costNature === "overhead" && rule?.costBehaviour === "fixed";
+    const r = ohRule(t);
+    return r.nature === "overhead" && r.behaviour === "fixed";
   });
+  const unreviewedCount = operating.filter((t) => !ohRule(t).reviewed).length;
   const fixedScoped = fixedDept === "all" ? fixedOverheadRows : fixedOverheadRows.filter((t) => t.managementDepartment === fixedDept);
   const fixedTotal = fixedScoped.reduce((s, t) => s + t.amount, 0);
   const fixedByDept = new Map<string, number>();
@@ -220,10 +235,19 @@ export function OverviewPage({
     fixedByDept.set(t.managementDepartment!, (fixedByDept.get(t.managementDepartment!) ?? 0) + t.amount);
   }
   const fixedByCostHead = new Map<string, number>();
+  const fixedByMonth = new Map<string, number>();
   for (const t of fixedScoped) {
-    const key = t.effectiveCentre ?? "Unlabelled";
+    const key = t.managementCostHead ?? "Needs allocation";
     fixedByCostHead.set(key, (fixedByCostHead.get(key) ?? 0) + t.amount);
+    fixedByMonth.set(t.month, (fixedByMonth.get(t.month) ?? 0) + t.amount);
   }
+  const fixedCostHeadRows = Array.from(fixedByCostHead.entries()).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  const fixedRightRows =
+    fixedDept === "all"
+      ? Array.from(fixedByDept.entries())
+      : Array.from(fixedByMonth.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([m, v]) => [mo(m), v] as [string, number]);
 
   // "Where management should focus next" — same 3 fixed priorities.
   const worstOverMonth = budgetedMonths.filter((m) => (m.variance ?? 0) > 0).sort((a, b) => (b.variance ?? 0) - (a.variance ?? 0))[0];
@@ -308,11 +332,17 @@ export function OverviewPage({
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={monthRows}>
               <CartesianGrid strokeDasharray="3 3" stroke="#232327" />
-              <XAxis dataKey="month" stroke="#71717a" fontSize={10} />
-              <YAxis stroke="#71717a" fontSize={10} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} />
+              <XAxis dataKey="month" stroke="#71717a" fontSize={10} tickFormatter={(m: string) => `${mo(m).split(" ")[0]} ${m.slice(2, 4)}`} />
+              <YAxis stroke="#71717a" fontSize={10} tickFormatter={(v: number) => usd(v, true)} />
               <Tooltip
                 contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
-                formatter={(value) => [`$${Number(value ?? 0).toLocaleString()}`]}
+                labelFormatter={(m) => mo(String(m))}
+                formatter={(value, name, item) => [
+                  name === "Operating budget" && !(item?.payload as { budgetAvailable?: boolean })?.budgetAvailable
+                    ? "Not available"
+                    : exactUsd.format(Number(value ?? 0)),
+                  String(name),
+                ]}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="collections" name="Collections" fill="#a8a29e" cursor="pointer" onClick={openMonth} />
@@ -432,6 +462,8 @@ export function OverviewPage({
         <WidgetCard
           title="Fixed overheads by department"
           action={
+            <label className="flex items-center gap-2 text-[11px] text-ink-500">
+            Department
             <select
               value={fixedDept}
               onChange={(e) => setFixedDept(e.target.value)}
@@ -444,6 +476,7 @@ export function OverviewPage({
                 </option>
               ))}
             </select>
+            </label>
           }
         >
           <p className="mb-3 text-[11px] text-ink-500">
@@ -463,19 +496,17 @@ export function OverviewPage({
             </div>
             <div className="rounded-lg border border-base-700 bg-base-800 p-3">
               <p className="text-[11px] text-ink-500">Unreviewed cost entries</p>
-              <p className="mt-1 text-lg font-semibold text-ink-50">
-                {operating.filter((t) => !t.managementCostHead || !ruleByHead.has(t.managementCostHead)).length}
-              </p>
+              <p className="mt-1 text-lg font-semibold text-ink-50">{unreviewedCount}</p>
               <p className="mt-1 text-[11px] text-ink-500">Not included until classified by Finance</p>
             </div>
           </div>
           <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <h4 className="mb-1.5 text-xs font-medium text-ink-50">Cost heads</h4>
-              {Array.from(fixedByCostHead.entries()).length === 0 && (
+              {fixedCostHeadRows.length === 0 && (
                 <p className="text-[11px] text-ink-500">No approved fixed-overhead payments in this selection.</p>
               )}
-              {Array.from(fixedByCostHead.entries()).map(([k, v]) => (
+              {fixedCostHeadRows.map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between border-b border-base-800 py-1 text-xs">
                   <span className="text-ink-300">{k}</span>
                   <span className="font-medium text-ink-50">{usd(v)}</span>
@@ -484,12 +515,12 @@ export function OverviewPage({
             </div>
             <div>
               <h4 className="mb-1.5 text-xs font-medium text-ink-50">
-                {fixedDept === "all" ? "Department comparison" : "By department"}
+                {fixedDept === "all" ? "Department comparison" : "Monthly payments"}
               </h4>
-              {Array.from(fixedByDept.entries()).length === 0 && (
+              {fixedRightRows.length === 0 && (
                 <p className="text-[11px] text-ink-500">Nothing classified as fixed in this selection.</p>
               )}
-              {Array.from(fixedByDept.entries()).map(([k, v]) => (
+              {fixedRightRows.map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between border-b border-base-800 py-1 text-xs">
                   <span className="text-ink-300">{k}</span>
                   <span className="font-medium text-ink-50">{usd(v)}</span>
@@ -516,14 +547,14 @@ export function OverviewPage({
         <div className="rounded-xl border border-base-700 bg-base-900 p-4">
           <p className="text-[10px] uppercase tracking-wide text-ink-500">Priority 01 · Cost control</p>
           <h4 className="mt-1 text-sm font-medium text-ink-50">
-            {worstOverMonth ? `${worstOverMonth.month} overspent ${usd(worstOverMonth.variance ?? 0, true)}` : "Set monthly budget controls"}
+            {worstOverMonth ? `${mo(worstOverMonth.month)} overspent ${usd(worstOverMonth.variance ?? 0)}` : "Set monthly budget controls"}
           </h4>
           <p className="mt-1 text-xs text-ink-500">
             {worstOverMonth
               ? "Review the individual transactions in the worst month before approving next year's spend. Identify exceptional expenses and ongoing run-rate increases."
               : "Make each cost head owner accountable for monthly budget utilisation."}
           </p>
-          <Link href="/finance/budget" className="mt-2 inline-block text-[11px] text-ink-300 hover:text-ink-50">
+          <Link href="/finance/budget" className="mt-3 inline-block rounded-lg border border-base-700 bg-base-800 px-2.5 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50">
             Review monthly budgets →
           </Link>
         </div>
@@ -536,7 +567,7 @@ export function OverviewPage({
               : "All current payments have a cost head, continue checking new imports."}
             {missingBudgetMonths > 0 && ` There are ${missingBudgetMonths} months without operating budgets.`}
           </p>
-          <Link href="/finance/needs-allocation" className="mt-2 inline-block text-[11px] text-ink-300 hover:text-ink-50">
+          <Link href="/finance/needs-allocation" className="mt-3 inline-block rounded-lg border border-base-700 bg-base-800 px-2.5 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50">
             Review payments →
           </Link>
         </div>
@@ -547,7 +578,7 @@ export function OverviewPage({
             {usd(debt)} is tagged as prior-year debt. This should be visible separately from the next financial
             year&apos;s operating budget, but remains part of cash paid.
           </p>
-          <Link href="/finance/historical-debt" className="mt-2 inline-block text-[11px] text-ink-300 hover:text-ink-50">
+          <Link href="/finance/historical-debt" className="mt-3 inline-block rounded-lg border border-base-700 bg-base-800 px-2.5 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50">
             See historical debt →
           </Link>
         </div>

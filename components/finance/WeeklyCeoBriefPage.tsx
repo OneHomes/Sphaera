@@ -40,7 +40,7 @@ export function WeeklyCeoBriefPage({ state }: { state: FinanceState }) {
     const debtRows = state.transactions.filter((t) => t.debtPeriod !== "current");
     const debt = debtRows.reduce((s, t) => s + t.amount, 0);
 
-    const unresolvedAllocations = state.transactions.filter((t) => !t.managementDepartment).length;
+    const unresolvedAllocations = state.transactions.filter((t) => !t.managementDepartment || !t.managementCostHead).length;
 
     const latestMonth = state.monthly[state.monthly.length - 1] ?? null;
     const byDept = new Map<string, number>();
