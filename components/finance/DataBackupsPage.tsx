@@ -4,6 +4,7 @@ import { useState } from "react";
 import { DatabaseBackup, Download, UploadCloud, AlertTriangle, Sparkles } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { FinanceState } from "@/lib/finance/ledgerData";
+import { mo } from "@/lib/finance/financeReporting";
 
 // Direct structural port of the source app's "Local SQL database and
 // management settings" screen. This port stores the ledger and every
@@ -67,12 +68,11 @@ export function DataBackupsPage({
     setDownloadError(null);
     try {
       const res = await fetch("/api/finance/backup");
-      const data = await res.json().catch(() => null);
-      if (res.status === 501) {
-        setDownloadError(data?.error ?? "Finance backup export is not yet implemented");
-        return;
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Failed to download backup");
       }
-      if (!res.ok) throw new Error(data?.error ?? "Failed to download backup");
+      downloadBlob(`sphaera-finance-backup-${new Date().toISOString().slice(0, 10)}.json`, await res.text(), "application/json");
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -190,7 +190,7 @@ export function DataBackupsPage({
         />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <WidgetCard title="Backup and migration" icon={DatabaseBackup}>
           <p className="text-xs text-ink-500">
             Download a complete database backup including transactions, classifications, monthly figures and import
@@ -220,7 +220,7 @@ export function DataBackupsPage({
             <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-status-alert/30 bg-status-alert/10 p-3">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-alert" strokeWidth={1.75} />
               <div>
-                <p className="text-xs font-medium text-status-alert">Not yet implemented</p>
+                <p className="text-xs font-medium text-status-alert">Backup failed</p>
                 <p className="mt-1 text-[11px] text-ink-300">{downloadError}</p>
               </div>
             </div>
@@ -259,9 +259,7 @@ export function DataBackupsPage({
             SQL.
           </p>
         </WidgetCard>
-      </div>
 
-      <div className="mt-4">
         <WidgetCard title="Monthly budget and collection figures">
           <p className="text-xs text-ink-500">
             New months are imported automatically as part of the ledger. Budgets and collections only import
@@ -276,7 +274,7 @@ export function DataBackupsPage({
                 <div key={m.month} className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-ink-300">
                   {editingMonth === m.month ? (
                     <div className="flex flex-1 items-center gap-2">
-                      <span className="text-ink-50">{m.month}</span>
+                      <span className="text-ink-50">{mo(m.month)}</span>
                       <input
                         value={draftBudget}
                         onChange={(e) => setDraftBudget(e.target.value)}
@@ -301,7 +299,7 @@ export function DataBackupsPage({
                   ) : (
                     <>
                       <span className="flex items-center gap-2">
-                        <span className="text-ink-50">{m.month}</span>
+                        <span className="text-ink-50">{mo(m.month)}</span>
                         {missing && (
                           <span className="rounded-full bg-status-alert/15 px-2 py-0.5 text-[11px] font-medium text-status-alert">
                             Budget missing
