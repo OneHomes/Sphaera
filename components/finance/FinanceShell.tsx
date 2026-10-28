@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, Suspense, useState } from "react";
+import { Fragment, Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, GripVertical, RefreshCw, X } from "lucide-react";
 import { FinanceFilterProvider, FinanceLookupProvider, useFinanceFilters } from "./FinanceFilterContext";
 import { FinanceFilterBar } from "./FinanceFilterBar";
 import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
@@ -85,6 +85,148 @@ const BANK_CHILDREN = [
 // Financial Planning) — inserted at render time below rather than listed
 // in FINANCE_NAV, since it's the one item with children.
 const BANKS_INSERT_AFTER = "/finance/planning";
+const BANKS_ID = "banks";
+
+// Source "Organise your sidebar" (index.html sidebarEditor*): a per-browser order of the
+// top-level sections kept in localStorage. Navigation only, never data.
+const SIDEBAR_ORDER_KEY = "sphaera.finance.sidebar.order.v1";
+const DEFAULT_ORDER: string[] = FINANCE_NAV.flatMap((item) =>
+  item.href === BANKS_INSERT_AFTER ? [item.href, BANKS_ID] : [item.href]
+);
+
+/** Keeps known ids in the saved order and appends any section added since the order was saved. */
+function normaliseOrder(saved: unknown): string[] {
+  const list = Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string" && DEFAULT_ORDER.includes(id)) : [];
+  const unique = Array.from(new Set(list));
+  return [...unique, ...DEFAULT_ORDER.filter((id) => !unique.includes(id))];
+}
+
+function sectionLabel(id: string) {
+  if (id === BANKS_ID) return { label: "Banks", icon: Landmark };
+  const item = FINANCE_NAV.find((x) => x.href === id);
+  return { label: item?.label ?? id, icon: item?.icon ?? LayoutDashboard };
+}
+
+function SidebarEditor({
+  order,
+  visible,
+  onSave,
+  onClose,
+}: {
+  order: string[];
+  visible: (id: string) => boolean;
+  onSave: (order: string[]) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(order);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const shown = draft.filter(visible);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Moves within the visible list; hidden sections (payroll/admin-only) keep their slots.
+  function move(id: string, toShownIndex: number) {
+    const from = shown.indexOf(id);
+    const dest = Math.max(0, Math.min(shown.length - 1, toShownIndex));
+    if (from < 0 || from === dest) return;
+    const nextShown = [...shown];
+    nextShown.splice(from, 1);
+    nextShown.splice(dest, 0, id);
+    let k = 0;
+    setDraft(draft.map((x) => (visible(x) ? nextShown[k++] : x)));
+  }
+
+  const arrowBtn =
+    "flex h-8 w-8 items-center justify-center rounded-lg border border-base-700 text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-30";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sidebarEditorTitle"
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[90vh] w-full max-w-xl flex-col rounded-2xl border border-base-700 bg-base-900 shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-base-700 px-5 py-4">
+          <h2 id="sidebarEditorTitle" className="text-lg font-bold text-ink-50">Organise your sidebar</h2>
+          <button type="button" onClick={onClose} aria-label="Close sidebar editor" className={arrowBtn}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="px-5 pt-3 text-xs text-ink-500">
+          Drag a section to a new position, or use the ↑ and ↓ buttons. Click <strong className="text-ink-300">Save order</strong> when
+          you&apos;re happy. This changes navigation only, never transactions or budgets.
+        </p>
+        <ol className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-3" aria-label="Reorder navigation sections">
+          {shown.map((id, i) => {
+            const { label, icon: Icon } = sectionLabel(id);
+            return (
+              <li
+                key={id}
+                draggable
+                onDragStart={(e) => {
+                  setDragId(id);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (dragId && dragId !== id) move(dragId, i);
+                }}
+                onDragEnd={() => setDragId(null)}
+                className={`flex cursor-grab items-center gap-3 rounded-xl border px-3 py-2 ${
+                  dragId === id ? "border-status-active bg-base-800" : "border-base-700 bg-base-800/50"
+                }`}
+              >
+                <GripVertical className="h-4 w-4 shrink-0 text-ink-500" />
+                <span className="w-6 text-right text-xs text-ink-500">{i + 1}.</span>
+                <Icon className="h-4 w-4 shrink-0 text-status-active" strokeWidth={1.75} />
+                <span className="flex-1 text-sm font-semibold text-ink-50">{label}</span>
+                <button type="button" onClick={() => move(id, i - 1)} disabled={i === 0} aria-label={`Move ${label} up`} className={arrowBtn}>
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => move(id, i + 1)}
+                  disabled={i === shown.length - 1}
+                  aria-label={`Move ${label} down`}
+                  className={arrowBtn}
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="flex items-center justify-between gap-2 border-t border-base-700 px-5 py-4">
+          <button
+            type="button"
+            onClick={() => setDraft(DEFAULT_ORDER)}
+            className="rounded-lg border border-base-700 px-3 py-2 text-xs font-medium text-ink-300 hover:text-ink-50"
+          >
+            Reset to default
+          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="rounded-lg border border-base-700 px-3 py-2 text-xs font-medium text-ink-300 hover:text-ink-50">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(draft)}
+              className="rounded-lg bg-status-active px-4 py-2 text-xs font-semibold text-base-950 hover:brightness-110"
+            >
+              Save order
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }) {
   const Icon = item.icon;
@@ -193,6 +335,35 @@ export function FinanceShell({
   const [banksOpen, setBanksOpen] = useState(
     pathname === "/finance/banks" || pathname === "/finance/banks/funds"
   );
+  // Read after mount so the server render (default order) and first client render match.
+  const [order, setOrder] = useState<string[]>(DEFAULT_ORDER);
+  const [editorOpen, setEditorOpen] = useState(false);
+  useEffect(() => {
+    try {
+      setOrder(normaliseOrder(JSON.parse(localStorage.getItem(SIDEBAR_ORDER_KEY) || "null")));
+    } catch {
+      setOrder(DEFAULT_ORDER);
+    }
+  }, []);
+
+  const isVisible = (id: string) => {
+    const item = FINANCE_NAV.find((x) => x.href === id);
+    if (!item) return id === BANKS_ID;
+    return !(item.payrollOnly && !canAccessFinancePayroll) && !(item.adminOnly && !isAdmin);
+  };
+
+  function saveOrder(next: string[]) {
+    const clean = normaliseOrder(next);
+    setOrder(clean);
+    try {
+      localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(clean));
+    } catch {
+      // Storage blocked (private mode): the order still applies for this visit.
+    }
+    setEditorOpen(false);
+  }
+
+  const banksActive = pathname === "/finance/banks" || pathname === "/finance/banks/funds";
 
   return (
     <div className="flex h-full min-h-0 w-full">
@@ -208,17 +379,27 @@ export function FinanceShell({
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to main menu
         </Link>
-        {FINANCE_NAV.map((item) => {
-          if (item.payrollOnly && !canAccessFinancePayroll) return null;
-          if (item.adminOnly && !isAdmin) return null;
-          const node = <NavLink key={item.href} item={item} isActive={pathname === item.href} />;
-          if (item.href !== BANKS_INSERT_AFTER) return node;
-          // Insert the expandable "Banks" group right after Financial
-          // Planning, matching the source NAV array's exact position.
-          const banksActive = pathname === "/finance/banks" || pathname === "/finance/banks/funds";
+        <div className="mb-1 flex items-center justify-between px-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Navigation</span>
+          <button
+            type="button"
+            onClick={() => setEditorOpen(true)}
+            aria-label="Organise sidebar"
+            className="flex items-center gap-1 rounded-md border border-base-700 px-2 py-0.5 text-[11px] font-medium text-ink-300 hover:border-base-600 hover:text-ink-50"
+          >
+            <ArrowUpDown className="h-3 w-3" />
+            Edit
+          </button>
+        </div>
+        {order.map((id) => {
+          if (!isVisible(id)) return null;
+          if (id !== BANKS_ID) {
+            const item = FINANCE_NAV.find((x) => x.href === id)!;
+            return <NavLink key={id} item={item} isActive={pathname === item.href} />;
+          }
+          // The expandable "Banks" group (default position: right after Financial Planning).
           return (
-            <Fragment key={item.href}>
-              {node}
+            <Fragment key={id}>
               <div>
                 <button
                   type="button"
@@ -246,6 +427,9 @@ export function FinanceShell({
           );
         })}
       </nav>
+      {editorOpen && (
+        <SidebarEditor order={order} visible={isVisible} onSave={saveOrder} onClose={() => setEditorOpen(false)} />
+      )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <Suspense fallback={null}>
           <FinanceFilterProvider>
