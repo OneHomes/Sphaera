@@ -97,15 +97,15 @@ function Kpi({
             ? "text-status-alert"
             : "text-ink-50";
   const content = (
-    <div className="relative rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
+    <div className="relative flex h-full min-h-[150px] flex-col rounded-xl border border-base-700 bg-base-900 p-5 transition hover:border-base-600">
       {href && <span className="absolute right-3 top-3 text-xs text-ink-500">↗</span>}
       <h4 className="pr-4 text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
-      <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
+      <div className={`mt-2 text-xl font-semibold ${colorClass}`}>{value}</div>
+      <div className="mt-2 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
   return href ? (
-    <Link href={href} className="block">
+    <Link href={href} className="block h-full">
       {content}
     </Link>
   ) : (
@@ -245,7 +245,7 @@ export function OverviewPage({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid auto-rows-fr grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi
           title="Classified current-year spending"
           value={usd(opex, true)}

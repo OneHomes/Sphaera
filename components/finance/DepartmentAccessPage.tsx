@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, UserPlus } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 
 type FinanceUser = {
@@ -19,6 +19,7 @@ export function DepartmentAccessPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  const [userToAdd, setUserToAdd] = useState("");
 
   async function loadData() {
     setIsLoading(true);
@@ -140,7 +141,41 @@ export function DepartmentAccessPage() {
         additionally unlocks People Costs and full backup/restore.
       </p>
 
-      <WidgetCard title="Finance-enabled users" className="mb-6">
+      <WidgetCard
+        title="Finance-enabled users"
+        className="mb-6"
+        action={
+          <div className="flex items-center gap-2">
+            <select
+              value={userToAdd}
+              onChange={(e) => setUserToAdd(e.target.value)}
+              disabled={otherUsers.length === 0}
+              aria-label="User to add"
+              className="max-w-[260px] rounded-lg border border-base-700 bg-base-800 px-2.5 py-1.5 text-xs text-ink-50 focus:border-base-600 focus:outline-none disabled:opacity-50"
+            >
+              <option value="">{otherUsers.length ? "Select a user to add…" : "All users already added"}</option>
+              {otherUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} — {u.email}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!userToAdd || !!savingUserId}
+              onClick={async () => {
+                const id = userToAdd;
+                setUserToAdd("");
+                await handleFinanceAccessToggle(id, true);
+              }}
+              className="flex items-center gap-1 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:opacity-90 disabled:opacity-40"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              Add user
+            </button>
+          </div>
+        }
+      >
         {financeUsers.length === 0 ? (
           <p className="py-3 text-center text-xs text-ink-500">No users have Finance access yet.</p>
         ) : (
@@ -204,40 +239,6 @@ export function DepartmentAccessPage() {
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        )}
-      </WidgetCard>
-
-      <WidgetCard title="Grant Finance access">
-        {otherUsers.length === 0 ? (
-          <p className="py-3 text-center text-xs text-ink-500">Every user already has Finance access.</p>
-        ) : (
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="text-ink-500">
-                <th className="pb-2 pr-3 font-normal">Name</th>
-                <th className="pb-2 pr-3 font-normal">Email</th>
-                <th className="pb-2 font-normal text-center">Grant access</th>
-              </tr>
-            </thead>
-            <tbody>
-              {otherUsers.map((user) => (
-                <tr key={user.id} className="border-t border-base-700 text-ink-300">
-                  <td className="py-2.5 pr-3 font-medium text-ink-50">{user.name}</td>
-                  <td className="py-2.5 pr-3 text-ink-500">{user.email}</td>
-                  <td className="py-2.5 text-center">
-                    <input
-                      type="checkbox"
-                      checked={false}
-                      disabled={savingUserId === user.id}
-                      onChange={(e) => handleFinanceAccessToggle(user.id, e.target.checked)}
-                      aria-label={`Finance access for ${user.name}`}
-                      className="h-3.5 w-3.5 accent-status-active disabled:opacity-50"
-                    />
-                  </td>
-                </tr>
-              ))}
             </tbody>
           </table>
         )}
