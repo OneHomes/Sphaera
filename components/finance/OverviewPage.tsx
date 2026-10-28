@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
@@ -129,9 +130,15 @@ export function OverviewPage({
   const [hoveredDonutIndex, setHoveredDonutIndex] = useState<number | undefined>(undefined);
   const router = useRouter();
   // Source: clicking a month group opens All Payments drilled to that month.
+  // router.push to a route that wasn't prefetched skips the loading screen, so the click
+  // looked dead until the page swapped in. The transition drives a visible loader instead.
+  const [navPending, startNav] = useTransition();
+  const [pendingMonth, setPendingMonth] = useState<string | null>(null);
   const openMonth = (data: unknown) => {
     const month = (data as { month?: string; payload?: { month?: string } })?.payload?.month ?? (data as { month?: string })?.month;
-    if (month) router.push(`/finance/payments?month=${encodeURIComponent(month)}`);
+    if (!month) return;
+    setPendingMonth(month);
+    startNav(() => router.push(`/finance/payments?month=${encodeURIComponent(month)}`));
   };
 
   const operating = reportingRows(state.transactions, filters.department).filter((t) => isOperating(t, state.departments));
@@ -311,6 +318,15 @@ export function OverviewPage({
           title="Cash collected vs operating spending"
           action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">Select a month to drill down</span>}
         >
+          <div className="relative">
+          {navPending && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-base-900/70 backdrop-blur-[1px]">
+              <span className="flex items-center gap-2 rounded-full border border-base-700 bg-base-800 px-3 py-1.5 text-xs text-ink-300">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Opening {pendingMonth ? mo(pendingMonth) : "month"} payments…
+              </span>
+            </div>
+          )}
           <ResponsiveContainer width="100%" height={220} className="text-ink-50">
             <BarChart data={monthRows}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.22)" />
@@ -342,6 +358,7 @@ export function OverviewPage({
               <Bar dataKey="budget" name="Operating budget" fill="#71717a" cursor="pointer" onClick={openMonth} />
             </BarChart>
           </ResponsiveContainer>
+          </div>
           <p className="mt-2 text-[11px] text-ink-500">
             Collections and expenditure are different accounting measures. This chart helps assess cash coverage, it
             is not a profit and loss statement.
