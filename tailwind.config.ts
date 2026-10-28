@@ -8,28 +8,29 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Sphaera dark command-center palette
+        // Sphaera palette. Values live in CSS variables (app/globals.css) so the
+        // light/dark toggle can swap them; `.theme-dark` pins a subtree to dark.
         base: {
-          950: "#0a0a0b", // app background
-          900: "#111113", // panel background
-          800: "#1a1a1d", // card background
-          700: "#232327", // hover / border
-          600: "#2e2e33", // dividers
+          950: "rgb(var(--base-950) / <alpha-value>)", // app background
+          900: "rgb(var(--base-900) / <alpha-value>)", // panel background
+          800: "rgb(var(--base-800) / <alpha-value>)", // card background
+          700: "rgb(var(--base-700) / <alpha-value>)", // hover / border
+          600: "rgb(var(--base-600) / <alpha-value>)", // dividers
         },
         ink: {
-          50: "#fafafa",
-          300: "#a1a1aa",
-          500: "#71717a",
+          50: "rgb(var(--ink-50) / <alpha-value>)",
+          300: "rgb(var(--ink-300) / <alpha-value>)",
+          500: "rgb(var(--ink-500) / <alpha-value>)",
         },
         status: {
-          active: "#14b8a6", // teal - active
-          inactive: "#ef4444", // red - inactive
-          alert: "#f59e0b", // amber - alert
+          active: "rgb(var(--status-active) / <alpha-value>)", // teal - active
+          inactive: "rgb(var(--status-inactive) / <alpha-value>)", // red - inactive
+          alert: "rgb(var(--status-alert) / <alpha-value>)", // amber - alert
         },
         tier: {
-          gold: "#d4af37",
-          silver: "#9ca3af",
-          bronze: "#b08d57",
+          gold: "rgb(var(--tier-gold) / <alpha-value>)",
+          silver: "rgb(var(--tier-silver) / <alpha-value>)",
+          bronze: "rgb(var(--tier-bronze) / <alpha-value>)",
         },
       },
       fontFamily: {

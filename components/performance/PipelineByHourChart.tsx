@@ -18,7 +18,7 @@ export function PipelineByHourChart({ data }: { data: HourlyPipelinePoint[] }) {
     <WidgetCard title="Pipeline Contribution by Hour" icon={Clock}>
       <ResponsiveContainer width="100%" height={160}>
         <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#232327" />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.22)" />
           <XAxis dataKey="hour" stroke="#71717a" fontSize={9} interval={2} />
           <YAxis
             stroke="#71717a"
@@ -27,8 +27,8 @@ export function PipelineByHourChart({ data }: { data: HourlyPipelinePoint[] }) {
           />
           <Tooltip
             contentStyle={{
-              background: "#1a1a1d",
-              border: "1px solid #232327",
+              background: "rgb(var(--base-800))", color: "rgb(var(--ink-50))",
+              border: "1px solid rgb(var(--base-700))",
               fontSize: 11,
             }}
             formatter={(value) => [`$${Number(value).toLocaleString()}`, "Pipeline moved"]}

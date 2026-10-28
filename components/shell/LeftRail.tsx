@@ -25,7 +25,7 @@ export function LeftRail({
   return (
     <nav
       aria-label="Primary"
-      className="flex h-full w-14 flex-col items-center justify-between border-r border-base-700 bg-base-950 py-4"
+      className="theme-dark flex h-full w-14 flex-col items-center justify-between border-r border-base-700 bg-base-950 py-4"
     >
       <div className="flex flex-col items-center gap-1">
         {visibleItems.map((item) => {

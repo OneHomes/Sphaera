@@ -87,7 +87,7 @@ export function WeeklyTargetGauge({ target }: { target: TargetGaugeData }) {
               endAngle={-40}
             >
               <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-              <RadialBar dataKey="value" background={{ fill: "#232327" }} cornerRadius={8} />
+              <RadialBar dataKey="value" background={{ fill: "rgba(128,128,128,0.2)" }} cornerRadius={8} />
             </RadialBarChart>
           </ResponsiveContainer>
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">

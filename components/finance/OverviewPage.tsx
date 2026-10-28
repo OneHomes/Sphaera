@@ -311,14 +311,14 @@ export function OverviewPage({
           title="Cash collected vs operating spending"
           action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">Select a month to drill down</span>}
         >
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={220} className="text-ink-50">
             <BarChart data={monthRows}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#232327" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.22)" />
               <XAxis dataKey="month" stroke="#71717a" fontSize={10} tickFormatter={(m: string) => `${mo(m).split(" ")[0]} ${m.slice(2, 4)}`} />
               <YAxis stroke="#71717a" fontSize={10} tickFormatter={(v: number) => usd(v, true)} />
               <Tooltip
                 shared={false}
-                cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                cursor={{ fill: "rgba(128,128,128,0.08)" }}
                 content={({ active, payload }) => {
                   const p = active && payload?.[0];
                   if (!p) return null;
@@ -337,7 +337,8 @@ export function OverviewPage({
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="collections" name="Collections" fill="#a8a29e" cursor="pointer" onClick={openMonth} />
-              <Bar dataKey="opex" name="Current-year operating spend" fill="#f4f4f5" cursor="pointer" onClick={openMonth} />
+              {/* currentColor = the wrapper's ink-50, so the bars stay high-contrast in both themes */}
+              <Bar dataKey="opex" name="Current-year operating spend" fill="currentColor" cursor="pointer" onClick={openMonth} />
               <Bar dataKey="budget" name="Operating budget" fill="#71717a" cursor="pointer" onClick={openMonth} />
             </BarChart>
           </ResponsiveContainer>
@@ -387,7 +388,7 @@ export function OverviewPage({
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
+                      contentStyle={{ background: "rgb(var(--base-800))", color: "rgb(var(--ink-50))", border: "1px solid rgb(var(--base-700))", fontSize: 11 }}
                       formatter={(value, name) => [usd(Number(value ?? 0)), String(name)]}
                     />
                   </PieChart>

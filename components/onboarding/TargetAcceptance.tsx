@@ -26,7 +26,7 @@ function RingStat({
       <div
         className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
         style={{
-          background: `conic-gradient(${ringColorHex} ${clamped * 3.6}deg, #2e2e33 0deg)`,
+          background: `conic-gradient(${ringColorHex} ${clamped * 3.6}deg, rgb(var(--base-600)) 0deg)`,
         }}
       >
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-base-800 text-[10px] font-semibold text-ink-50">

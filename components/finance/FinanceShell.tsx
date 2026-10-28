@@ -196,7 +196,7 @@ export function FinanceShell({
     <div className="flex h-full min-h-0 w-full">
       <nav
         aria-label="Finance"
-        className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-700 bg-base-900 p-3"
+        className="theme-dark flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-700 bg-base-900 p-3"
       >
         {FINANCE_NAV.map((item) => {
           if (item.payrollOnly && !canAccessFinancePayroll) return null;

@@ -574,7 +574,7 @@ function BankDetailPanel({
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
+                      contentStyle={{ background: "rgb(var(--base-800))", color: "rgb(var(--ink-50))", border: "1px solid rgb(var(--base-700))", fontSize: 11 }}
                       formatter={(value, name) => [formatAmount(Number(value ?? 0), bank.currency), String(name)]}
                     />
                   </PieChart>

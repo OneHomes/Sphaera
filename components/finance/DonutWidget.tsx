@@ -103,7 +103,7 @@ export function DonutWidget({
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{ background: "#1a1a1d", border: "1px solid #232327", fontSize: 11 }}
+                contentStyle={{ background: "rgb(var(--base-800))", color: "rgb(var(--ink-50))", border: "1px solid rgb(var(--base-700))", fontSize: 11 }}
                 formatter={(value, name) => [`${usd(Number(value ?? 0))} (${((Number(value ?? 0) / total) * 100).toFixed(1)}%)`, String(name)]}
               />
             </PieChart>

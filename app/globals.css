@@ -7,12 +7,74 @@
   --font-body: -apple-system, "Segoe UI", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Dark (default) palette, also forced on any `.theme-dark` subtree (the sidebars) in light mode. */
+:root,
+.theme-dark {
+  --base-950: 10 10 11;
+  --base-900: 17 17 19;
+  --base-800: 26 26 29;
+  --base-700: 35 35 39;
+  --base-600: 46 46 51;
+  --ink-50: 250 250 250;
+  --ink-300: 161 161 170;
+  --ink-500: 113 113 122;
+  --status-active: 20 184 166;
+  --status-inactive: 239 68 68;
+  --status-alert: 245 158 11;
+  --tier-gold: 212 175 55;
+  --tier-silver: 156 163 175;
+  --tier-bronze: 176 141 87;
+  --scroll-track: #111113;
+  --scroll-thumb: #2e2e33;
+  color-scheme: dark;
+}
+
+/* Light palette: warm paper background, white panels, near-black ink. */
+html.light {
+  --base-950: 239 237 232;
+  --base-900: 255 255 255;
+  --base-800: 247 246 243;
+  --base-700: 228 225 218;
+  --base-600: 212 208 199;
+  --ink-50: 17 17 17;
+  --ink-300: 68 68 76;
+  --ink-500: 107 107 115;
+  --status-active: 13 128 116;
+  --status-inactive: 192 57 43;
+  --status-alert: 168 106 20;
+  --tier-gold: 160 122 20;
+  --tier-silver: 100 108 120;
+  --tier-bronze: 140 98 50;
+  --scroll-track: #efede8;
+  --scroll-thumb: #cfcac0;
+  color-scheme: light;
+}
+
+/* Raw Tailwind accent text shades are tuned for black; deepen them on light surfaces. */
+html.light .text-amber-300,
+html.light .text-amber-400 { color: #a16207; }
+html.light .text-emerald-300,
+html.light .text-emerald-400 { color: #047857; }
+html.light .text-red-300,
+html.light .text-red-400,
+html.light .text-rose-400 { color: #b91c1c; }
+html.light .text-sky-400,
+html.light .text-sky-500 { color: #0369a1; }
+html.light .text-violet-400 { color: #6d28d9; }
+html.light .text-pink-400 { color: #be185d; }
+html.light .text-orange-400 { color: #c2410c; }
+html.light .text-blue-400 { color: #1d4ed8; }
+html.light .theme-dark {
+  color-scheme: dark;
+  color: rgb(var(--ink-50));
+}
+
 html,
 body {
   padding: 0;
   margin: 0;
-  background-color: #0a0a0b;
-  color: #fafafa;
+  background-color: rgb(var(--base-950));
+  color: rgb(var(--ink-50));
 }
 
 * {
@@ -49,9 +111,9 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #111113;
+  background: var(--scroll-track);
 }
 ::-webkit-scrollbar-thumb {
-  background: #2e2e33;
+  background: var(--scroll-thumb);
   border-radius: 999px;
 }

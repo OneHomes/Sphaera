@@ -3,6 +3,7 @@
 import type { Session } from "next-auth";
 import { SignOutButton } from "./SignOutButton";
 import { NotificationBell } from "./NotificationBell";
+import { ThemeToggle } from "@/components/providers/ThemeToggle";
 export type RevenueLeaderboardEntry = {
   id: string;
   name: string;
@@ -90,6 +91,7 @@ export function TopLeaderboardBar({
         {isDemoData && (
           <span className="text-[10px] text-ink-500">(demo)</span>
         )}
+        <ThemeToggle />
         <NotificationBell />
         <SignOutButton userName={userName} />
       </div>
