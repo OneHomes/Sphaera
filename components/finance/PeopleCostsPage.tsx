@@ -245,38 +245,6 @@ export function PeopleCostsPage({
       return `${body.linked} payments linked; ${usd(body.totalUsd)} attributed. Original ledger unchanged.`;
     });
 
-  // --- Register employee ------------------------------------------------------------------------
-  const blankPerson = { name: "", jobTitle: "", email: "", paymentAlias: "", department: departments[0] ?? "", active: true };
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(blankPerson);
-  const [personError, setPersonError] = useState<string | null>(null);
-
-  function startEdit(p: Person) {
-    setEditingId(p.id);
-    setForm({ name: p.fullName, jobTitle: p.jobTitle, email: p.email, paymentAlias: p.paymentAlias, department: p.department ?? departments[0] ?? "", active: p.active });
-    setPersonError(null);
-  }
-  function resetPersonForm() {
-    setEditingId(null);
-    setForm(blankPerson);
-    setPersonError(null);
-  }
-  async function submitPerson(e: React.FormEvent) {
-    e.preventDefault();
-    if (busy) return;
-    setBusy("person");
-    setPersonError(null);
-    try {
-      await postJson("/api/finance/people", { id: editingId ?? undefined, ...form });
-      resetPersonForm();
-      await reload();
-    } catch (err) {
-      setPersonError(err instanceof Error ? err.message : "Failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   // --- Find payments + batch allocation (v41) ---------------------------------------------------
   const [selectedEmployee, setSelectedEmployee] = useState("");
   const [queryInput, setQueryInput] = useState("");
@@ -419,8 +387,8 @@ export function PeopleCostsPage({
           }
         >
           <p className="mb-3 text-xs text-ink-500">
-            Upload the approved employee roster to populate names, departments, job titles, email addresses and matching aliases. Preview
-            before importing; no bank payments are altered.
+            Download the template (it lists every current employee), add new rows or edit existing ones, then upload it. Preview before
+            importing; no bank payments are altered.
           </p>
           <label className={`${smallBtn} inline-block cursor-pointer`}>
             {busy === "preview" ? "Checking…" : "Preview staff upload (.xlsx)"}
@@ -587,48 +555,12 @@ export function PeopleCostsPage({
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <WidgetCard title={editingId ? "Edit employee" : "Register employee"}>
-          <p className="mb-3 text-xs text-ink-500">Each person has one record, even if their department changes later.</p>
-          <form onSubmit={submitPerson} className="mb-4 space-y-2">
-            <label className={labelClass}>
-              Employee full name
-              <input value={form.name} maxLength={160} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Employee name" className={`${inputClass} normal-case tracking-normal`} />
-            </label>
-            <label className={labelClass}>
-              Job title
-              <input value={form.jobTitle} maxLength={160} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} placeholder="Sales Manager" className={`${inputClass} normal-case tracking-normal`} />
-            </label>
-            <label className={labelClass}>
-              Email
-              <input value={form.email} maxLength={200} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@onehomes.com" className={`${inputClass} normal-case tracking-normal`} />
-            </label>
-            <label className={labelClass}>
-              Payment alias
-              <input value={form.paymentAlias} maxLength={200} onChange={(e) => setForm({ ...form, paymentAlias: e.target.value })} placeholder="Name shown in ERP / bank" className={`${inputClass} normal-case tracking-normal`} />
-            </label>
-            <label className={labelClass}>
-              Current department
-              <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className={`${inputClass} normal-case tracking-normal`}>
-                {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-xs text-ink-300">
-              <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
-              Active employee
-            </label>
-            {personError && <p className="text-xs text-status-inactive">{personError}</p>}
-            <div className="flex gap-2">
-              <button type="submit" disabled={!!busy || form.name.trim().length < 2 || !form.jobTitle.trim() || !form.department} className={`${primaryBtn} flex-1 py-2`}>
-                {busy === "person" ? "Saving…" : editingId ? "Save employee" : "Add employee"}
-              </button>
-              {editingId && (
-                <button type="button" onClick={resetPersonForm} className="rounded-lg border border-base-700 px-3 text-xs text-ink-300 hover:text-ink-50">
-                  Cancel
-                </button>
-              )}
-            </div>
-          </form>
-          <div className="flex max-h-[230px] flex-col gap-1 overflow-y-auto">
+        <WidgetCard title={`Employees (${people.length})`}>
+          <p className="mb-3 text-xs text-ink-500">
+            Employees are added and updated only through the Excel import above. The template already lists every current employee with their ID.
+          </p>
+          <div className="flex max-h-[520px] flex-col gap-1 overflow-y-auto">
+            {people.length === 0 && <p className="px-2 py-6 text-center text-xs text-ink-500">No employees yet. Upload the employee Excel to add them.</p>}
             {people.map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-base-800">
                 <span className="min-w-0 text-ink-300">
@@ -637,7 +569,6 @@ export function PeopleCostsPage({
                 </span>
                 <span className="flex shrink-0 gap-1.5">
                   <button onClick={() => chooseEmployee(p.id)} className={smallBtn}>Assign payments</button>
-                  <button onClick={() => startEdit(p)} className={smallBtn}>Edit</button>
                 </span>
               </div>
             ))}

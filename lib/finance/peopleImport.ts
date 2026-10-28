@@ -30,13 +30,26 @@ const safe = (v: unknown, n = 200) => {
 };
 
 export async function peopleTemplate(): Promise<Buffer> {
-  const departments = await getDepartmentCatalogue();
+  const [departments, people] = await Promise.all([
+    getDepartmentCatalogue(),
+    prisma.financePerson.findMany({
+      select: { id: true, fullName: true, department: true, jobTitle: true, email: true, paymentAlias: true, active: true },
+      orderBy: { fullName: "asc" },
+    }),
+  ]);
   const wb = new ExcelJS.Workbook();
   wb.creator = "Sphaera";
   const ws = wb.addWorksheet("People", { views: [{ state: "frozen", ySplit: 1 }] });
   ws.addRow([...PEOPLE_HEADERS]);
-  ws.addRow(["", "Example Employee", departments.includes("Sales") ? "Sales" : departments[0] ?? "", "Sales Consultant", "example@onehomes.com", "Example Employee", "Yes"]);
-  ws.autoFilter = "A1:G501";
+  // The roster is the only way to add or edit employees, so the template carries every current
+  // record with its ID: edit a row to update it, add a row with a blank ID for new staff.
+  if (people.length) {
+    for (const p of people) ws.addRow([p.id, p.fullName, p.department ?? "", p.jobTitle, p.email, p.paymentAlias, p.active ? "Yes" : "No"]);
+  } else {
+    ws.addRow(["", "Example Employee", departments.includes("Sales") ? "Sales" : departments[0] ?? "", "Sales Consultant", "example@onehomes.com", "Example Employee", "Yes"]);
+  }
+  const lastRow = Math.min(2000, Math.max(501, people.length + 501));
+  ws.autoFilter = `A1:G${lastRow}`;
   [38, 30, 28, 31, 37, 35, 14].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   ws.getRow(1).eachCell((c) => {
     c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF252525" } };
@@ -47,8 +60,8 @@ export async function peopleTemplate(): Promise<Buffer> {
   ws.getCell("I2").value = "Instructions";
   ws.getCell("I2").font = { bold: true };
   [
-    "Replace the example row before upload.",
-    "Employee ID: leave blank for new staff; use an existing ID to update.",
+    people.length ? "Current employees are listed. Edit a row to update that employee." : "Replace the example row before upload.",
+    "Employee ID: leave blank for new staff; do not change the ID of an existing row.",
     "Department must be selected from the approved dropdown.",
     "Job Title and Payment Alias help identify the cost correctly.",
     "Payment Alias is the name printed on bank / ERP payment descriptions.",
@@ -63,7 +76,7 @@ export async function peopleTemplate(): Promise<Buffer> {
   if (departments.length) {
     wb.definedNames.add(`'Approved Departments'!$A$2:$A$${departments.length + 1}`, "ApprovedDepartments");
   }
-  for (let r = 2; r <= 501; r++) {
+  for (let r = 2; r <= lastRow; r++) {
     if (departments.length) {
       ws.getCell(`C${r}`).dataValidation = { type: "list", allowBlank: false, formulae: ["ApprovedDepartments"], showErrorMessage: true, errorStyle: "stop", errorTitle: "Unapproved department", error: "Select a department from the approved list." };
     }
@@ -109,6 +122,7 @@ export async function parsePeopleWorkbook(buf: ArrayBuffer): Promise<PeopleImpor
     let ident = rawId;
     const errors: string[] = [];
     if (!name || name.length < 2 || name.startsWith("=")) errors.push("Full Name is required");
+    if (!rawId && namekey(name) === "example employee") errors.push("Replace the example row with a real employee");
     if (!department) errors.push("Department must match an approved department");
     if (!jobTitle) errors.push("Job Title is required");
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Invalid email address");
