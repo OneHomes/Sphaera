@@ -1425,6 +1425,9 @@ model FinancePerson {
   organizationId String?
   fullName       String
   department     String?
+  jobTitle       String   @default("") // v41: required on save/import
+  email          String   @default("") // v41: unique per organisation when set (enforced in lib)
+  paymentAlias   String   @default("") // v41: name as printed on bank / ERP payment descriptions
   active         Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -1433,6 +1436,58 @@ model FinancePerson {
 
   @@index([organizationId])
   @@map("finance_people")
+}
+
+// HR payroll master imports (People Costs skill). Reference records only, never ledger expenses.
+model FinancePayrollRun {
+  id              String    @id @default(cuid())
+  organizationId  String?
+  sourceName      String
+  payPeriod       String? // YYYY-MM once Finance confirms it; the source CSV does not supply one
+  fxPkrPerUsd     Float
+  employeeCount   Int
+  status          String    @default("Draft") // Draft | Approved
+  sourceTotalsJson String   @db.NVarChar(Max)
+  exceptionsJson  String    @db.NVarChar(Max)
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  approvedBy      String?
+  approvedAt      DateTime?
+
+  lines FinancePayrollLine[]
+
+  @@index([organizationId])
+  @@map("finance_payroll_runs")
+}
+
+model FinancePayrollLine {
+  id                   String            @id @default(cuid())
+  organizationId       String?
+  runId                String
+  run                  FinancePayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  csvRow               Int
+  employeeName         String
+  personId             String?
+  sourceDepartment     String?
+  approvedDepartment   String?
+  subDepartment        String?
+  designation          String?
+  company              String?
+  dateJoined           DateTime?
+  employmentType       String?
+  employmentStatus     String?
+  currency             String
+  baseSalary           Float             @default(0)
+  transportAllowance   Float             @default(0)
+  bookingsCommission   Float             @default(0)
+  dealClosedCommission Float             @default(0)
+  sourcePayable        Float
+  sourceComments       String?           @db.NVarChar(Max)
+  reviewNote           String?           @db.NVarChar(Max)
+
+  @@index([organizationId])
+  @@index([runId])
+  @@map("finance_payroll_lines")
 }
 
 model FinancePersonCostAllocation {
@@ -1445,6 +1500,7 @@ model FinancePersonCostAllocation {
   costType           String // Salary | Commission | Bonus | Employer taxes | Benefits | Other personnel
   amountUsd          Float
   departmentSnapshot String? // point-in-time, never re-derived — see lib/finance/peopleOverheadsData.ts
+  jobTitleSnapshot   String  @default("") // v41: job title at allocation time, same point-in-time rule
   reference          String?
   note               String?            @db.NVarChar(Max)
   updatedAt          DateTime           @updatedAt

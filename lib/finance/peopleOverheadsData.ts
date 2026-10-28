@@ -285,19 +285,6 @@ export const PERSON_COST_TYPES = [
 ] as const;
 const PERSON_COST_TYPE_SET = new Set<string>(PERSON_COST_TYPES);
 
-// Approved management cost heads under which a source payment must already
-// be classified before it can receive personnel-cost attribution lines.
-const PERSON_COST_HEADS = new Set(
-  [
-    "Salaries",
-    "Commissions",
-    "Commissions Agent",
-    "Bonuses & Incentives",
-    "Employer Payroll Taxes",
-    "Staff Benefits & Pensions",
-  ].map((h) => h.toLowerCase())
-);
-
 export type SavePersonResult = { ok: true; id: string } | { ok: false; status: number; error: string };
 
 /**
@@ -311,6 +298,9 @@ export async function savePerson(params: {
   id?: string;
   name: string;
   department: string;
+  jobTitle?: string;
+  email?: string;
+  paymentAlias?: string;
   active?: boolean;
   actorId: string;
   actorEmail: string;
@@ -318,33 +308,40 @@ export async function savePerson(params: {
   const ident = (params.id ?? "").trim();
   const name = (params.name ?? "").trim().split(/\s+/).join(" ");
   const dep = (params.department ?? "").trim();
+  const jobTitle = (params.jobTitle ?? "").trim().slice(0, 160);
+  const email = (params.email ?? "").trim().toLowerCase().slice(0, 200);
+  const paymentAlias = (params.paymentAlias ?? "").trim().slice(0, 200);
   const active = params.active === false ? false : true;
 
-  if (name.length < 2 || name.length > 160) {
+  // v41 people_costs.save_person(): name, approved department and job title are required;
+  // email is optional but unique; the source no longer rejects two people with the same name.
+  if (name.length < 2 || name.length > 160 || name.startsWith("=")) {
     return { ok: false, status: 400, error: "Employee name must be 2 to 160 characters." };
   }
 
   const approvedDept = await prisma.financeManagementDepartment.findFirst({ where: { name: dep } });
   if (!approvedDept) return { ok: false, status: 400, error: "Choose an existing approved department." };
-
-  const dup = await prisma.financePerson.findFirst({
-    where: { fullName: name, ...(ident ? { id: { not: ident } } : {}) },
-  });
-  if (dup) return { ok: false, status: 409, error: "An employee with this name is already registered." };
-
-  if (ident) {
-    const existing = await prisma.financePerson.findUnique({ where: { id: ident } });
-    if (!existing) return { ok: false, status: 404, error: "Employee record not found." };
-    await prisma.financePerson.update({
-      where: { id: ident },
-      data: { fullName: name, department: dep, active },
+  if (!jobTitle) return { ok: false, status: 400, error: "Job Title is required." };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, status: 400, error: "Invalid email address." };
+  }
+  if (email) {
+    const dupe = await prisma.financePerson.findFirst({
+      where: { email, ...(ident ? { id: { not: ident } } : {}) },
+      select: { id: true },
     });
+    if (dupe) return { ok: false, status: 409, error: "That email is already assigned to another employee." };
+  }
+
+  const data = { fullName: name, department: dep, jobTitle, email, paymentAlias, active };
+  if (ident) {
+    const existing = await prisma.financePerson.findFirst({ where: { id: ident }, select: { id: true } });
+    if (!existing) return { ok: false, status: 404, error: "Employee record not found." };
+    await prisma.financePerson.update({ where: { id: ident }, data });
     return { ok: true, id: ident };
   }
 
-  const created = await prisma.financePerson.create({
-    data: { fullName: name, department: dep, active },
-  });
+  const created = await prisma.financePerson.create({ data });
   return { ok: true, id: created.id };
 }
 
@@ -374,6 +371,7 @@ export async function getPersonCostState() {
       costType: a.costType,
       amountUsd: a.amountUsd,
       departmentSnapshot: a.departmentSnapshot,
+      jobTitleSnapshot: a.jobTitleSnapshot,
       reference: a.reference,
       note: a.note,
       updatedAt: a.updatedAt,
@@ -384,7 +382,118 @@ export async function getPersonCostState() {
       personName: a.person.fullName,
     })),
     costTypes: [...PERSON_COST_TYPES].slice().sort(),
+    suggestions: await paymentSuggestions(people, new Set(allocations.map((a) => a.transactionId))),
   };
+}
+
+export type PaymentSuggestion = {
+  transactionId: string;
+  personId: string;
+  personName: string;
+  jobTitle: string;
+  department: string | null;
+  description: string;
+  month: string;
+  paymentDate: Date | null;
+  costType: string;
+  amountUsd: number;
+  reason: string;
+};
+
+const matchNorm = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, " ").trim();
+
+function suggestionType(t: { originalCentre: string | null; originalHead: string | null; description: string }) {
+  const s = `${t.originalCentre ?? ""} ${t.originalHead ?? ""} ${t.description}`.toLowerCase();
+  if (s.includes("commission")) return "Commission";
+  if (s.includes("salary") || s.includes("payroll")) return "Salary";
+  if (s.includes("bonus") || s.includes("incentive")) return "Bonus";
+  return null;
+}
+
+/**
+ * v41 people_costs.suggestions(): an unallocated, positive salary/commission/bonus payment whose
+ * description contains exactly ONE active employee's full name or payment alias (5+ characters,
+ * whole words). Ambiguous matches are skipped; nothing is applied until Finance links them.
+ */
+export async function paymentSuggestions(
+  people: { id: string; fullName: string; paymentAlias: string; jobTitle: string; department: string | null; active: boolean }[],
+  allocated: Set<string>,
+): Promise<PaymentSuggestion[]> {
+  const active = people
+    .filter((p) => p.active)
+    .map((p) => ({ p, phrases: [p.fullName, p.paymentAlias].map(matchNorm).filter((x) => x.length >= 5) }));
+  if (!active.length) return [];
+  const txs = await prisma.financeTransaction.findMany({
+    where: { amountUsd: { gt: 0 } },
+    orderBy: [{ month: "desc" }, { paymentDate: "desc" }, { id: "desc" }],
+    select: { id: true, description: true, originalCentre: true, originalHead: true, month: true, paymentDate: true, amountUsd: true },
+  });
+  const out: PaymentSuggestion[] = [];
+  for (const t of txs) {
+    if (allocated.has(t.id)) continue;
+    const costType = suggestionType(t);
+    if (!costType) continue;
+    const desc = ` ${matchNorm(t.description)} `;
+    const matched = active.filter(({ phrases }) => phrases.some((ph) => desc.includes(` ${ph} `)));
+    if (matched.length !== 1) continue;
+    const { p } = matched[0];
+    out.push({
+      transactionId: t.id,
+      personId: p.id,
+      personName: p.fullName,
+      jobTitle: p.jobTitle,
+      department: p.department,
+      description: t.description,
+      month: t.month,
+      paymentDate: t.paymentDate,
+      costType,
+      amountUsd: Math.round(t.amountUsd * 100) / 100,
+      reason: "Unique name or payment alias found in payroll/commission description",
+    });
+    if (out.length >= 300) break;
+  }
+  return out;
+}
+
+/**
+ * v41 bulk_suggestions(): links reviewed suggestions. Re-derives the suggestions server-side and
+ * refuses if any selected payment is no longer a current suggestion. One undoable change.
+ */
+export async function linkSuggestions(params: { transactionIds: string[]; actorId: string; actorEmail: string }) {
+  const ids = params.transactionIds;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 300 || new Set(ids).size !== ids.length) {
+    return { ok: false as const, status: 400, error: "Select 1 to 300 suggested payments." };
+  }
+  const [people, allocated] = await Promise.all([
+    prisma.financePerson.findMany(),
+    prisma.financePersonCostAllocation.findMany({ select: { transactionId: true }, distinct: ["transactionId"] }),
+  ]);
+  const current = new Map((await paymentSuggestions(people, new Set(allocated.map((a) => a.transactionId)))).map((s) => [s.transactionId, s]));
+  if (ids.some((id) => !current.has(id))) {
+    return { ok: false as const, status: 409, error: "Suggestions changed. Refresh and review current matches before saving." };
+  }
+  const txs = await prisma.financeTransaction.findMany({ where: { id: { in: ids } }, select: { id: true, organizationId: true, amountUsd: true } });
+  const built: BuiltLine[] = [];
+  let totalCents = 0;
+  for (const tx of txs) {
+    const s = current.get(tx.id)!;
+    const result = await buildPaymentLines(tx, [
+      { personId: s.personId, costType: s.costType, amountUsd: s.amountUsd.toFixed(2), reference: "Excel staff / transaction description match", note: "Reviewed suggested payment match" },
+    ]);
+    if (!result.ok) return { ...result, error: `${tx.id}: ${result.error}` };
+    built.push(...result.lines);
+    totalCents += result.totalCents;
+  }
+  const changeId = await writePaymentLines({
+    organizationId: txs[0]?.organizationId ?? null,
+    transactionIds: ids,
+    built,
+    action: "people_link_suggestions",
+    description: `Matched payroll payments · ${ids.length} items`,
+    actorId: params.actorId,
+    actorEmail: params.actorEmail,
+  });
+  return { ok: true as const, linked: ids.length, totalUsd: totalCents / 100, changeId };
 }
 
 /** Parses a money string/number into integer cents, requiring a finite value with at most 2 decimal places (mirrors the source's `Decimal(...).quantize('.01')` check — rejects, rather than rounds, anything more precise). */
@@ -409,23 +518,107 @@ export type PersonPaymentLine = {
   note?: string;
 };
 
+type PaymentRow = { id: string; organizationId: string | null; amountUsd: number };
+type BuiltLine = {
+  id: string;
+  transactionId: string;
+  personId: string;
+  costType: string;
+  amountUsd: number;
+  departmentSnapshot: string | null;
+  jobTitleSnapshot: string;
+  reference: string;
+  note: string;
+};
+type BuildResult =
+  | { ok: true; lines: BuiltLine[]; totalCents: number; sourceCents: number }
+  | { ok: false; status: number; error: string };
+
 /**
- * Direct port of save_person_payment() — replaces the full set of
- * personnel cost-allocation lines attributed to one source payment.
- * Preserves, exactly:
- *  - the effective-cost-head gate (payment must already be classified
- *    under an approved people-cost head before it can carry personnel
- *    lines), computed the same way as the source's
- *    COALESCE(allocation.costHead, legacyMapping.costHead, originalHead) —
- *    only enforced when `lines` is non-empty, so clearing allocations on
- *    an unclassified payment is still allowed;
- *  - the mutual-exclusion guard against an existing FinancePaymentCostSplit;
- *  - the "same sign as the source payment, and non-zero" rule per line;
- *  - the "sum of lines must not exceed the source payment" hard invariant;
- *  - the point-in-time department snapshot (read from FinancePerson.department
- *    at attribution time, written into departmentSnapshot, and never
- *    re-derived afterward).
+ * Validates the complete set of personnel lines for ONE payment (v41 people_costs.allocate()):
+ *  - payments with a shared-cost split need Finance review first;
+ *  - every line names a registered employee, a valid cost type and a positive USD amount to cents;
+ *  - the lines never exceed the original (positive) payment, so spend is never duplicated;
+ *  - department and job title are snapshotted from the person now and never re-derived.
+ * v41 dropped the old "payment must already sit under a people-cost head" gate so any payment
+ * (Browse: All payments) can be attributed.
  */
+async function buildPaymentLines(tx: PaymentRow, lines: PersonPaymentLine[]): Promise<BuildResult> {
+  if (!Array.isArray(lines) || lines.length > 100) {
+    return { ok: false, status: 400, error: "Use 0 to 100 allocation lines per payment." };
+  }
+  const split = await prisma.financePaymentCostSplit.findFirst({ where: { transactionId: tx.id }, select: { id: true } });
+  if (split) {
+    return { ok: false, status: 409, error: "Split payments require Finance review before personnel attribution." };
+  }
+
+  const personIds = Array.from(new Set(lines.map((l) => String(l?.personId ?? "")).filter(Boolean)));
+  const people = personIds.length ? await prisma.financePerson.findMany({ where: { id: { in: personIds } } }) : [];
+  const peopleById = new Map(people.map((p) => [p.id, p]));
+
+  const sourceCents = Math.round(tx.amountUsd * 100);
+  const built: BuiltLine[] = [];
+  let totalCents = 0;
+  for (const line of lines) {
+    const person = peopleById.get(String(line?.personId ?? ""));
+    if (!person) return { ok: false, status: 400, error: "Choose a valid employee on every line." };
+    const costType = String(line?.costType ?? "").trim();
+    if (!PERSON_COST_TYPE_SET.has(costType)) return { ok: false, status: 400, error: "Choose a valid salary or commission type." };
+    const cents = parseMoneyToCents(line?.amountUsd);
+    if (cents === null) return { ok: false, status: 400, error: "Enter a valid USD amount to two decimal places." };
+    if (cents <= 0) return { ok: false, status: 400, error: "Allocation amounts must be positive." };
+    totalCents += cents;
+    built.push({
+      id: randomUUID(),
+      transactionId: tx.id,
+      personId: person.id,
+      costType,
+      amountUsd: cents / 100,
+      departmentSnapshot: person.department,
+      jobTitleSnapshot: person.jobTitle,
+      reference: String(line?.reference ?? "").trim().slice(0, 180),
+      note: String(line?.note ?? "").trim().slice(0, 500),
+    });
+  }
+  if (sourceCents < 0 || totalCents > sourceCents) {
+    return { ok: false, status: 400, error: "People costs exceed the original payment; splits cannot duplicate spend." };
+  }
+  return { ok: true, lines: built, totalCents, sourceCents };
+}
+
+/** Replaces all allocation lines of the given payments with `built`, as one undoable change. */
+async function writePaymentLines(params: {
+  organizationId: string | null;
+  transactionIds: string[];
+  built: BuiltLine[];
+  action: string;
+  description: string;
+  actorId: string;
+  actorEmail: string;
+}): Promise<string> {
+  const existing = await prisma.financePersonCostAllocation.findMany({
+    where: { transactionId: { in: params.transactionIds } },
+    select: { id: true },
+  });
+  const touched = [...existing.map((e) => e.id), ...params.built.map((l) => l.id)];
+  const before = await revisionItems("FinancePersonCostAllocation", touched);
+  await prisma.$transaction([
+    prisma.financePersonCostAllocation.deleteMany({ where: { transactionId: { in: params.transactionIds } } }),
+    ...params.built.map((line) => prisma.financePersonCostAllocation.create({ data: line })),
+  ]);
+  const after = await revisionItems("FinancePersonCostAllocation", touched);
+  return logReversible({
+    organizationId: params.organizationId,
+    action: params.action,
+    description: params.description,
+    actorId: params.actorId,
+    actorEmail: params.actorEmail,
+    before,
+    after,
+  });
+}
+
+/** Port of /api/people/allocate: replaces the full personnel allocation of ONE payment. */
 export async function savePersonPayment(params: {
   transactionId: string;
   lines: PersonPaymentLine[];
@@ -433,154 +626,90 @@ export async function savePersonPayment(params: {
   actorEmail: string;
 }): Promise<SavePersonPaymentResult> {
   const ident = (params.transactionId ?? "").trim();
-  const lines = params.lines;
-
-  if (!Array.isArray(lines) || lines.length > 300) {
-    return { ok: false, status: 400, error: "Supply up to 300 person allocations per payment." };
-  }
   if (!ident) return { ok: false, status: 400, error: "Choose an existing source payment." };
+  const tx = await prisma.financeTransaction.findFirst({ where: { id: ident }, select: { id: true, organizationId: true, amountUsd: true } });
+  if (!tx) return { ok: false, status: 404, error: "Payment not found." };
 
-  const tx = await prisma.financeTransaction.findUnique({
-    where: { id: ident },
-    include: { allocation: true },
-  });
-  if (!tx) return { ok: false, status: 404, error: "Original payment not found." };
-
-  if (lines.length > 0) {
-    let effectiveCostHead: string | null = tx.allocation?.costHead?.trim() || null;
-    if (!effectiveCostHead && tx.originalHead) {
-      const mapping = await prisma.financeLegacyMapping.findFirst({
-        where: { legacyHead: tx.originalHead, legacyCentre: tx.originalCentre ?? "" },
-      });
-      effectiveCostHead = mapping?.costHead || null;
-    }
-    if (!effectiveCostHead) effectiveCostHead = tx.originalHead;
-    if (!effectiveCostHead || !PERSON_COST_HEADS.has(effectiveCostHead.toLowerCase())) {
-      return {
-        ok: false,
-        status: 400,
-        error:
-          "This payment must first be classified under a salary, commission or other approved people-cost head in Organise Costs.",
-      };
-    }
-  }
-
-  const existingSplit = await prisma.financePaymentCostSplit.findUnique({ where: { transactionId: ident } });
-  if (existingSplit) {
-    return {
-      ok: false,
-      status: 409,
-      error: "A shared-cost split exists for this payment. Undo that split before attributing personnel costs.",
-    };
-  }
-
-  const personIds = Array.from(
-    new Set(lines.map((l) => String(l?.personId ?? "")).filter((id) => id.length > 0))
-  );
-  const people = personIds.length
-    ? await prisma.financePerson.findMany({ where: { id: { in: personIds } } })
-    : [];
-  const peopleById = new Map(people.map((p) => [p.id, p]));
-
-  const sourceCents = Math.round(tx.amountUsd * 100);
-  type NewLine = {
-    id: string;
-    personId: string;
-    costType: string;
-    amountUsd: number;
-    departmentSnapshot: string | null;
-    reference: string;
-    note: string;
-  };
-  const newLines: NewLine[] = [];
-  let totalCents = 0;
-
-  for (const line of lines) {
-    const person = peopleById.get(String(line?.personId ?? ""));
-    if (!person) return { ok: false, status: 400, error: "Choose a registered employee on every line." };
-
-    const costType = String(line?.costType ?? "").trim();
-    if (!PERSON_COST_TYPE_SET.has(costType)) {
-      return { ok: false, status: 400, error: "Invalid personnel cost type." };
-    }
-
-    const cents = parseMoneyToCents(line?.amountUsd);
-    if (cents === null) {
-      return {
-        ok: false,
-        status: 400,
-        error: "Enter a finite USD amount to two decimal places for each person.",
-      };
-    }
-    if (!cents || (sourceCents > 0 && cents < 0) || (sourceCents < 0 && cents > 0)) {
-      return { ok: false, status: 400, error: "Each allocation must have the same sign as the original payment." };
-    }
-
-    const reference = String(line?.reference ?? "").trim().slice(0, 180);
-    const note = String(line?.note ?? "").trim().slice(0, 500);
-
-    newLines.push({
-      id: randomUUID(),
-      personId: person.id,
-      costType,
-      amountUsd: cents / 100,
-      // Point-in-time snapshot — taken from the person's CURRENT
-      // department at the moment of attribution, then frozen. Must never
-      // be re-derived from FinancePerson.department later.
-      departmentSnapshot: person.department,
-      reference,
-      note,
-    });
-    totalCents += cents;
-  }
-
-  if (Math.abs(totalCents) > Math.abs(sourceCents)) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Person allocations exceed the original payment. Total cannot be more than the payment.",
-    };
-  }
-
-  const existing = await prisma.financePersonCostAllocation.findMany({
-    where: { transactionId: ident },
-    select: { id: true },
-  });
-  const touched = [...existing.map((e) => e.id), ...newLines.map((l) => l.id)];
-  const before = await revisionItems("FinancePersonCostAllocation", touched);
-
-  await prisma.financePersonCostAllocation.deleteMany({ where: { transactionId: ident } });
-  for (const line of newLines) {
-    await prisma.financePersonCostAllocation.create({
-      data: {
-        id: line.id,
-        transactionId: ident,
-        personId: line.personId,
-        costType: line.costType,
-        amountUsd: line.amountUsd,
-        departmentSnapshot: line.departmentSnapshot,
-        reference: line.reference,
-        note: line.note,
-      },
-    });
-  }
-
-  const after = await revisionItems("FinancePersonCostAllocation", touched);
-  const changeId = await logReversible({
+  const result = await buildPaymentLines(tx, params.lines);
+  if (!result.ok) return result;
+  const changeId = await writePaymentLines({
     organizationId: tx.organizationId,
+    transactionIds: [ident],
+    built: result.lines,
     action: "person_cost_allocation",
-    description: `Personnel cost assignment · ${ident}`,
+    description: `People costs · ${ident}`,
     actorId: params.actorId,
     actorEmail: params.actorEmail,
-    before,
-    after,
   });
-
   return {
     ok: true,
     transactionId: ident,
-    allocatedUsd: totalCents / 100,
-    unallocatedUsd: (sourceCents - totalCents) / 100,
+    allocatedUsd: result.totalCents / 100,
+    unallocatedUsd: (result.sourceCents - result.totalCents) / 100,
     changeId,
   };
+}
+
+export type BatchItem = { transactionId: string; costType: string; amountUsd: number | string; reference?: string; note?: string };
+
+/**
+ * /api/people/allocate-batch (the v41 frontend's preferred endpoint): adds one line per selected
+ * payment for ONE employee, keeping every existing line on those payments, validated payment by
+ * payment and saved as a single undoable change. All-or-nothing: any invalid payment aborts the batch.
+ */
+export async function allocateBatch(params: {
+  personId: string;
+  items: BatchItem[];
+  actorId: string;
+  actorEmail: string;
+}): Promise<{ ok: true; payments: number; allocatedUsd: number; changeId: string } | { ok: false; status: number; error: string }> {
+  const items = params.items;
+  if (!Array.isArray(items) || items.length < 1 || items.length > 300) {
+    return { ok: false, status: 400, error: "Select 1 to 300 payments." };
+  }
+  const ids = items.map((i) => String(i?.transactionId ?? ""));
+  if (new Set(ids).size !== ids.length) return { ok: false, status: 400, error: "A payment was selected twice." };
+  const person = await prisma.financePerson.findFirst({ where: { id: params.personId }, select: { id: true, fullName: true } });
+  if (!person) return { ok: false, status: 400, error: "Choose a valid employee." };
+
+  const [txs, existing] = await Promise.all([
+    prisma.financeTransaction.findMany({ where: { id: { in: ids } }, select: { id: true, organizationId: true, amountUsd: true } }),
+    prisma.financePersonCostAllocation.findMany({ where: { transactionId: { in: ids } } }),
+  ]);
+  const txById = new Map(txs.map((t) => [t.id, t]));
+  const built: BuiltLine[] = [];
+  let addedCents = 0;
+  for (const item of items) {
+    const tx = txById.get(item.transactionId);
+    if (!tx) return { ok: false, status: 404, error: `Payment ${item.transactionId} not found.` };
+    const kept: PersonPaymentLine[] = existing
+      .filter((a) => a.transactionId === tx.id)
+      .map((a) => ({ personId: a.personId, costType: a.costType, amountUsd: a.amountUsd.toFixed(2), reference: a.reference ?? "", note: a.note ?? "" }));
+    const result = await buildPaymentLines(tx, [
+      ...kept,
+      { personId: person.id, costType: item.costType, amountUsd: item.amountUsd, reference: item.reference, note: item.note },
+    ]);
+    if (!result.ok) return { ...result, error: `${tx.id}: ${result.error}` };
+    // Kept lines keep their original snapshots; only the new line takes today's department/title.
+    const keptRows = existing.filter((a) => a.transactionId === tx.id);
+    result.lines.forEach((line, i) => {
+      if (i < keptRows.length) {
+        line.departmentSnapshot = keptRows[i].departmentSnapshot;
+        line.jobTitleSnapshot = keptRows[i].jobTitleSnapshot;
+      }
+    });
+    addedCents += Math.round(result.lines[result.lines.length - 1].amountUsd * 100);
+    built.push(...result.lines);
+  }
+
+  const changeId = await writePaymentLines({
+    organizationId: txs[0]?.organizationId ?? null,
+    transactionIds: ids,
+    built,
+    action: "person_cost_allocation_batch",
+    description: `People costs · ${items.length} payments to ${person.fullName}`,
+    actorId: params.actorId,
+    actorEmail: params.actorEmail,
+  });
+  return { ok: true, payments: items.length, allocatedUsd: addedCents / 100, changeId };
 }

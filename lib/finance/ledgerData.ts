@@ -221,7 +221,7 @@ async function loadFinanceState(departmentScope?: string[] | null): Promise<Fina
 
 // Source list_departments(): core departments first, then case-insensitive alphabetical.
 const DEPARTMENT_PRIORITY = ["Marketing", "Sales", "Development", "D & M Split cost"];
-function sortDepartments(names: string[]): string[] {
+export function sortDepartments(names: string[]): string[] {
   const rank = (n: string) => {
     const i = DEPARTMENT_PRIORITY.indexOf(n);
     return i === -1 ? DEPARTMENT_PRIORITY.length : i;
