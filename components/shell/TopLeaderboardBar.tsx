@@ -1,7 +1,9 @@
 "use client";
 
 import type { Session } from "next-auth";
+import { usePathname } from "next/navigation";
 import { SignOutButton } from "./SignOutButton";
+import { SphaeraGlyph } from "./LeftRail";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "@/components/providers/ThemeToggle";
 export type RevenueLeaderboardEntry = {
@@ -52,8 +54,20 @@ export function TopLeaderboardBar({
   // consistent whether there are 3 agents or 30 (roughly 3s per entry).
   const durationSeconds = Math.max(displayLeaderboard.length * 3, 12);
 
+  // Inside Finance the main rail is hidden and the Finance sidebar starts below this bar, so
+  // the bar's left end is drawn as the top of that sidebar: always dark, same width, logo on it.
+  const pathname = usePathname();
+  const inFinance = pathname === "/finance" || !!pathname?.startsWith("/finance/");
+
   return (
-    <div className="flex h-11 items-center border-b border-base-700 bg-base-950 px-3">
+    <div className={`flex h-11 items-center border-b border-base-700 bg-base-950 pr-3 ${inFinance ? "" : "pl-3"}`}>
+      {inFinance && (
+        <div className="theme-dark relative z-10 -mb-px mr-3 flex h-[calc(100%+1px)] w-56 shrink-0 items-center gap-2 self-start border-r border-base-700 bg-base-900 px-4 text-ink-50">
+          <SphaeraGlyph className="h-5 w-5" />
+          <span className="text-sm font-bold tracking-wide">SPHAERA</span>
+          <span className="text-[10px] font-medium uppercase tracking-wide text-ink-500">Finance</span>
+        </div>
+      )}
       <div
         role="marquee"
         aria-label="Live agent revenue leaderboard"

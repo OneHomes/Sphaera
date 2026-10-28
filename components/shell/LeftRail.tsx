@@ -65,7 +65,7 @@ export function LeftRail({
 // Official Sphaera icon mark (from the brand asset handover), rendered
 // inline with currentColor so it inherits the rail's hover/active theming
 // the same way the previous placeholder glyph did.
-function SphaeraGlyph({ className }: { className?: string }) {
+export function SphaeraGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 210 206" fill="none" className={className}>
       <path
