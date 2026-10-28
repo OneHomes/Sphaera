@@ -15,6 +15,9 @@ export function LeftRail({
 }) {
   const pathname = usePathname();
 
+  // Finance is a self-contained workspace with its own sidebar and a "Back to main menu" link.
+  if (pathname === "/finance" || pathname?.startsWith("/finance/")) return null;
+
   const visibleItems = navItems.filter((item) => {
     if (item.adminOnly && role !== "ADMIN") return false;
     if (item.managerAndAbove && role === "AGENT") return false;

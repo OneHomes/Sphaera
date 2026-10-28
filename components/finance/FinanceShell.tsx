@@ -3,7 +3,7 @@
 import { Fragment, Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import { FinanceFilterProvider, FinanceLookupProvider, useFinanceFilters } from "./FinanceFilterContext";
 import { FinanceFilterBar } from "./FinanceFilterBar";
 import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
@@ -198,6 +198,14 @@ export function FinanceShell({
         aria-label="Finance"
         className="theme-dark flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-700 bg-base-900 p-3"
       >
+        {/* The main Sphaera rail is hidden inside Finance (LeftRail), so this is the way back out. */}
+        <Link
+          href="/dashboard"
+          className="mb-2 flex items-center gap-2 rounded-lg border border-base-700 px-2 py-1.5 text-xs font-medium text-ink-300 transition hover:bg-base-800 hover:text-ink-50"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to main menu
+        </Link>
         {FINANCE_NAV.map((item) => {
           if (item.payrollOnly && !canAccessFinancePayroll) return null;
           if (item.adminOnly && !isAdmin) return null;
