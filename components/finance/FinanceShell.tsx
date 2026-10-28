@@ -234,7 +234,7 @@ function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }
     <Link
       href={item.href}
       className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
-        isActive ? "bg-base-800 text-ink-50" : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
+        isActive ? "bg-[#efede8] font-semibold text-[#111111]" : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
       }`}
     >
       <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -377,7 +377,7 @@ export function FinanceShell({
           className="mb-2 flex items-center gap-2 rounded-lg border border-base-700 px-2 py-1.5 text-xs font-medium text-ink-300 transition hover:bg-base-800 hover:text-ink-50"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to main menu
+          Back to Apex
         </Link>
         <div className="mb-1 flex items-center justify-between px-2">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Navigation</span>
@@ -405,7 +405,7 @@ export function FinanceShell({
                   type="button"
                   onClick={() => setBanksOpen((v) => !v)}
                   className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
-                    banksActive ? "bg-base-800 text-ink-50" : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
+                    banksActive ? "text-ink-50 hover:bg-base-800" : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
                   }`}
                 >
                   <Landmark className="h-3.5 w-3.5" strokeWidth={1.75} />
