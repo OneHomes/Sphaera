@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
-import { ClassifyModal } from "./ClassifyModal";
+import { PaymentDetailModal } from "./PaymentDetailModal";
 import { PaymentsTable } from "./PaymentsTable";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
 import { useFilteredFinanceRows } from "./FinanceFilterContext";
@@ -241,7 +241,7 @@ export function NeedsAllocationPage({
       />
 
       {classifyTarget && (
-        <ClassifyModal
+        <PaymentDetailModal
           transaction={classifyTarget}
           departments={departments}
           managementCostHeads={managementCostHeads}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
-import { ClassifyModal } from "./ClassifyModal";
+import { PaymentDetailModal } from "./PaymentDetailModal";
 import { DisputeModal } from "./DisputeModal";
 import { PaymentsTable } from "./PaymentsTable";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
@@ -284,7 +284,7 @@ export function AllPaymentsPage({
       />
 
       {classifyTarget && (
-        <ClassifyModal
+        <PaymentDetailModal
           transaction={classifyTarget}
           departments={departments}
           managementCostHeads={managementCostHeads}

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
 import { PaymentsTable } from "./PaymentsTable";
-import { ClassifyModal } from "./ClassifyModal";
+import { PaymentDetailModal } from "./PaymentDetailModal";
 import { DonutWidget } from "./DonutWidget";
 import { ChartPicker, selectionAllows } from "./ChartPicker";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
@@ -329,7 +329,7 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
       </div>
 
       {detail && (
-        <ClassifyModal
+        <PaymentDetailModal
           transaction={detail}
           departments={state.departments}
           managementCostHeads={state.managementCostHeads}

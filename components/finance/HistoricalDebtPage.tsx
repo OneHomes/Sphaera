@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import { PaymentsTable } from "./PaymentsTable";
-import { ClassifyModal } from "./ClassifyModal";
+import { PaymentDetailModal } from "./PaymentDetailModal";
 import { relevantMonths } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 
@@ -181,7 +181,7 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
         <PaymentsTable rows={table} onRowClick={setDetail} />
       </div>
       {detail && (
-        <ClassifyModal
+        <PaymentDetailModal
           transaction={detail}
           departments={rawState.departments}
           managementCostHeads={rawState.managementCostHeads}

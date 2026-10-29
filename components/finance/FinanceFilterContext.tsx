@@ -77,23 +77,37 @@ export function FinanceFilterProvider({ children }: { children: React.ReactNode 
   );
 }
 
-type FinanceLookups = { sourceNames: Map<string, string>; subscriptionNames: Map<string, string> };
-const FinanceLookupContext = createContext<FinanceLookups>({ sourceNames: new Map(), subscriptionNames: new Map() });
+type LookupSource = { id: string; name: string; kind: string; lastFour: string | null; isActive: boolean };
+type LookupSubscription = { id: string; service: string; supplier: string };
+type FinanceLookups = {
+  sourceNames: Map<string, string>;
+  subscriptionNames: Map<string, string>;
+  paymentSources: LookupSource[];
+  subscriptions: LookupSubscription[];
+};
+const FinanceLookupContext = createContext<FinanceLookups>({
+  sourceNames: new Map(),
+  subscriptionNames: new Map(),
+  paymentSources: [],
+  subscriptions: [],
+});
 
-/** Name lookups shared by every Finance screen (payment sources, subscriptions). */
+/** Lookups shared by every Finance screen (payment sources, subscriptions). */
 export function FinanceLookupProvider({
   paymentSources,
   subscriptions,
   children,
 }: {
-  paymentSources: { id: string; name: string }[];
-  subscriptions: { id: string; service: string }[];
+  paymentSources: LookupSource[];
+  subscriptions: LookupSubscription[];
   children: React.ReactNode;
 }) {
   const value = useMemo(
     () => ({
       sourceNames: new Map(paymentSources.map((s) => [s.id, s.name])),
       subscriptionNames: new Map(subscriptions.map((s) => [s.id, s.service])),
+      paymentSources,
+      subscriptions,
     }),
     [paymentSources, subscriptions]
   );

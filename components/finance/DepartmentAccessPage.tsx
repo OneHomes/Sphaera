@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, UserPlus } from "lucide-react";
+import { ShieldCheck, UserPlus, X } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 
 type FinanceUser = {
@@ -19,7 +19,39 @@ export function DepartmentAccessPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
-  const [userToAdd, setUserToAdd] = useState("");
+  const blankForm = { name: "", email: "", canAccessFinancePayroll: false, departments: [] as string[] };
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState(blankForm);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  function openAddForm() {
+    setAddForm(blankForm);
+    setAddError(null);
+    setAddOpen(true);
+  }
+
+  async function submitAddForm(e: React.FormEvent) {
+    e.preventDefault();
+    if (adding) return;
+    setAdding(true);
+    setAddError(null);
+    try {
+      const res = await fetch("/api/finance/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(addForm),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to add user");
+      setAddOpen(false);
+      await loadData();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Failed to add user");
+    } finally {
+      setAdding(false);
+    }
+  }
 
   async function loadData() {
     setIsLoading(true);
@@ -127,7 +159,8 @@ export function DepartmentAccessPage() {
   }
 
   const financeUsers = users.filter((u) => u.canAccessFinance);
-  const otherUsers = users.filter((u) => !u.canAccessFinance);
+  const fieldClass =
+    "mt-1 w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-sm text-ink-50 placeholder:text-ink-500 focus:border-base-600 focus:outline-none";
 
   return (
     <div className="p-6">
@@ -145,35 +178,14 @@ export function DepartmentAccessPage() {
         title="Finance-enabled users"
         className="mb-6"
         action={
-          <div className="flex items-center gap-2">
-            <select
-              value={userToAdd}
-              onChange={(e) => setUserToAdd(e.target.value)}
-              disabled={otherUsers.length === 0}
-              aria-label="User to add"
-              className="max-w-[260px] rounded-lg border border-base-700 bg-base-800 px-2.5 py-1.5 text-xs text-ink-50 focus:border-base-600 focus:outline-none disabled:opacity-50"
-            >
-              <option value="">{otherUsers.length ? "Select a user to add…" : "All users already added"}</option>
-              {otherUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} — {u.email}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={!userToAdd || !!savingUserId}
-              onClick={async () => {
-                const id = userToAdd;
-                setUserToAdd("");
-                await handleFinanceAccessToggle(id, true);
-              }}
-              className="flex items-center gap-1 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:opacity-90 disabled:opacity-40"
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              Add user
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={openAddForm}
+            className="flex items-center gap-1 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:opacity-90"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Add user
+          </button>
         }
       >
         {financeUsers.length === 0 ? (
@@ -243,6 +255,100 @@ export function DepartmentAccessPage() {
           </table>
         )}
       </WidgetCard>
+
+      {addOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !adding && setAddOpen(false)}>
+          <form
+            onSubmit={submitAddForm}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg rounded-xl border border-base-700 bg-base-900 p-5 shadow-xl"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-ink-50">Add user</h2>
+              <button type="button" onClick={() => setAddOpen(false)} className="text-ink-500 hover:text-ink-300" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <label className="block text-xs text-ink-500">
+                Full name
+                <input
+                  value={addForm.name}
+                  maxLength={160}
+                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                  placeholder="e.g. Aqib Hassan"
+                  className={fieldClass}
+                  autoFocus
+                />
+              </label>
+              <label className="block text-xs text-ink-500">
+                Email (their Microsoft sign-in)
+                <input
+                  type="email"
+                  value={addForm.email}
+                  maxLength={200}
+                  onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+                  placeholder="name@onehomes.com"
+                  className={fieldClass}
+                />
+              </label>
+              <div>
+                <p className="mb-1.5 text-xs text-ink-500">Access</p>
+                <label className="flex items-center gap-2 text-xs text-ink-300">
+                  <input type="checkbox" checked disabled className="h-3.5 w-3.5 accent-status-active" />
+                  Finance
+                </label>
+                <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-300">
+                  <input
+                    type="checkbox"
+                    checked={addForm.canAccessFinancePayroll}
+                    onChange={(e) => setAddForm({ ...addForm, canAccessFinancePayroll: e.target.checked })}
+                    className="h-3.5 w-3.5 accent-status-active"
+                  />
+                  Payroll (People Costs, Payroll Import, backups)
+                </label>
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs text-ink-500">Departments (none ticked = all departments)</p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                  {departments.map((dept) => (
+                    <label key={dept} className="flex items-center gap-1.5 text-[11px] text-ink-300">
+                      <input
+                        type="checkbox"
+                        checked={addForm.departments.includes(dept)}
+                        onChange={(e) =>
+                          setAddForm({
+                            ...addForm,
+                            departments: e.target.checked ? [...addForm.departments, dept] : addForm.departments.filter((d) => d !== dept),
+                          })
+                        }
+                        className="h-3 w-3 accent-status-active"
+                      />
+                      {dept}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {addError && <p className="text-xs text-status-inactive">{addError}</p>}
+              <p className="text-[11px] text-ink-500">
+                If this email already has a Sphaera account, it keeps its role and just gets this Finance access.
+              </p>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setAddOpen(false)} className="rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:text-ink-50">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={adding || addForm.name.trim().length < 2 || !addForm.email.trim()}
+                className="rounded-lg bg-status-active px-4 py-1.5 text-xs font-medium text-base-950 hover:opacity-90 disabled:opacity-40"
+              >
+                {adding ? "Adding…" : "Add user"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,6 +10,36 @@ import {
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
+// Invoice evidence already linked to one payment (the payment detail form's "Invoice evidence").
+export async function GET(request: Request) {
+  try {
+    return await withTenant(async (authUser) => {
+      if (!authUser.canAccessFinance) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const transactionId = new URL(request.url).searchParams.get("transactionId") ?? "";
+      if (!transactionId) return NextResponse.json({ error: "transactionId is required" }, { status: 400 });
+      const links = await prisma.financeMerchantInvoiceLink.findMany({
+        where: { transactionId },
+        select: { invoice: { select: { id: true, supplier: true, documentId: true, amount: true, currency: true, invoiceDate: true } } },
+      });
+      const docIds = links.map((l) => l.invoice.documentId).filter((d): d is string => !!d);
+      const docs = docIds.length
+        ? await prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true } })
+        : [];
+      const docName = new Map(docs.map((d) => [d.id, d.name]));
+      return NextResponse.json({
+        invoices: links.map(({ invoice: i }) => ({ ...i, documentName: i.documentId ? docName.get(i.documentId) ?? null : null })),
+      });
+    });
+  } catch (err) {
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
+  }
+}
+
 // Invoice evidence upload: accepts multipart/form-data (the uploaded
 // file plus the invoice metadata fields), uploads the file bytes via the
 // app-wide blob storage helper, creates a Document row for it, then
