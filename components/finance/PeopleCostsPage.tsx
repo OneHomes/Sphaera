@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { Upload } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { useFinanceFilters } from "./FinanceFilterContext";
 import { fyOf } from "@/lib/finance/financeFilters";
@@ -435,19 +436,23 @@ export function PeopleCostsPage({
         <WidgetCard
           title="Import employees and departments from Excel"
           action={
-            <a href="/api/finance/people/template" className={smallBtn}>
-              Download Excel template
-            </a>
+            <div className="flex items-center gap-2">
+              <a href="/api/finance/people/template" className={smallBtn}>
+                Download Excel template
+              </a>
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-status-active px-3 py-1.5 text-xs font-semibold text-base-950 hover:brightness-110">
+                <Upload className="h-3.5 w-3.5" />
+                {busy === "preview" ? "Checking…" : "Upload employee Excel"}
+                <input type="file" accept=".xlsx" className="hidden" disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) previewExcel(f); }} />
+              </label>
+            </div>
           }
         >
           <p className="mb-3 text-xs text-ink-500">
-            Download the template (it lists every current employee), add new rows or edit existing ones, then upload it. Preview before
-            importing; no bank payments are altered.
+            Download the template (it lists every current employee), add new rows or edit existing ones, then click{" "}
+            <b className="text-ink-300">Upload employee Excel</b>. You will see a preview and can fix any row here before importing; no
+            bank payments are altered.
           </p>
-          <label className={`${smallBtn} inline-block cursor-pointer`}>
-            {busy === "preview" ? "Checking…" : "Preview staff upload (.xlsx)"}
-            <input type="file" accept=".xlsx" className="hidden" disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) previewExcel(f); }} />
-          </label>
           {preview && (() => {
             const autoFixed = preview.rows.filter((r) => r.warnings.length && !r.errors.length).length;
             const shown = showAllRows ? preview.rows : preview.rows.filter((r) => r.errors.length || r.warnings.length);
