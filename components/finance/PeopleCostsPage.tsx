@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { useFinanceFilters } from "./FinanceFilterContext";
@@ -63,9 +63,22 @@ type PersonCostState = {
   suggestions: Suggestion[];
 };
 
+type RawRosterRow = { row: number; id: string; full_name: string; department: string; job_title: string; email: string; payment_alias: string; active: string };
+type CheckedRosterRow = {
+  row: number;
+  status: string;
+  full_name: string;
+  department: string;
+  job_title: string;
+  email: string;
+  errors: string[];
+  warnings: string[];
+  emailConflictRows: number[];
+};
 type ImportPreview = {
-  file: File;
-  rows: { row: number; status: string; full_name: string; department: string; job_title: string; email: string; errors: string[] }[];
+  fileName: string;
+  rawRows: RawRosterRow[];
+  rows: CheckedRosterRow[];
   valid: number;
   errors: number;
 };
@@ -213,16 +226,57 @@ export function PeopleCostsPage({
       const res = await fetch("/api/finance/people/preview", { method: "POST", body: fd });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? "Preview failed");
-      setPreview({ file, ...body });
+      setPreview({ fileName: file.name, ...body });
+      setShowAllRows(!body.errors);
     });
+
+  // Corrections made on the preview screen: edit the raw row, then re-check every row on the
+  // server (rules like duplicate emails span rows). The latest request wins.
+  const [showAllRows, setShowAllRows] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
+  const checkSeq = useRef(0);
+  const recheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function editRows(update: (rows: RawRosterRow[]) => RawRosterRow[]) {
+    if (!preview) return;
+    const rawRows = update(preview.rawRows);
+    setPreview({ ...preview, rawRows });
+    setRechecking(true);
+    if (recheckTimer.current) clearTimeout(recheckTimer.current);
+    recheckTimer.current = setTimeout(async () => {
+      const seq = ++checkSeq.current;
+      try {
+        const res = await fetch("/api/finance/people/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: rawRows }),
+        });
+        const body = await res.json().catch(() => null);
+        if (seq !== checkSeq.current) return;
+        if (!res.ok) throw new Error(body?.error ?? "Check failed");
+        setPreview((prev) => (prev ? { ...prev, rows: body.rows, valid: body.valid, errors: body.errors } : prev));
+      } catch (err) {
+        if (seq === checkSeq.current) setNotice({ kind: "error", text: err instanceof Error ? err.message : "Check failed" });
+      } finally {
+        if (seq === checkSeq.current) setRechecking(false);
+      }
+    }, 350);
+  }
+  const editRow = (rowNo: number, patch: Partial<RawRosterRow>) =>
+    editRows((rows) => rows.map((r) => (r.row === rowNo ? { ...r, ...patch } : r)));
+  // "Email belongs here": keep it on this row, blank it on the other rows that used it.
+  const keepEmailOn = (rowNo: number, others: number[]) =>
+    editRows((rows) => rows.map((r) => (others.includes(r.row) ? { ...r, email: "" } : r)));
 
   const commitExcel = () =>
     run("commit", async () => {
-      if (!preview || preview.errors) throw new Error("Fix Excel errors before import.");
+      if (!preview || preview.errors || rechecking) throw new Error("Fix the highlighted rows before import.");
       if (!window.confirm(`Import ${preview.rows.length} employee records? No payment amounts will be changed.`)) return;
-      const fd = new FormData();
-      fd.append("file", preview.file);
-      const res = await fetch("/api/finance/people/commit", { method: "POST", body: fd });
+      const res = await fetch("/api/finance/people/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: preview.rawRows, fileName: preview.fileName }),
+      });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? "Import failed");
       setPreview(null);
@@ -394,44 +448,100 @@ export function PeopleCostsPage({
             {busy === "preview" ? "Checking…" : "Preview staff upload (.xlsx)"}
             <input type="file" accept=".xlsx" className="hidden" disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) previewExcel(f); }} />
           </label>
-          {preview && (
+          {preview && (() => {
+            const autoFixed = preview.rows.filter((r) => r.warnings.length && !r.errors.length).length;
+            const shown = showAllRows ? preview.rows : preview.rows.filter((r) => r.errors.length || r.warnings.length);
+            const rawByRow = new Map(preview.rawRows.map((r) => [r.row, r]));
+            const cellInput = `${inputClass} min-w-[130px]`;
+            return (
             <div className="mt-3">
               <p className={`mb-2 rounded-lg border px-3 py-2 text-xs ${preview.errors ? "border-status-alert/40 bg-status-alert/10 text-status-alert" : "border-base-700 bg-base-800 text-ink-300"}`}>
-                <b>{preview.valid} valid rows</b> · {preview.errors} errors · {preview.rows.length} total employees.{" "}
-                {preview.errors ? "Correct the workbook and upload again." : "Review the changes then confirm."}
+                <b>{preview.valid} ready</b> · {preview.errors} need your input · {autoFixed} fixed automatically · {preview.rows.length} total employees.{" "}
+                {rechecking ? "Checking…" : preview.errors ? "Fix the highlighted rows here; no need to upload again." : "Everything is ready. Review then confirm."}
               </p>
-              <div className="max-h-[280px] overflow-auto rounded-xl border border-base-700">
+              <div className="mb-2 flex gap-1.5">
+                <button onClick={() => setShowAllRows(false)} className={`${smallBtn} ${!showAllRows ? "border-base-600 text-ink-50" : ""}`}>
+                  Needs attention ({preview.rows.filter((r) => r.errors.length || r.warnings.length).length})
+                </button>
+                <button onClick={() => setShowAllRows(true)} className={`${smallBtn} ${showAllRows ? "border-base-600 text-ink-50" : ""}`}>
+                  All rows ({preview.rows.length})
+                </button>
+              </div>
+              <div className="max-h-[420px] overflow-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
-                  <thead className="sticky top-0 border-b border-base-700 bg-base-900 text-ink-500">
-                    <tr>{["Row", "Status", "Name", "Department", "Job title", "Email", "Validation"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr>
+                  <thead className="sticky top-0 z-10 border-b border-base-700 bg-base-900 text-ink-500">
+                    <tr>{["Row", "Status", "Name", "Department", "Job title", "Email", "Check"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr>
                   </thead>
                   <tbody>
-                    {preview.rows.slice(0, 500).map((r) => (
-                      <tr key={r.row} className="border-b border-base-800 text-ink-300 last:border-0">
-                        <td className="px-3 py-1.5">{r.row}</td>
-                        <td className={`px-3 py-1.5 ${r.status === "Error" ? "text-status-inactive" : ""}`}>{r.status}</td>
-                        <td className="px-3 py-1.5 text-ink-50">{r.full_name}</td>
-                        <td className="px-3 py-1.5">{r.department}</td>
-                        <td className="px-3 py-1.5">{r.job_title}</td>
-                        <td className="px-3 py-1.5">{r.email}</td>
-                        <td className={`px-3 py-1.5 ${r.errors.length ? "text-status-inactive" : "text-status-active"}`}>{r.errors.join("; ") || "Ready"}</td>
-                      </tr>
-                    ))}
+                    {shown.length === 0 && (
+                      <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-500">Nothing needs attention. Switch to All rows to review everything.</td></tr>
+                    )}
+                    {shown.slice(0, 500).map((r) => {
+                      const raw = rawByRow.get(r.row);
+                      const fix = r.errors.length > 0 && raw;
+                      return (
+                        <tr key={r.row} className={`border-b border-base-800 align-top text-ink-300 last:border-0 ${r.errors.length ? "bg-status-inactive/5" : r.warnings.length ? "bg-status-alert/5" : ""}`}>
+                          <td className="px-3 py-1.5">{r.row}</td>
+                          <td className={`px-3 py-1.5 ${r.errors.length ? "text-status-inactive" : r.warnings.length ? "text-status-alert" : ""}`}>
+                            {r.errors.length ? "Fix" : r.warnings.length ? `${r.status} · auto-fixed` : r.status}
+                          </td>
+                          <td className="px-3 py-1.5 text-ink-50">
+                            {fix ? <input value={raw.full_name} onChange={(e) => editRow(r.row, { full_name: e.target.value })} className={cellInput} /> : r.full_name}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {fix ? (
+                              <select value={departments.includes(r.department) ? r.department : ""} onChange={(e) => editRow(r.row, { department: e.target.value })} className={cellInput}>
+                                <option value="">Choose department…</option>
+                                {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                            ) : (
+                              r.department
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {fix ? <input value={raw.job_title} onChange={(e) => editRow(r.row, { job_title: e.target.value })} placeholder="Job title" className={cellInput} /> : r.job_title}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {fix ? (
+                              <div className="space-y-1">
+                                <input value={raw.email} onChange={(e) => editRow(r.row, { email: e.target.value })} placeholder="Optional" className={cellInput} />
+                                {r.emailConflictRows.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    <button onClick={() => keepEmailOn(r.row, r.emailConflictRows)} className={smallBtn}>Email belongs here</button>
+                                    <button onClick={() => editRow(r.row, { email: "" })} className={smallBtn}>Remove from this row</button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              r.email
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {r.errors.map((e) => <div key={e} className="text-status-inactive">{e}</div>)}
+                            {r.warnings.map((w) => <div key={w} className="text-status-alert">Auto-fixed: {w}</div>)}
+                            {!r.errors.length && !r.warnings.length && <span className="text-status-active">Ready</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <div className="mt-2 flex gap-2">
-                {!preview.errors && (
-                  <button onClick={commitExcel} disabled={!!busy} className={primaryBtn}>
-                    {busy === "commit" ? "Importing…" : `Confirm & import ${preview.rows.length} employees`}
-                  </button>
-                )}
+                <button onClick={commitExcel} disabled={!!busy || rechecking || preview.errors > 0} className={primaryBtn}>
+                  {busy === "commit"
+                    ? "Importing…"
+                    : preview.errors
+                      ? `Fix ${preview.errors} row${preview.errors === 1 ? "" : "s"} to import`
+                      : `Confirm & import ${preview.rows.length} employees`}
+                </button>
                 <button onClick={() => setPreview(null)} className={smallBtn}>
                   Cancel
                 </button>
               </div>
             </div>
-          )}
+            );
+          })()}
         </WidgetCard>
       </div>
 

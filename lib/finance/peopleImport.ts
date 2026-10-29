@@ -8,6 +8,18 @@ import { savePerson } from "@/lib/finance/peopleOverheadsData";
 
 export const PEOPLE_HEADERS = ["Employee ID", "Full Name", "Department", "Job Title", "Email", "Payment Alias", "Active"] as const;
 
+/** One roster row as typed (from the workbook, or as corrected on the preview screen). */
+export type PeopleRawRow = {
+  row: number;
+  id: string;
+  full_name: string;
+  department: string;
+  job_title: string;
+  email: string;
+  payment_alias: string;
+  active: string;
+};
+
 export type PeopleImportRow = {
   row: number;
   id: string;
@@ -19,7 +31,13 @@ export type PeopleImportRow = {
   active: boolean;
   status: "Add" | "Update" | "Error";
   errors: string[];
+  // Safe automatic corrections already applied to this row (shown, never blocking).
+  warnings: string[];
+  // Other rows using the same email, so the preview can ask who it belongs to.
+  emailConflictRows: number[];
 };
+
+const MAX_ROWS = 2000;
 
 const namekey = (s: unknown) => String(s ?? "").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
 const safe = (v: unknown, n = 200) => {
@@ -85,8 +103,51 @@ export async function peopleTemplate(): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-/** Validates every roster row exactly like the source parse_excel(); returns rows with per-row errors. */
-export async function parsePeopleWorkbook(buf: ArrayBuffer): Promise<PeopleImportRow[]> {
+const tidy = (s: string) => s.replace(/\s+/g, " ").trim();
+const alnum = (s: string) => s.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ACTIVE_VALUES = ["yes", "no", "true", "false", "active", "inactive", "1", "0", "y", "n", ""];
+
+// Common short forms finance teams type for the approved departments.
+const DEPARTMENT_ALIASES: Record<string, string> = {
+  revops: "Revenue Operations",
+  hr: "Human Resources",
+  people: "Human Resources",
+  it: "Information Technology",
+  tech: "Information Technology",
+  dev: "Development",
+  exec: "Executive Expenditure",
+  executive: "Executive Expenditure",
+  ops: "Operations",
+  fin: "Finance",
+  accounts: "Finance",
+  mkt: "Marketing",
+  mktg: "Marketing",
+};
+
+/**
+ * Reads a typed department as an approved one: exact name, a known short form, the same
+ * letters ignoring spaces/punctuation/"dept", or the single approved name that contains it.
+ * Returns null when nothing (or more than one department) fits, so it is never a guess.
+ */
+export function resolveDepartment(raw: string, catalogue: string[]): string | null {
+  const typed = tidy(raw);
+  if (!typed) return null;
+  const exact = catalogue.find((d) => namekey(d) === namekey(typed));
+  if (exact) return exact;
+  const stripped = alnum(typed).replace(/(department|dept|team)$/, "");
+  if (!stripped) return null;
+  const alias = DEPARTMENT_ALIASES[stripped];
+  if (alias && catalogue.includes(alias)) return alias;
+  const same = catalogue.filter((d) => alnum(d) === stripped);
+  if (same.length === 1) return same[0];
+  if (stripped.length < 3) return null;
+  const containing = catalogue.filter((d) => alnum(d).includes(stripped) || stripped.includes(alnum(d)));
+  return containing.length === 1 ? containing[0] : null;
+}
+
+/** Reads the roster workbook into raw rows (file and header checks only). */
+export async function readPeopleWorkbook(buf: ArrayBuffer): Promise<PeopleRawRow[]> {
   if (buf.byteLength > 8 * 1024 * 1024) throw new Error("Employee workbook exceeds 8 MB");
   const wb = new ExcelJS.Workbook();
   try {
@@ -100,67 +161,127 @@ export async function parsePeopleWorkbook(buf: ArrayBuffer): Promise<PeopleImpor
   if (headers.join("|") !== PEOPLE_HEADERS.join("|")) {
     throw new Error("Wrong template columns. Download the People Costs template and use its headings.");
   }
-
-  const [catalogue, people] = await Promise.all([
-    getDepartmentCatalogue(),
-    prisma.financePerson.findMany({ select: { id: true, fullName: true, department: true, email: true } }),
-  ]);
-  const approved = new Map(catalogue.map((d) => [namekey(d), d]));
-  const existing = new Map(people.map((p) => [p.id, p]));
-  const byEmail = new Map(people.filter((p) => p.email).map((p) => [namekey(p.email), p]));
-  const seen = new Set<string>();
-  const rows: PeopleImportRow[] = [];
-
+  const rows: PeopleRawRow[] = [];
   for (let r = 2; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
     const entry = PEOPLE_HEADERS.map((_, i) => safe(row.getCell(i + 1).value));
     if (!entry.some(Boolean)) continue;
-    if (r > 2002) throw new Error("Maximum 2,000 employees per import");
-    const [rawId, name, rawDept, jobTitle, rawEmail, alias, rawActive] = entry;
-    const department = approved.get(namekey(rawDept));
-    const email = rawEmail.toLowerCase();
-    let ident = rawId;
+    if (r > MAX_ROWS + 2) throw new Error("Maximum 2,000 employees per import");
+    const [id, full_name, department, job_title, email, payment_alias, active] = entry;
+    rows.push({ row: r, id, full_name, department, job_title, email, payment_alias, active });
+  }
+  if (!rows.length) throw new Error("Excel has no employee rows");
+  return rows;
+}
+
+/** Coerces untrusted JSON (rows corrected on the preview screen) into raw rows. */
+export function rawRowsFromJson(input: unknown): PeopleRawRow[] {
+  if (!Array.isArray(input) || !input.length) throw new Error("No employee rows to check");
+  if (input.length > MAX_ROWS) throw new Error("Maximum 2,000 employees per import");
+  return input.map((x, i) => {
+    const o = (x ?? {}) as Record<string, unknown>;
+    const s = (k: string, n = 200) => String(o[k] ?? "").slice(0, n);
+    const row = Number(o.row);
+    return {
+      row: Number.isInteger(row) && row > 0 ? row : i + 2,
+      id: s("id", 64),
+      full_name: s("full_name"),
+      department: s("department"),
+      job_title: s("job_title"),
+      email: s("email"),
+      payment_alias: s("payment_alias"),
+      active: s("active", 20),
+    };
+  });
+}
+
+/**
+ * Validates roster rows like the source parse_excel(), after applying only safe corrections
+ * (each reported as a warning): tidy spacing, drop an email that is not an address (email is
+ * optional), and read near-miss department names as the approved one. Anything that needs a
+ * person's decision (missing department, one email on two people) stays an error.
+ */
+export async function validatePeopleRows(input: PeopleRawRow[]): Promise<PeopleImportRow[]> {
+  const [catalogue, people] = await Promise.all([
+    getDepartmentCatalogue(),
+    prisma.financePerson.findMany({ select: { id: true, fullName: true, department: true, email: true } }),
+  ]);
+  const existing = new Map(people.map((p) => [p.id, p]));
+  const byEmail = new Map(people.filter((p) => p.email).map((p) => [namekey(p.email), p]));
+
+  // Pass 1: safe corrections.
+  const prepared = input.map((raw) => {
+    const warnings: string[] = [];
+    const name = tidy(raw.full_name);
+    const jobTitle = tidy(raw.job_title);
+    const alias = tidy(raw.payment_alias);
+    let email = raw.email.trim().toLowerCase();
+    if (email && !EMAIL_RE.test(email)) {
+      warnings.push(`Email "${raw.email.trim()}" is not an email address, so it was left blank`);
+      email = "";
+    }
+    const rawDept = tidy(raw.department);
+    const department = resolveDepartment(rawDept, catalogue);
+    if (department && namekey(department) !== namekey(rawDept)) warnings.push(`Department "${rawDept}" read as "${department}"`);
+    return { raw, name, jobTitle, alias, email, rawDept, department, warnings };
+  });
+
+  // Emails used by more than one row in this upload.
+  const emailRows = new Map<string, number[]>();
+  for (const p of prepared) if (p.email) emailRows.set(p.email, [...(emailRows.get(p.email) ?? []), p.raw.row]);
+
+  // Pass 2: validation, exactly the source's rules.
+  const seen = new Set<string>();
+  return prepared.map(({ raw, name, jobTitle, alias, email, rawDept, department, warnings }) => {
     const errors: string[] = [];
+    const rawId = raw.id.trim();
+    let ident = rawId;
+    const sharing = (email ? emailRows.get(email) ?? [] : []).filter((r) => r !== raw.row);
     if (!name || name.length < 2 || name.startsWith("=")) errors.push("Full Name is required");
     if (!rawId && namekey(name) === "example employee") errors.push("Replace the example row with a real employee");
-    if (!department) errors.push("Department must match an approved department");
+    if (!department) errors.push(rawDept ? `Department "${rawDept}" is not an approved department` : "Department is missing");
     if (!jobTitle) errors.push("Job Title is required");
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Invalid email address");
+    if (sharing.length) errors.push(`Same email as row ${sharing.join(", ")}; choose who it belongs to`);
     if (ident && !existing.has(ident)) errors.push("Unknown Employee ID; leave blank for a new employee");
     const emailOwner = email ? byEmail.get(namekey(email)) : undefined;
     if (ident && emailOwner && emailOwner.id !== ident) errors.push("Email belongs to another employee");
-    if (!ident && emailOwner) ident = emailOwner.id;
+    if (!ident && emailOwner && !sharing.length) ident = emailOwner.id;
     if (!ident && !email) {
       const matches = people.filter((p) => namekey(p.fullName) === namekey(name) && namekey(p.department) === namekey(department));
       if (matches.length === 1) ident = matches[0].id;
       if (matches.length > 1) errors.push("Ambiguous existing name; use Employee ID");
     }
-    const key = ident || `new:${namekey(email || `${name}|${department ?? ""}`)}`;
+    const key = ident || `new:${namekey(sharing.length ? `${name}|${department ?? ""}` : email || `${name}|${department ?? ""}`)}`;
     if (seen.has(key)) errors.push("Duplicate employee within workbook");
     seen.add(key);
-    const active = rawActive.toLowerCase();
-    if (!["yes", "no", "true", "false", "active", "inactive", "1", "0", ""].includes(active)) errors.push("Active must be Yes or No");
-    rows.push({
-      row: r,
+    const active = raw.active.trim().toLowerCase();
+    if (!ACTIVE_VALUES.includes(active)) errors.push("Active must be Yes or No");
+    return {
+      row: raw.row,
       id: ident,
       full_name: name,
       department: department ?? rawDept,
       job_title: jobTitle,
       email,
       payment_alias: alias,
-      active: !["no", "false", "inactive", "0"].includes(active),
+      active: !["no", "false", "inactive", "0", "n"].includes(active),
       status: errors.length ? "Error" : ident ? "Update" : "Add",
       errors,
-    });
-  }
-  if (!rows.length) throw new Error("Excel has no employee rows");
-  return rows;
+      warnings,
+      emailConflictRows: sharing,
+    };
+  });
 }
 
-/** Commit: re-parse the uploaded workbook server-side (never trust client rows) and save each person. */
-export async function importPeople(buf: ArrayBuffer, actor: { id: string; email: string }) {
-  const rows = await parsePeopleWorkbook(buf);
-  if (rows.some((r) => r.errors.length)) throw new Error("Resolve all Excel errors before importing");
+/** Reads and validates a roster workbook (preview). */
+export async function parsePeopleWorkbook(buf: ArrayBuffer): Promise<PeopleImportRow[]> {
+  return validatePeopleRows(await readPeopleWorkbook(buf));
+}
+
+/** Commit: re-validates the rows server-side (never trusts the preview result) and saves each person. */
+export async function importPeople(input: PeopleRawRow[], actor: { id: string; email: string }) {
+  const rows = await validatePeopleRows(input);
+  if (rows.some((r) => r.errors.length)) throw new Error("Resolve all errors before importing");
   let added = 0;
   let updated = 0;
   for (const r of rows) {
