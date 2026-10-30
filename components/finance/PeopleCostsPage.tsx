@@ -9,6 +9,8 @@ import { fyOf } from "@/lib/finance/financeFilters";
 import { effectiveCentre } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { PERSONNEL_COST_HEADS, personCostColumn, personCostHead } from "@/lib/finance/personCostHeads";
+import { LIST_PAGE, ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
+import { alertDialog, confirmDialog, promptDialog } from "./dialogs";
 
 // Port of the source app's People Costs screen at v41: employee roster Excel import, suggested
 // name/alias payment matches, the cost-per-person report, the employee register (job title,
@@ -191,14 +193,23 @@ export function PeopleCostsPage({
    */
   async function chooseCategory(value: string, apply: (costType: string) => void) {
     if (value !== NEW_CATEGORY) return apply(value);
-    const name = window.prompt("New Simple cost head (e.g. Performance Bonus). It is added to the Finance cost head list:")?.trim().split(/\s+/).join(" ");
+    const name = (
+      await promptDialog("It is added to the Finance cost head list and available on every screen.", {
+        title: "New Simple cost head",
+        confirmLabel: "Add cost head",
+        placeholder: "e.g. Performance Bonus",
+      })
+    )
+      ?.trim()
+      .split(/\s+/)
+      .join(" ");
     if (!name) return;
     const existing = categoryOptions.find((c) => c.toLowerCase() === name.toLowerCase());
     if (existing) return apply(existing);
     try {
       await postJson("/api/finance/cost-heads", { name });
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Could not add the cost head");
+      await alertDialog(err instanceof Error ? err.message : "Could not add the cost head", { title: "Cost head not added" });
       return;
     }
     setAddedTypes((prev) => [...prev, name]);
@@ -297,6 +308,11 @@ export function PeopleCostsPage({
       ),
     [costPerPerson]
   );
+  // 10 people at a time; the Department/Person filters above the table (and the global filters) reset it.
+  const costMore = useShowMore(
+    costPerPerson,
+    `${costPerPerson.length}|${filterDept}|${filterPerson}|${filters.fy}|${filters.start}|${filters.end}|${filters.country}|${filters.department}`
+  );
   const historyRef = useRef<HTMLDivElement | null>(null);
   const showPersonPayments = (personId: string) => {
     setFilterPerson(personId);
@@ -335,7 +351,13 @@ export function PeopleCostsPage({
   const syncLedger = () =>
     run("ledger", async () => {
       if (!ledgerSync?.count) return;
-      if (!window.confirm(`Move ${ledgerSync.count} linked payments to their employee's department in Spending Explorer? This is one change you can undo in Change History.`)) return;
+      if (
+        !(await confirmDialog(
+          `Move ${ledgerSync.count} linked payments to their employee's department in Spending Explorer? This is one change you can undo in Change History.`,
+          { title: "Move linked payments", confirmLabel: `Move ${ledgerSync.count} payments` }
+        ))
+      )
+        return;
       const body = await postJson("/api/finance/people/ledger-sync", {});
       await reload();
       return `Moved ${body.moved} payments to their employee's department. Spending Explorer now shows them there.`;
@@ -358,6 +380,13 @@ export function PeopleCostsPage({
   const [rechecking, setRechecking] = useState(false);
   const checkSeq = useRef(0);
   const recheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Preview rows 10 at a time. The reset key leaves out the row count so fixing a row (which drops it
+  // out of "Needs attention") doesn't collapse the list while the user is correcting it.
+  const previewShown = useMemo(
+    () => (!preview ? [] : showAllRows ? preview.rows : preview.rows.filter((r) => r.errors.length || r.warnings.length)),
+    [preview, showAllRows]
+  );
+  const previewMore = useShowMore(previewShown, `${preview?.fileName ?? ""}|${showAllRows}`);
 
   function editRows(update: (rows: RawRosterRow[]) => RawRosterRow[]) {
     if (!preview) return;
@@ -396,7 +425,7 @@ export function PeopleCostsPage({
     if (importing.current) return;
     return run("commit", async () => {
       if (!preview || preview.errors || rechecking) throw new Error("Fix the highlighted rows before import.");
-      if (!window.confirm(`Import ${preview.rows.length} employee records? No payment amounts will be changed.`)) return;
+      if (!(await confirmDialog(`Import ${preview.rows.length} employee records? No payment amounts will be changed.`, { title: "Import employees", confirmLabel: "Import" }))) return;
       importing.current = true;
       try {
         const res = await fetch("/api/finance/people/commit", {
@@ -454,7 +483,12 @@ export function PeopleCostsPage({
     }
     return { rows: Array.from(groups.values()).sort((a, b) => b.total - a.total), companyCount, companyTotal };
   }, [transactions, suggestions, balance]);
-  const [showAllUnknown, setShowAllUnknown] = useState(false);
+  // Both lists show 10 at a time with their own search. "Select exact matches" / "Select all incl. Check"
+  // still pick from the full suggestions list, not just the rows on screen.
+  const suggestionSearch = useListSearch(suggestions, (s) => [s.personName, s.description, s.jobTitle, s.department, s.costType, s.month, s.transactionId, s.amountUsd.toFixed(2)]);
+  const suggestionMore = useShowMore(suggestionSearch.filtered, `${suggestions.length}|${suggestionSearch.query}`);
+  const unknownSearch = useListSearch(unknownPayees.rows, (g) => [g.name, g.latest, g.total.toFixed(2)]);
+  const unknownMore = useShowMore(unknownSearch.filtered, `${unknownPayees.rows.length}|${unknownSearch.query}`);
 
   // Add an unknown payee as a new employee, or attach the bank name to an existing employee as a
   // payment alias. Either way their payments then show up in the suggestions for review.
@@ -529,7 +563,13 @@ export function PeopleCostsPage({
       const ids = [...selectedMatches];
       if (!ids.length) throw new Error("Select proposed matches first.");
       const total = suggestions.filter((s) => selectedMatches.has(s.transactionId)).reduce((n, s) => n + s.amountUsd, 0);
-      if (!window.confirm(`Assign ${ids.length} existing payments to the suggested employees? Total: ${usd(total)}\n\nReview the individual employee names first.`)) return;
+      if (
+        !(await confirmDialog(`Assign ${ids.length} existing payments to the suggested employees? Total: ${usd(total)}\n\nReview the individual employee names first.`, {
+          title: "Link suggested payments",
+          confirmLabel: `Link ${ids.length} payments`,
+        }))
+      )
+        return;
       const body = await postJson("/api/finance/people/link-suggestions", { transactionIds: ids }).catch(async (err) => {
         // A timeout can still have saved on the server: reload so the screen shows what really happened.
         setSelectedMatches(new Set());
@@ -564,7 +604,9 @@ export function PeopleCostsPage({
       })
       .sort((a, b) => String(b.date ?? b.month).localeCompare(String(a.date ?? a.month)) || String(b.id).localeCompare(String(a.id)));
   }, [transactions, query, scope, onlyUnassigned, balance]);
-  const displayed = choices.slice(0, 80);
+  // 10 results at a time; "Select shown" ticks the rows currently on screen.
+  const choicesMore = useShowMore(choices, `${choices.length}|${query}|${scope}|${onlyUnassigned}`);
+  const displayed = choicesMore.visible;
   const pickEntries = Object.entries(picks);
   const pickTotal = pickEntries.reduce((n, [, p]) => n + (Number(p.amountUsd) || 0), 0);
 
@@ -591,6 +633,9 @@ export function PeopleCostsPage({
   const [editPerson, setEditPerson] = useState<Person | null>(null);
   const employeesRef = useRef<HTMLDivElement | null>(null);
   const [personError, setPersonError] = useState<string | null>(null);
+  // Employee register: searchable, 10 at a time.
+  const employeeSearch = useListSearch(people, (p) => [p.fullName, p.department, p.jobTitle, p.paymentAlias, p.email]);
+  const employeeMore = useShowMore(employeeSearch.filtered, `${people.length}|${employeeSearch.query}`);
   function startEditPerson(p: Person) {
     setPersonError(null);
     setEditPerson({ ...p });
@@ -627,7 +672,13 @@ export function PeopleCostsPage({
         if (!t || !(Number(p.amountUsd) > 0) || cents(p.amountUsd) > cents(balance(t))) throw new Error("A selected payment amount exceeds its unallocated balance.");
       }
       const employee = people.find((p) => p.id === selectedEmployee)?.fullName ?? "employee";
-      if (!window.confirm(`Allocate ${pickEntries.length} payments totalling ${usd(pickTotal)} to ${employee}? Categories and amounts will be logged as a single undoable action.`)) return;
+      if (
+        !(await confirmDialog(
+          `Allocate ${pickEntries.length} payments totalling ${usd(pickTotal)} to ${employee}? Cost heads and amounts will be logged as a single undoable action.`,
+          { title: "Allocate payments", confirmLabel: "Allocate" }
+        ))
+      )
+        return;
       const body = await postJson("/api/finance/people/allocate-batch", {
         personId: selectedEmployee,
         items: pickEntries.map(([transactionId, p]) => ({ transactionId, ...p })),
@@ -665,7 +716,7 @@ export function PeopleCostsPage({
     const lines = (clear ? [] : draftLines)
       .filter((l) => l.personId && l.amountUsd)
       .map(({ personId, costType, amountUsd, reference, note }) => ({ personId, costType, amountUsd, reference, note }));
-    if (!window.confirm(`Save ${lines.length} allocation line(s) against this original payment?`)) return;
+    if (!(await confirmDialog(`Save ${lines.length} allocation line(s) against this original payment?`, { title: "Save allocation", confirmLabel: "Save" }))) return;
     setBusy("alloc");
     setAllocError(null);
     try {
@@ -682,9 +733,12 @@ export function PeopleCostsPage({
   }
 
   const history = useMemo(
-    () => [...filteredAllocations].sort((a, b) => new Date(b.paymentDate ?? 0).getTime() - new Date(a.paymentDate ?? 0).getTime()).slice(0, 200),
+    () => [...filteredAllocations].sort((a, b) => new Date(b.paymentDate ?? 0).getTime() - new Date(a.paymentDate ?? 0).getTime()),
     [filteredAllocations]
   );
+  // Newest first, 10 at a time, with its own search (changing a category keeps the current page length).
+  const historySearch = useListSearch(history, (h) => [h.personName, h.departmentSnapshot, personCostHead(h.costType), h.paymentDescription, h.reference, h.transactionId, h.month, h.amountUsd.toFixed(2)]);
+  const historyMore = useShowMore(historySearch.filtered, `${filteredAllocations.length}|${filterDept}|${filterPerson}|${historySearch.query}`);
   const selectedName = people.find((p) => p.id === selectedEmployee)?.fullName;
 
   return (
@@ -733,7 +787,7 @@ export function PeopleCostsPage({
           </p>
           {preview && (() => {
             const autoFixed = preview.rows.filter((r) => r.warnings.length && !r.errors.length).length;
-            const shown = showAllRows ? preview.rows : preview.rows.filter((r) => r.errors.length || r.warnings.length);
+            const shown = previewShown;
             const rawByRow = new Map(preview.rawRows.map((r) => [r.row, r]));
             const cellInput = `${inputClass} min-w-[130px]`;
             return (
@@ -750,16 +804,16 @@ export function PeopleCostsPage({
                   All rows ({preview.rows.length})
                 </button>
               </div>
-              <div className="max-h-[420px] overflow-auto rounded-xl border border-base-700">
+              <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
-                  <thead className="sticky top-0 z-10 border-b border-base-700 bg-base-900 text-ink-500">
+                  <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                     <tr>{["Row", "Status", "Name", "Department", "Job title", "Email", "Check"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr>
                   </thead>
                   <tbody>
                     {shown.length === 0 && (
                       <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-500">Nothing needs attention. Switch to All rows to review everything.</td></tr>
                     )}
-                    {shown.slice(0, 500).map((r) => {
+                    {previewMore.visible.map((r) => {
                       const raw = rawByRow.get(r.row);
                       const fix = r.errors.length > 0 && raw;
                       return (
@@ -810,6 +864,7 @@ export function PeopleCostsPage({
                   </tbody>
                 </table>
               </div>
+              <ShowMoreBar state={previewMore} />
               <div className="mt-2 flex gap-2">
                 <button onClick={commitExcel} disabled={!!busy || rechecking || preview.errors > 0} className={primaryBtn}>
                   {busy === "commit"
@@ -867,14 +922,17 @@ export function PeopleCostsPage({
                 <button onClick={linkMatches} disabled={!!busy || !selectedMatches.size} className={primaryBtn}>
                   {busy === "link" ? "Linking…" : `Link ${selectedMatches.size} reviewed payments`}
                 </button>
+                {suggestions.length > LIST_PAGE && (
+                  <ListSearch value={suggestionSearch.query} onChange={suggestionSearch.setQuery} placeholder="Filter person, payment, department…" className="ml-auto" />
+                )}
               </div>
-              <div className="max-h-[320px] overflow-auto rounded-xl border border-base-700">
+              <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
-                  <thead className="sticky top-0 border-b border-base-700 bg-base-900 text-ink-500">
+                  <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                     <tr>{["Select", "Payment", "Suggested person", "Job title", "Department", "Type", "Amount (USD)"].map((h) => <th key={h} className={`px-3 py-2 ${h.startsWith("Amount") ? "text-right" : ""}`}>{h}</th>)}</tr>
                   </thead>
                   <tbody>
-                    {suggestions.map((s) => (
+                    {suggestionMore.visible.map((s) => (
                       <tr key={s.transactionId} className="border-b border-base-800 text-ink-300 last:border-0">
                         <td className="px-3 py-1.5">
                           <input
@@ -911,9 +969,13 @@ export function PeopleCostsPage({
                         <td className="px-3 py-1.5 text-right">{usd(s.amountUsd)}</td>
                       </tr>
                     ))}
+                    {suggestionSearch.filtered.length === 0 && (
+                      <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-500">No suggestions match “{suggestionSearch.query}”.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              <ShowMoreBar state={suggestionMore} />
             </>
           ) : (
             <p className="text-xs text-ink-500">No unique unassigned payroll matches. Import employees, then refresh this page. Payments with unclear matches should be assigned manually.</p>
@@ -939,9 +1001,12 @@ export function PeopleCostsPage({
                 {payeeMessage.text}
               </p>
             )}
-            <div className="max-h-[320px] overflow-auto rounded-xl border border-base-700">
+            {unknownPayees.rows.length > LIST_PAGE && (
+              <ListSearch value={unknownSearch.query} onChange={unknownSearch.setQuery} placeholder="Filter names…" className="mb-2" />
+            )}
+            <div className="overflow-x-auto rounded-xl border border-base-700">
               <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 border-b border-base-700 bg-base-900 text-ink-500">
+                <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                   <tr>
                     <th className="px-3 py-2">Name on the payment</th>
                     <th className="px-3 py-2 text-right">Payments</th>
@@ -951,7 +1016,7 @@ export function PeopleCostsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {(showAllUnknown ? unknownPayees.rows : unknownPayees.rows.slice(0, 25)).map((g) => (
+                  {unknownMore.visible.map((g) => (
                     <Fragment key={g.name}>
                     <tr className="border-b border-base-800 text-ink-300 last:border-0">
                       <td className="px-3 py-1.5 font-medium text-ink-50">{g.name}</td>
@@ -1034,15 +1099,14 @@ export function PeopleCostsPage({
                     )}
                     </Fragment>
                   ))}
+                  {unknownSearch.filtered.length === 0 && (
+                    <tr><td colSpan={5} className="px-3 py-6 text-center text-ink-500">No names match “{unknownSearch.query}”.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
+            <ShowMoreBar state={unknownMore} />
             <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-500">
-              {unknownPayees.rows.length > 25 && (
-                <button onClick={() => setShowAllUnknown((v) => !v)} className={smallBtn}>
-                  {showAllUnknown ? "Show top 25" : `Show all ${unknownPayees.rows.length}`}
-                </button>
-              )}
               {unknownPayees.companyCount > 0 && (
                 <span>
                   {unknownPayees.companyCount} more payments ({usd(unknownPayees.companyTotal)}) are company, office-wide payroll or fee payments (e.g.
@@ -1095,7 +1159,7 @@ export function PeopleCostsPage({
                 </tr>
               </thead>
               <tbody>
-                {costPerPerson.map((row) => (
+                {costMore.visible.map((row) => (
                   <tr
                     key={row.personId}
                     onClick={() => {
@@ -1116,6 +1180,8 @@ export function PeopleCostsPage({
                           e.stopPropagation();
                           const person = people.find((p) => p.id === row.personId);
                           if (!person) return;
+                          // The employee list shows 10 at a time: narrow it to this person so the editor is on screen.
+                          employeeSearch.setQuery(person.fullName);
                           startEditPerson(person);
                           setTimeout(() => employeesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
                         }}
@@ -1153,6 +1219,7 @@ export function PeopleCostsPage({
               </tbody>
             </table>
           </div>
+          <ShowMoreBar state={costMore} />
         </WidgetCard>
       </div>
 
@@ -1163,9 +1230,15 @@ export function PeopleCostsPage({
             Employees are added through the Excel import above. Click Edit to correct a name, department, job title or payment alias; linked
             payments stay with the person.
           </p>
-          <div className="flex max-h-[520px] flex-col gap-1 overflow-y-auto">
+          {people.length > LIST_PAGE && (
+            <ListSearch value={employeeSearch.query} onChange={employeeSearch.setQuery} placeholder="Search name, department, job title or alias…" className="mb-2" />
+          )}
+          <div className="flex flex-col gap-1">
             {people.length === 0 && <p className="px-2 py-6 text-center text-xs text-ink-500">No employees yet. Upload the employee Excel to add them.</p>}
-            {people.map((p) =>
+            {people.length > 0 && employeeSearch.filtered.length === 0 && (
+              <p className="px-2 py-6 text-center text-xs text-ink-500">No employees match “{employeeSearch.query}”.</p>
+            )}
+            {employeeMore.visible.map((p) =>
               editPerson?.id === p.id ? (
                 <div key={p.id} className="rounded-lg border border-base-600 bg-base-800 p-3 text-xs">
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1227,6 +1300,7 @@ export function PeopleCostsPage({
               )
             )}
           </div>
+          <ShowMoreBar state={employeeMore} />
         </WidgetCard>
         </div>
 
@@ -1245,8 +1319,11 @@ export function PeopleCostsPage({
                 className={`${inputClass} normal-case tracking-normal ${!selectedEmployee && pickEntries.length ? "border-status-inactive ring-1 ring-status-inactive" : ""}`}
               >
                 <option value="">Choose employee…</option>
-                {people.filter((p) => p.active || p.id === selectedEmployee).map((p) => (
-                  <option key={p.id} value={p.id}>{p.fullName} ({p.department ?? "—"})</option>
+                {/* Everyone, A–Z; employees who have left get a small "inactive" note so their past payments can still be assigned. */}
+                {people.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.fullName} ({p.department ?? "—"}){p.active ? "" : " · inactive"}
+                  </option>
                 ))}
               </select>
             </label>
@@ -1280,7 +1357,7 @@ export function PeopleCostsPage({
               <button disabled={!pickEntries.length} onClick={() => setPicks({})} className={smallBtn}>Clear selected</button>
             </div>
           </div>
-          <div className="mt-2 flex max-h-[335px] flex-col gap-1 overflow-y-auto">
+          <div className="mt-2 flex flex-col gap-1">
             {displayed.map((t) => {
               const left = balance(t);
               const used = (usedCents.get(t.id) ?? 0) / 100;
@@ -1303,8 +1380,9 @@ export function PeopleCostsPage({
             })}
             {displayed.length === 0 && <p className="p-2 text-xs text-ink-500">No matching payments. Try a description, amount or reference. You can also choose All payments.</p>}
           </div>
+          <ShowMoreBar state={choicesMore} />
           <p className="mt-2 text-[11px] text-ink-500">
-            Showing {displayed.length} of {choices.length} matches. Tick multiple rows to add them below. Search matches payment descriptions across all years.
+            {choices.length.toLocaleString()} matches. Tick multiple rows to add them below. Search matches payment descriptions across all years.
           </p>
         </WidgetCard>
         </div>
@@ -1433,7 +1511,14 @@ export function PeopleCostsPage({
       <div className="mt-4 scroll-mt-4" ref={historyRef}>
         <WidgetCard
           title={filterPerson !== "all" ? `Payments linked to ${people.find((p) => p.id === filterPerson)?.fullName ?? "this person"}` : "Commission and payroll history"}
-          action={<Link href="/finance/history" className="text-[11px] text-ink-300 hover:text-ink-50">Change History ↗</Link>}
+          action={
+            <div className="flex items-center gap-3">
+              {history.length > LIST_PAGE && (
+                <ListSearch value={historySearch.query} onChange={historySearch.setQuery} placeholder="Filter employee, payment, reference…" />
+              )}
+              <Link href="/finance/history" className="shrink-0 text-[11px] text-ink-300 hover:text-ink-50">Change History ↗</Link>
+            </div>
+          }
         >
           {historyMessage && (
             <p className={`mb-3 rounded-lg border px-3 py-2 text-xs ${historyMessage.kind === "ok" ? "border-status-active/40 bg-status-active/10 text-status-active" : "border-status-inactive/40 bg-status-inactive/10 text-status-inactive"}`}>
@@ -1453,7 +1538,7 @@ export function PeopleCostsPage({
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
+                {historyMore.visible.map((h) => (
                   <tr key={h.id} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2">{h.paymentDate ? String(h.paymentDate).slice(0, 10) : h.month}</td>
                     <td className="px-3 py-2 font-medium text-ink-50">{h.personName}</td>
@@ -1482,14 +1567,15 @@ export function PeopleCostsPage({
                     <td colSpan={6} className="px-3 py-6 text-center text-ink-500">No allocations yet.</td>
                   </tr>
                 )}
+                {history.length > 0 && historySearch.filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-ink-500">No allocations match “{historySearch.query}”.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-          {filteredAllocations.length > 200 && (
-            <p className="mt-2 text-[11px] text-ink-500">
-              Showing the latest 200 of {filteredAllocations.length.toLocaleString()} lines. Narrow the year, month, department or person for more detail.
-            </p>
-          )}
+          <ShowMoreBar state={historyMore} />
         </WidgetCard>
       </div>
     </div>

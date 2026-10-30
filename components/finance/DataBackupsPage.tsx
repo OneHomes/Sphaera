@@ -5,6 +5,7 @@ import { DatabaseBackup, Download, UploadCloud, AlertTriangle, Sparkles } from "
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 import { mo } from "@/lib/finance/financeReporting";
+import { LIST_PAGE, ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 
 // Direct structural port of the source app's "Local SQL database and
 // management settings" screen. This port stores the ledger and every
@@ -62,6 +63,9 @@ export function DataBackupsPage({
   const [savingMonth, setSavingMonth] = useState(false);
   const [monthError, setMonthError] = useState<string | null>(null);
   const [monthOverrides, setMonthOverrides] = useState<Record<string, number>>({});
+  // One row per month across every year — show 10 at a time, filterable by month label.
+  const monthSearch = useListSearch(state.monthly, (m) => [m.month, mo(m.month)]);
+  const monthMore = useShowMore(monthSearch.filtered, `${monthSearch.filtered.length}|${monthSearch.query}`);
 
   async function handleDownloadBackup() {
     setDownloading(true);
@@ -266,8 +270,11 @@ export function DataBackupsPage({
             automatically from a compatible tab in that same file; otherwise they must be entered here manually.
           </p>
 
+          {state.monthly.length > LIST_PAGE && (
+            <ListSearch value={monthSearch.query} onChange={monthSearch.setQuery} placeholder="Filter months…" className="mt-3" />
+          )}
           <div className="mt-3 divide-y divide-base-800 rounded-xl border border-base-700">
-            {state.monthly.map((m) => {
+            {monthMore.visible.map((m) => {
               const effectiveBudget = monthOverrides[m.month] ?? m.opexBudget;
               const missing = !effectiveBudget;
               return (
@@ -320,7 +327,11 @@ export function DataBackupsPage({
             {state.monthly.length === 0 && (
               <p className="px-3 py-6 text-center text-xs text-ink-500">No months recorded yet.</p>
             )}
+            {state.monthly.length > 0 && monthSearch.filtered.length === 0 && (
+              <p className="px-3 py-6 text-center text-xs text-ink-500">No months match.</p>
+            )}
           </div>
+          <ShowMoreBar state={monthMore} />
           {monthError && <p className="mt-2 text-xs text-status-inactive">{monthError}</p>}
         </WidgetCard>
       </div>

@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "@/components/finance/ShowMore";
 
 export type FundName = "S&M" | "Development" | "Unallocated";
 
@@ -399,6 +400,20 @@ export function BanksPage({ state: initialState }: { state: TreasuryState }) {
       (erpFilter === "all" || b.erpSourceId === erpFilter)
   );
   const selectedBank = state.banks.find((b) => b.id === selectedBankId) ?? null;
+  const registerSearch = useListSearch(scopedBanks, (b) => [
+    b.label,
+    b.bank,
+    b.legalEntity,
+    b.country,
+    b.currency,
+    b.maskedAccount,
+    b.erpAccountNumber,
+    b.erpAccountId,
+  ]);
+  const registerMore = useShowMore(
+    registerSearch.filtered,
+    `${registerSearch.filtered.length}|${registerSearch.query}|${entityFilter}|${currencyFilter}|${erpFilter}`
+  );
 
   const unreconciled = scopedBanks.filter(
     (b) => b.reconciliationDifference !== null && Math.abs(b.reconciliationDifference) > 0.01
@@ -451,27 +466,39 @@ export function BanksPage({ state: initialState }: { state: TreasuryState }) {
       </div>
 
       <div className="mt-4 rounded-xl border border-base-700 bg-base-900 p-4">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-medium text-ink-50">Bank register</h3>
-          <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{scopedBanks.length} accounts</span>
+          <div className="flex flex-1 items-center justify-end gap-2">
+            <ListSearch
+              value={registerSearch.query}
+              onChange={registerSearch.setQuery}
+              placeholder="Filter banks, entities, accounts…"
+            />
+            <span className="shrink-0 rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{scopedBanks.length} accounts</span>
+          </div>
         </div>
         {scopedBanks.length === 0 ? (
           <p className="py-6 text-center text-xs text-ink-500">
             No bank accounts registered. Create them first, then link their ERP account IDs to pull balances
             automatically.
           </p>
+        ) : registerSearch.filtered.length === 0 ? (
+          <p className="py-6 text-center text-xs text-ink-500">No bank accounts match this filter.</p>
         ) : (
-          <div className="space-y-2">
-            {scopedBanks.map((b) => (
-              <BankListItem
-                key={b.id}
-                bank={b}
-                erpSources={erpSources}
-                selected={selectedBankId === b.id}
-                onClick={() => setSelectedBankId(selectedBankId === b.id ? null : b.id)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="space-y-2">
+              {registerMore.visible.map((b) => (
+                <BankListItem
+                  key={b.id}
+                  bank={b}
+                  erpSources={erpSources}
+                  selected={selectedBankId === b.id}
+                  onClick={() => setSelectedBankId(selectedBankId === b.id ? null : b.id)}
+                />
+              ))}
+            </div>
+            <ShowMoreBar state={registerMore} />
+          </>
         )}
         {reloading && <p className="mt-2 text-[11px] text-ink-500">Refreshing…</p>}
       </div>
@@ -533,6 +560,28 @@ function BankDetailPanel({
 }) {
   const rows = movements.filter((m) => m.bankAccountId === bank.id);
   const sett = settlements.filter((s) => s.bankAccountId === bank.id);
+  const postingSearch = useListSearch(rows, (r) => [
+    r.sourceUid,
+    r.description,
+    r.transactionType,
+    r.reference,
+    r.fund,
+    r.approvedBy,
+    r.currency,
+    r.allocatedAmount,
+    formatDate(r.txnDate),
+  ]);
+  const postingMore = useShowMore(postingSearch.filtered, `${bank.id}|${postingSearch.filtered.length}|${postingSearch.query}`);
+  const settSearch = useListSearch(sett, (p) => [
+    p.provider,
+    p.payoutId,
+    p.status,
+    p.fund,
+    p.currency,
+    p.net,
+    formatDate(p.expectedDate),
+  ]);
+  const settMore = useShowMore(settSearch.filtered, `${bank.id}|${settSearch.filtered.length}|${settSearch.query}`);
   const donutData = (Object.keys(bank.allocations) as FundName[])
     .map((fund) => ({ name: fund, value: Math.max(bank.allocations[fund] ?? 0, 0) }))
     .filter((d) => d.value > 0);
@@ -632,6 +681,15 @@ function BankDetailPanel({
           </button>
         }
       >
+        {rows.length > 0 && (
+          <div className="mb-2">
+            <ListSearch
+              value={postingSearch.query}
+              onChange={postingSearch.setQuery}
+              placeholder="Filter postings, references, funds…"
+            />
+          </div>
+        )}
         <div className="overflow-x-auto rounded-xl border border-base-700">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -644,7 +702,7 @@ function BankDetailPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {postingMore.visible.map((r) => (
                 <tr key={`${r.id}-${r.fund}`} className="border-b border-base-800 text-ink-300 last:border-0">
                   <td className="px-3 py-2 text-ink-50">
                     {formatDate(r.txnDate)}
@@ -659,19 +717,25 @@ function BankDetailPanel({
                   <td className="px-3 py-2">{r.approvedBy ?? "—"}</td>
                 </tr>
               ))}
-              {rows.length === 0 && (
+              {postingSearch.filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-3 py-6 text-center text-ink-500">
-                    No allocation postings on this account.
+                    {rows.length === 0 ? "No allocation postings on this account." : "No postings match this filter."}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        <ShowMoreBar state={postingMore} />
       </WidgetCard>
 
       <WidgetCard title="Stripe & Trust Payments settlements" icon={CreditCard}>
+        {sett.length > 0 && (
+          <div className="mb-2">
+            <ListSearch value={settSearch.query} onChange={settSearch.setQuery} placeholder="Filter payouts, status, fund…" />
+          </div>
+        )}
         <div className="overflow-x-auto rounded-xl border border-base-700">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -684,7 +748,7 @@ function BankDetailPanel({
               </tr>
             </thead>
             <tbody>
-              {sett.map((p) => (
+              {settMore.visible.map((p) => (
                 <tr key={p.id} className="border-b border-base-800 text-ink-300 last:border-0">
                   <td className="px-3 py-2 text-ink-50">
                     {p.provider} · {p.payoutId}
@@ -707,16 +771,17 @@ function BankDetailPanel({
                   </td>
                 </tr>
               ))}
-              {sett.length === 0 && (
+              {settSearch.filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-3 py-6 text-center text-ink-500">
-                    No settlements linked to this bank.
+                    {sett.length === 0 ? "No settlements linked to this bank." : "No settlements match this filter."}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        <ShowMoreBar state={settMore} />
       </WidgetCard>
     </div>
   );

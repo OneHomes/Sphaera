@@ -14,6 +14,7 @@ import {
   type BankRow,
   type FundName,
 } from "@/components/finance/BanksPage";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "@/components/finance/ShowMore";
 
 type FundBankRow = { bankId: string; amount: number; currency: string | null; usdEquivalent: number | null };
 type FundRow = { fund: FundName; banks: FundBankRow[] };
@@ -105,6 +106,33 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
   const income = forecast.incoming.filter((x) => x.bankAccountId && bankIds.has(x.bankAccountId));
   const out = forecast.outgoing.filter((x) => sources.has(x.bankSourceId));
 
+  const scopeKey = `${entityFilter}|${currencyFilter}|${erpFilter}`;
+  const bankSearchFields = (b: BankRow) => [
+    b.label,
+    b.bank,
+    b.legalEntity,
+    b.country,
+    b.currency,
+    b.maskedAccount,
+    b.erpAccountNumber,
+    b.erpAccountId,
+  ];
+  const fundSearch = useListSearch(fundBanks, bankSearchFields);
+  const fundMore = useShowMore(fundSearch.filtered, `${selectedFund}|${scopeKey}|${fundSearch.filtered.length}|${fundSearch.query}`);
+  const unallocatedBanks = scoped.filter((x) => x.allocations.Unallocated);
+  const unallocatedSearch = useListSearch(unallocatedBanks, bankSearchFields);
+  const unallocatedMore = useShowMore(
+    unallocatedSearch.filtered,
+    `${scopeKey}|${unallocatedSearch.filtered.length}|${unallocatedSearch.query}`
+  );
+  const entityRows = Array.from(entityTotals.entries());
+  const entityMore = useShowMore(entityRows, `${scopeKey}|${entityRows.length}`);
+  const bankLabel = (id: string | null) => state.banks.find((b) => b.id === id)?.label ?? "";
+  const incomeSearch = useListSearch(income, (x) => [x.date, x.provider, x.currency, x.amount, bankLabel(x.bankAccountId)]);
+  const incomeMore = useShowMore(incomeSearch.filtered, `${months}|${scopeKey}|${incomeSearch.filtered.length}|${incomeSearch.query}`);
+  const outSearch = useListSearch(out, (x) => [x.date, x.label, x.currency, x.amount, sources.get(x.bankSourceId)?.label]);
+  const outMore = useShowMore(outSearch.filtered, `${months}|${scopeKey}|${outSearch.filtered.length}|${outSearch.query}`);
+
   return (
     <div className="p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -180,18 +208,27 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
           </span>
         </div>
         {fundBanks.length ? (
-          <div className="space-y-2">
-            {fundBanks.map((x) => (
-              <BankListItem
-                key={x.id}
-                bank={x}
-                erpSources={erpSources}
-                onlyFund={selectedFund}
-                committedForFund={x.committedByFund?.[selectedFund] ?? 0}
-                onClick={() => router.push(`/finance/banks?bank=${encodeURIComponent(x.id)}`)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="mb-2">
+              <ListSearch value={fundSearch.query} onChange={fundSearch.setQuery} placeholder="Filter banks, entities, accounts…" />
+            </div>
+            {fundSearch.filtered.length === 0 && (
+              <p className="py-4 text-center text-xs text-ink-500">No banks match this filter.</p>
+            )}
+            <div className="space-y-2">
+              {fundMore.visible.map((x) => (
+                <BankListItem
+                  key={x.id}
+                  bank={x}
+                  erpSources={erpSources}
+                  onlyFund={selectedFund}
+                  committedForFund={x.committedByFund?.[selectedFund] ?? 0}
+                  onClick={() => router.push(`/finance/banks?bank=${encodeURIComponent(x.id)}`)}
+                />
+              ))}
+            </div>
+            <ShowMoreBar state={fundMore} />
+          </>
         ) : (
           <p className="py-6 text-center text-xs text-ink-500">
             No fund allocation has been recorded for this selection. Add a bank and allocate receipts to begin.
@@ -218,10 +255,18 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
             Show unallocated balances
           </button>
           {showUnallocated && (
-            <div className="mt-2 space-y-2">
-              {scoped
-                .filter((x) => x.allocations.Unallocated)
-                .map((x) => (
+            <>
+              {unallocatedBanks.length > 0 && (
+                <div className="mt-2">
+                  <ListSearch
+                    value={unallocatedSearch.query}
+                    onChange={unallocatedSearch.setQuery}
+                    placeholder="Filter banks, entities, accounts…"
+                  />
+                </div>
+              )}
+              <div className="mt-2 space-y-2">
+                {unallocatedMore.visible.map((x) => (
                   <BankListItem
                     key={x.id}
                     bank={x}
@@ -231,7 +276,9 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
                     onClick={() => router.push(`/finance/banks?bank=${encodeURIComponent(x.id)}`)}
                   />
                 ))}
-            </div>
+              </div>
+              <ShowMoreBar state={unallocatedMore} />
+            </>
           )}
         </div>
 
@@ -243,12 +290,15 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
           {entityTotals.size === 0 ? (
             <p className="py-4 text-center text-xs text-ink-500">No allocations entered.</p>
           ) : (
-            Array.from(entityTotals.entries()).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
-                <b className="text-ink-50">{k}</b>
-                <strong className="text-ink-50">{trMoney(v, k.split(" · ").at(-1))}</strong>
-              </div>
-            ))
+            <>
+              {entityMore.visible.map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
+                  <b className="text-ink-50">{k}</b>
+                  <strong className="text-ink-50">{trMoney(v, k.split(" · ").at(-1))}</strong>
+                </div>
+              ))}
+              <ShowMoreBar state={entityMore} />
+            </>
           )}
         </div>
       </div>
@@ -285,15 +335,24 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
           <div>
             <p className="mb-1.5 text-xs font-medium text-ink-50">Expected incoming processor settlements</p>
             {income.length ? (
-              income.map((x, i) => (
-                <div key={i} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
-                  <span className="text-ink-300">
-                    {x.date} · {x.provider}
-                    <span className="block text-[11px] text-ink-500">{state.banks.find((b) => b.id === x.bankAccountId)?.label ?? ""}</span>
-                  </span>
-                  <strong className="text-ink-50">{trMoney(x.amount, x.currency)}</strong>
+              <>
+                <div className="mb-1.5">
+                  <ListSearch value={incomeSearch.query} onChange={incomeSearch.setQuery} placeholder="Filter payouts, banks…" />
                 </div>
-              ))
+                {incomeSearch.filtered.length === 0 && (
+                  <p className="py-4 text-center text-xs text-ink-500">No payouts match this filter.</p>
+                )}
+                {incomeMore.visible.map((x, i) => (
+                  <div key={i} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
+                    <span className="text-ink-300">
+                      {x.date} · {x.provider}
+                      <span className="block text-[11px] text-ink-500">{bankLabel(x.bankAccountId)}</span>
+                    </span>
+                    <strong className="text-ink-50">{trMoney(x.amount, x.currency)}</strong>
+                  </div>
+                ))}
+                <ShowMoreBar state={incomeMore} />
+              </>
             ) : (
               <p className="py-4 text-center text-xs text-ink-500">No expected payouts entered yet.</p>
             )}
@@ -301,14 +360,23 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
           <div>
             <p className="mb-1.5 text-xs font-medium text-ink-50">Upcoming cash outgoings</p>
             {out.length ? (
-              out.slice(0, 25).map((x, i) => (
-                <div key={i} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
-                  <span className="text-ink-300">
-                    {x.date} · {x.label}
-                  </span>
-                  <strong className="text-ink-50">{trMoney(x.amount, x.currency)}</strong>
+              <>
+                <div className="mb-1.5">
+                  <ListSearch value={outSearch.query} onChange={outSearch.setQuery} placeholder="Filter outgoings…" />
                 </div>
-              ))
+                {outSearch.filtered.length === 0 && (
+                  <p className="py-4 text-center text-xs text-ink-500">No outgoings match this filter.</p>
+                )}
+                {outMore.visible.map((x, i) => (
+                  <div key={i} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
+                    <span className="text-ink-300">
+                      {x.date} · {x.label}
+                    </span>
+                    <strong className="text-ink-50">{trMoney(x.amount, x.currency)}</strong>
+                  </div>
+                ))}
+                <ShowMoreBar state={outMore} />
+              </>
             ) : (
               <p className="py-4 text-center text-xs text-ink-500">No mapped bank commitments in this period.</p>
             )}

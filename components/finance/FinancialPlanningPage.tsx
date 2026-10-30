@@ -19,6 +19,7 @@ import {
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { fyOf } from "@/lib/finance/financeFilters";
 import { effectiveCentre, effectiveHead, isOperating, mo, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
@@ -211,6 +212,10 @@ export function FinancialPlanningPage({
         .reduce((s, t) => s + t.amount, 0),
     }))
     .sort((a, b) => b.budget - a.budget);
+  const headSearch = useListSearch(heads, (r) => [r.department, r.head]);
+  const scopeKey = `${plan?.id ?? ""}|${filters.department}|${filters.start}|${filters.end}`;
+  const headMore = useShowMore(headSearch.filtered, `${headSearch.filtered.length}|${headSearch.query}|${scopeKey}`);
+  const deptMore = useShowMore(deptRows, `${deptRows.length}|${scopeKey}`);
 
   const monthlyRows = fiscalYearMonths(year)
     .filter((m) => (filters.start === "all" || m >= filters.start) && (filters.end === "all" || m <= filters.end))
@@ -399,7 +404,7 @@ export function FinancialPlanningPage({
                 </tr>
               </thead>
               <tbody>
-                {deptRows.map((r) => (
+                {deptMore.visible.map((r) => (
                   <tr key={r.dept} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2 text-ink-50">{r.dept}</td>
                     <td className="px-3 py-2 text-right">{plan ? usd(r.budget) : "Not available"}</td>
@@ -409,6 +414,7 @@ export function FinancialPlanningPage({
               </tbody>
             </table>
           </div>
+          <ShowMoreBar state={deptMore} />
           <p className="mt-2 text-[11px] text-ink-500">
             A full-year plan versus part-year actuals is not a budget variance. Budget variance is calculated only
             for periods with actual transaction data.
@@ -433,6 +439,11 @@ export function FinancialPlanningPage({
             The cost-head table responds to the selected FY, department and month filters. Click a cost head to
             inspect its recorded payments.
           </p>
+          {heads.length > 10 && (
+            <div className="mb-2">
+              <ListSearch value={headSearch.query} onChange={headSearch.setQuery} placeholder="Find a department or cost head…" />
+            </div>
+          )}
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -444,7 +455,7 @@ export function FinancialPlanningPage({
                 </tr>
               </thead>
               <tbody>
-                {heads.map((r) => (
+                {headMore.visible.map((r) => (
                   <tr key={`${r.department} | ${r.head}`} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2">{r.department}</td>
                     <td className="px-3 py-2 text-ink-50">
@@ -470,9 +481,17 @@ export function FinancialPlanningPage({
                     </td>
                   </tr>
                 )}
+                {heads.length > 0 && headSearch.filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
+                      No cost heads match &ldquo;{headSearch.query}&rdquo;.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          <ShowMoreBar state={headMore} />
         </WidgetCard>
       </div>
 

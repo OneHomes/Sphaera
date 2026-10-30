@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Plus, Calculator, CheckCircle2, Network } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { PaymentsTable } from "./PaymentsTable";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { useFilteredFinanceRows } from "./FinanceFilterContext";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 
@@ -407,7 +408,8 @@ export function PaymentTraceabilityPage({
     }
     return rows;
   }, [transactions, traceSearch, sourceFilterId, subFilterId]);
-  const cappedResults = searchResults.slice(0, 300);
+  // No 300-row cap any more: the rows are already in memory and PaymentsTable now shows 10 at a
+  // time with its own Show more.
 
   // --- Lightweight per-payment trace editor (bank ref / account / service / user) ---
   const [editingTx, setEditingTx] = useState<FinanceLedgerRow | null>(null);
@@ -496,6 +498,47 @@ export function PaymentTraceabilityPage({
     }
     return { ...r, parsed };
   });
+
+  // --- "10 at a time + Show more" and per-list filters (One Homes request) ---
+  const sourceSearch = useListSearch(sources, (s) => [
+    s.name,
+    s.kind,
+    s.institution,
+    s.legalEntity,
+    s.currency,
+    s.lastFour,
+  ]);
+  const sourcesMore = useShowMore(sourceSearch.filtered, `${sources.length}|${sourceSearch.query}`);
+
+  const subscriptionSearch = useListSearch(subscriptions, (s) => [
+    s.supplier,
+    s.service,
+    s.purpose,
+    s.owner,
+    s.department,
+    s.costHead,
+    s.status,
+    s.vendorReference,
+    s.billingCycle,
+  ]);
+  const subscriptionsMore = useShowMore(
+    subscriptionSearch.filtered,
+    `${subscriptions.length}|${subscriptionSearch.query}`,
+  );
+
+  const splitDepartments = useMemo(
+    () => (preview ? Object.keys(preview.departmentTotals).sort() : []),
+    [preview],
+  );
+  const splitDepartmentsMore = useShowMore(splitDepartments, `${selectedSubId ?? ""}|${splitDepartments.join("|")}`);
+
+  const erpSearch = useListSearch(erpRecordsParsed, (r) => [
+    r.externalId,
+    r.parsed.supplier,
+    r.parsed.bankReference,
+    r.parsed.invoiceReference,
+  ]);
+  const erpMore = useShowMore(erpSearch.filtered, `${erpStaging.length}|${erpSearch.query}`);
 
   return (
     <div className="p-6">
@@ -773,6 +816,13 @@ export function PaymentTraceabilityPage({
 
       <div className="mt-4">
         <WidgetCard title={`Registered company accounts & cards · ${sources.length} records`}>
+          <div className="mb-2">
+            <ListSearch
+              value={sourceSearch.query}
+              onChange={sourceSearch.setQuery}
+              placeholder="Filter by account, issuer, entity, currency…"
+            />
+          </div>
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -786,7 +836,7 @@ export function PaymentTraceabilityPage({
                 </tr>
               </thead>
               <tbody>
-                {sources.map((s) => (
+                {sourcesMore.visible.map((s) => (
                   <tr key={s.id} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2 font-medium text-ink-50">{s.name}</td>
                     <td className="px-3 py-2">{s.kind}</td>
@@ -825,9 +875,17 @@ export function PaymentTraceabilityPage({
                     </td>
                   </tr>
                 )}
+                {sources.length > 0 && sourceSearch.filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-ink-500">
+                      No accounts or cards match this filter.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          <ShowMoreBar state={sourcesMore} />
         </WidgetCard>
       </div>
 
@@ -885,9 +943,7 @@ export function PaymentTraceabilityPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.keys(preview.departmentTotals)
-                        .sort()
-                        .map((dept) => (
+                      {splitDepartmentsMore.visible.map((dept) => (
                           <tr key={dept} className="border-b border-base-800 text-ink-300 last:border-0">
                             <td className="px-3 py-2 font-medium text-ink-50">{dept}</td>
                             <td className="px-3 py-2">{preview.seatCounts[dept] ?? 0}</td>
@@ -898,6 +954,7 @@ export function PaymentTraceabilityPage({
                     </tbody>
                   </table>
                 </div>
+                <ShowMoreBar state={splitDepartmentsMore} />
                 <p className="text-[10px] text-ink-500">
                   Approved months remain frozen until Finance deliberately replaces an approval. Slices are computed
                   in integer cents with largest-remainder apportionment, so they always sum back exactly to the
@@ -918,6 +975,13 @@ export function PaymentTraceabilityPage({
 
       <div className="mt-4">
         <WidgetCard title={`What recurring subscriptions are we actually paying for? · ${subscriptions.length} records`}>
+          <div className="mb-2">
+            <ListSearch
+              value={subscriptionSearch.query}
+              onChange={subscriptionSearch.setQuery}
+              placeholder="Filter by supplier, product, purpose, owner…"
+            />
+          </div>
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -930,7 +994,7 @@ export function PaymentTraceabilityPage({
                 </tr>
               </thead>
               <tbody>
-                {subscriptions.map((s) => {
+                {subscriptionsMore.visible.map((s) => {
                   const users = subscriptionUsers.filter((u) => u.subscriptionId === s.id);
                   const linked = transactions.filter((t) => t.subscriptionId === s.id);
                   const linkedTotal = linked.reduce((sum, t) => sum + t.amount, 0);
@@ -988,9 +1052,17 @@ export function PaymentTraceabilityPage({
                     </td>
                   </tr>
                 )}
+                {subscriptions.length > 0 && subscriptionSearch.filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-6 text-center text-ink-500">
+                      No subscriptions match this filter.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          <ShowMoreBar state={subscriptionsMore} />
         </WidgetCard>
       </div>
 
@@ -1021,10 +1093,7 @@ export function PaymentTraceabilityPage({
               className={`${inputClass} max-w-md`}
             />
           </div>
-          <PaymentsTable rows={cappedResults} onRowClick={openTraceEditor} />
-          {searchResults.length > 300 && (
-            <p className="mt-2 text-[11px] text-ink-500">Showing the first 300 matches, narrow your search to see more.</p>
-          )}
+          <PaymentsTable rows={searchResults} onRowClick={openTraceEditor} />
         </WidgetCard>
       </div>
 
@@ -1034,6 +1103,13 @@ export function PaymentTraceabilityPage({
             ERP records are held for safe matching against bank/ledger payments. Nothing is automatically posted to
             cost heads or used to overwrite manual classifications.
           </p>
+          <div className="mb-2">
+            <ListSearch
+              value={erpSearch.query}
+              onChange={erpSearch.setQuery}
+              placeholder="Filter by ERP ID, supplier, reference…"
+            />
+          </div>
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -1045,7 +1121,7 @@ export function PaymentTraceabilityPage({
                 </tr>
               </thead>
               <tbody>
-                {erpRecordsParsed.map((r) => (
+                {erpMore.visible.map((r) => (
                   <tr key={r.id} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2">{r.externalId}</td>
                     <td className="px-3 py-2">{r.parsed.supplier || "Not supplied"}</td>
@@ -1079,9 +1155,17 @@ export function PaymentTraceabilityPage({
                     </td>
                   </tr>
                 )}
+                {erpRecordsParsed.length > 0 && erpSearch.filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
+                      No ERP records match this filter.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          <ShowMoreBar state={erpMore} />
         </WidgetCard>
       </div>
 

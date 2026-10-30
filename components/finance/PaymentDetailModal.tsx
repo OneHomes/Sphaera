@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 import { mo } from "@/lib/finance/financeReporting";
 import { useFinanceLookups } from "./FinanceFilterContext";
+import { confirmDialog, promptDialog } from "./dialogs";
 
 // Port of the source detailModal(): the full "Individual payment" form opened from any
 // payment list. Sections save through the same routes the dedicated screens use:
@@ -117,7 +118,7 @@ export function PaymentDetailModal({
       setError("Choose a valid cost category and behaviour.");
       return;
     }
-    if (!window.confirm("Save this management classification for this payment? The original ERP details will not change.")) return;
+    if (!(await confirmDialog("Save this management classification for this payment? The original ERP details will not change.", { title: "Save classification", confirmLabel: "Save" }))) return;
     setBusy("behaviour");
     setError(null);
     try {
@@ -153,7 +154,7 @@ export function PaymentDetailModal({
   const [note, setNote] = useState(t.note ?? "");
 
   async function createHead() {
-    const name = window.prompt("Name of the new cost head");
+    const name = await promptDialog("It is added to the Finance cost head list and available on every screen.", { title: "New cost head", confirmLabel: "Add cost head", placeholder: "e.g. Performance Bonus" });
     if (!name?.trim()) return;
     try {
       await postJson("/api/finance/cost-heads", { name: name.trim() });
@@ -209,7 +210,13 @@ export function PaymentDetailModal({
       setError("Record the Finance investigation outcome before resolving.");
       return;
     }
-    if (!window.confirm(`${t.dispute ? "Update" : "Flag"} this payment as ${dispute.status}? The ledger amount and existing classification will be unchanged.`)) return;
+    if (
+      !(await confirmDialog(`${t.dispute ? "Update" : "Flag"} this payment as ${dispute.status}? The ledger amount and existing classification will be unchanged.`, {
+        title: t.dispute ? "Update dispute" : "Flag payment",
+        confirmLabel: t.dispute ? "Update" : "Flag payment",
+      }))
+    )
+      return;
     setBusy("dispute");
     setError(null);
     try {

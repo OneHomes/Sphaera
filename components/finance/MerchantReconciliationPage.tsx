@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { SupplierSuggestion } from "@/lib/finance/merchantReconcileData";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 
 // Direct structural port of the source app's Merchant Reconciliation
 // screen: a shared filter/toolbar (merchant, cost head, financial year,
@@ -88,7 +89,6 @@ const FY_OPTIONS = [
   { value: "2028", label: "FY2028/29" },
 ];
 
-const PAGE_SIZE = 15;
 const SUGGESTION_PAGE_SIZE = 5;
 
 function usd(value: number): string {
@@ -165,7 +165,8 @@ export function MerchantReconciliationPage({
   const [rows, setRows] = useState<ExportRow[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  // Bumped on every successful "Find payments" so the list goes back to its first 10 rows.
+  const [rowsVersion, setRowsVersion] = useState(0);
 
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -222,7 +223,7 @@ export function MerchantReconciliationPage({
     try {
       const result = await fetchFilteredRows();
       setRows(result);
-      setPage(1);
+      setRowsVersion((v) => v + 1);
       setSelectionDirty(false);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Failed");
@@ -572,10 +573,32 @@ export function MerchantReconciliationPage({
   const libraryInvoices = uploadedInvoices.filter((inv) =>
     librarySearch.trim() ? inv.supplier.toLowerCase().includes(librarySearch.trim().toLowerCase()) : true
   );
-  const unlinkedInvoices = uploadedInvoices.filter((inv) => !inv.linkedTransactionId);
+  const unlinkedInvoices = useMemo(
+    () => uploadedInvoices.filter((inv) => !inv.linkedTransactionId),
+    [uploadedInvoices]
+  );
 
-  const totalPages = rows ? Math.max(1, Math.ceil(rows.length / PAGE_SIZE)) : 1;
-  const pagedRows = rows ? rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : [];
+  // --- "10 at a time + Show more" and per-list filters (One Homes request) ---
+  const rowList = useMemo(() => rows ?? [], [rows]);
+  const paymentsMore = useShowMore(rowList, `${rowsVersion}|${rowList.length}`);
+
+  const previewList = useMemo(() => previewRows ?? [], [previewRows]);
+  const previewSearch = useListSearch(previewList, (r) => [
+    r.transactionId,
+    r.product,
+    r.owner,
+    r.department,
+    r.costHead,
+    r.status,
+    r.error,
+  ]);
+  const previewMore = useShowMore(previewSearch.filtered, `${previewList.length}|${previewSearch.query}`);
+
+  const libraryMore = useShowMore(libraryInvoices, `${uploadedInvoices.length}|${librarySearch}`);
+
+  const matchingSearch = useListSearch(unlinkedInvoices, (inv) => [inv.supplier, inv.currency, inv.amount]);
+  const matchingMore = useShowMore(matchingSearch.filtered, `${unlinkedInvoices.length}|${matchingSearch.query}`);
+
   const identifiedCount = rows ? rows.filter((r) => Boolean(r.product)).length : 0;
   const totalUsd = rows ? rows.reduce((s, r) => s + r.amountUsd, 0) : 0;
 
@@ -794,7 +817,7 @@ export function MerchantReconciliationPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedRows.map((r) => {
+                    {paymentsMore.visible.map((r) => {
                       const status = statusFor(r);
                       return (
                         <tr key={r.transactionId} className="border-b border-base-800 text-ink-300 last:border-0 align-top">
@@ -820,7 +843,7 @@ export function MerchantReconciliationPage({
                         </tr>
                       );
                     })}
-                    {pagedRows.length === 0 && (
+                    {rows.length === 0 && (
                       <tr>
                         <td colSpan={6} className="px-3 py-6 text-center text-ink-500">
                           No payments match these filters.
@@ -831,27 +854,7 @@ export function MerchantReconciliationPage({
                 </table>
               </div>
 
-              {rows.length > PAGE_SIZE && (
-                <div className="mt-2 flex items-center justify-end gap-2 text-xs text-ink-500">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page <= 1}
-                    className="rounded-md border border-base-700 px-2 py-1 text-ink-300 hover:bg-base-700 disabled:opacity-40"
-                  >
-                    ← Previous
-                  </button>
-                  <span>
-                    Page {page} of {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                    className="rounded-md border border-base-700 px-2 py-1 text-ink-300 hover:bg-base-700 disabled:opacity-40"
-                  >
-                    Next →
-                  </button>
-                </div>
-              )}
+              <ShowMoreBar state={paymentsMore} />
             </>
           )}
         </div>
@@ -916,7 +919,14 @@ export function MerchantReconciliationPage({
                   </div>
                 </div>
 
-                <div className="mt-3 overflow-x-auto rounded-xl border border-base-700">
+                <div className="mt-3">
+                  <ListSearch
+                    value={previewSearch.query}
+                    onChange={previewSearch.setQuery}
+                    placeholder="Filter by payment, subscription, owner, cost head…"
+                  />
+                </div>
+                <div className="mt-2 overflow-x-auto rounded-xl border border-base-700">
                   <table className="w-full text-left text-xs">
                     <thead className="border-b border-base-700 bg-base-900 text-ink-500">
                       <tr>
@@ -928,7 +938,7 @@ export function MerchantReconciliationPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {(previewRows ?? []).map((r) => (
+                      {previewMore.visible.map((r) => (
                         <tr key={r.transactionId} className="border-b border-base-800 text-ink-300 last:border-0">
                           <td className="px-3 py-2">{r.transactionId}</td>
                           <td className="px-3 py-2">{r.product || "—"}</td>
@@ -953,9 +963,17 @@ export function MerchantReconciliationPage({
                           </td>
                         </tr>
                       )}
+                      {previewList.length > 0 && previewSearch.filtered.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-3 py-6 text-center text-ink-500">
+                            No rows match this filter.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
+                <ShowMoreBar state={previewMore} />
 
                 <label className="mt-3 flex items-center gap-2 text-xs text-ink-300">
                   <input
@@ -1049,11 +1067,12 @@ export function MerchantReconciliationPage({
               <p className="text-xs text-ink-500">No invoices uploaded yet this session.</p>
             ) : (
               <div className="max-h-[420px] space-y-3 overflow-y-auto">
-                {libraryInvoices.map((inv) => (
+                {libraryMore.visible.map((inv) => (
                   <InvoiceCard key={inv.id} inv={inv} onFindMatches={findMatches} onLink={linkMatch} />
                 ))}
               </div>
             )}
+            <ShowMoreBar state={libraryMore} />
           </WidgetCard>
         </div>
       )}
@@ -1067,11 +1086,24 @@ export function MerchantReconciliationPage({
                 No invoices are waiting on a confirmed match. Upload an invoice in Invoice library to get started.
               </p>
             ) : (
-              <div className="space-y-3">
-                {unlinkedInvoices.map((inv) => (
-                  <InvoiceCard key={inv.id} inv={inv} onFindMatches={findMatches} onLink={linkMatch} />
-                ))}
-              </div>
+              <>
+                <div className="mb-3">
+                  <ListSearch
+                    value={matchingSearch.query}
+                    onChange={matchingSearch.setQuery}
+                    placeholder="Filter by supplier, currency or amount…"
+                  />
+                </div>
+                <div className="space-y-3">
+                  {matchingMore.visible.map((inv) => (
+                    <InvoiceCard key={inv.id} inv={inv} onFindMatches={findMatches} onLink={linkMatch} />
+                  ))}
+                  {matchingSearch.filtered.length === 0 && (
+                    <p className="text-xs text-ink-500">No invoices match this filter.</p>
+                  )}
+                </div>
+                <ShowMoreBar state={matchingMore} />
+              </>
             )}
           </WidgetCard>
         </div>
@@ -1465,6 +1497,9 @@ function GroupPanel({
   ungroupingKey: string | null;
   onUngroup: (providerId: string, alias: string) => void;
 }) {
+  const providerSearch = useListSearch(providers, (p) => [p.name, ...p.aliases]);
+  const providersMore = useShowMore(providerSearch.filtered, `${providers.length}|${providerSearch.query}`);
+
   return (
     <WidgetCard
       className="mt-4"
@@ -1511,11 +1546,23 @@ function GroupPanel({
 
           {error && <p className="mt-2 text-xs text-status-inactive">{error}</p>}
 
+          {providers.length > 0 && (
+            <div className="mt-3">
+              <ListSearch
+                value={providerSearch.query}
+                onChange={providerSearch.setQuery}
+                placeholder="Filter by provider or grouped name…"
+              />
+            </div>
+          )}
+
           <div className="mt-3 space-y-2.5">
             {providers.length === 0 ? (
               <p className="text-xs text-ink-500">No provider groups yet.</p>
+            ) : providerSearch.filtered.length === 0 ? (
+              <p className="text-xs text-ink-500">No provider groups match this filter.</p>
             ) : (
-              providers.map((p) => (
+              providersMore.visible.map((p) => (
                 <div key={p.key} className="rounded-lg border border-base-700 bg-base-800 p-3">
                   <strong className="text-xs text-ink-50">{p.name}</strong>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -1545,6 +1592,7 @@ function GroupPanel({
               ))
             )}
           </div>
+          <ShowMoreBar state={providersMore} />
         </div>
       )}
     </WidgetCard>

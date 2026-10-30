@@ -16,6 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "@/components/finance/ShowMore";
+import { alertDialog, confirmDialog } from "./dialogs";
 
 // ---------------------------------------------------------------------------
 // Types — shapes returned by lib/finance/creditCycleData.ts (projection(),
@@ -326,16 +328,16 @@ export function CreditCyclePage({
   }
 
   async function handleDeleteInvoice(id: string) {
-    if (!confirm("Delete this invoice?")) return;
+    if (!(await confirmDialog("Delete this invoice?", { title: "Delete invoice", confirmLabel: "Delete", danger: true }))) return;
     const res = await fetch(`/api/finance/credit/invoices/${id}`, { method: "DELETE" });
     if (res.ok) setInvoices((prev) => prev.filter((i) => i.id !== id));
-    else alert((await res.json().catch(() => null))?.error ?? "Failed to delete invoice");
+    else await alertDialog((await res.json().catch(() => null))?.error ?? "Failed to delete invoice", { title: "Not deleted" });
   }
   async function handleDeleteRecurring(id: string) {
-    if (!confirm("Delete this recurring obligation?")) return;
+    if (!(await confirmDialog("Delete this recurring obligation?", { title: "Delete recurring obligation", confirmLabel: "Delete", danger: true }))) return;
     const res = await fetch(`/api/finance/credit/recurring/${id}`, { method: "DELETE" });
     if (res.ok) setRecurring((prev) => prev.filter((r) => r.id !== id));
-    else alert((await res.json().catch(() => null))?.error ?? "Failed to delete recurring obligation");
+    else await alertDialog((await res.json().catch(() => null))?.error ?? "Failed to delete recurring obligation", { title: "Not deleted" });
   }
 
   const accountsBySourceId = useMemo(() => new Map(forecast.accounts.map((a) => [a.sourceId, a])), [forecast.accounts]);
@@ -363,6 +365,95 @@ export function CreditCyclePage({
   const negativeAccounts = forecast.accounts.filter((a) => a.forecastBalance !== null && a.forecastBalance < 0);
 
   const currencyEntries = Object.entries(forecast.totalsByCurrency);
+
+  // "First 10, then Show more" + a per-list search for every long list on this page.
+  const windowKey = `${forecast.from}|${forecast.to}`;
+  const eventSearch = useListSearch(forecast.events, (e) => [
+    fmtDate(e.date),
+    e.label,
+    e.reference,
+    e.kind,
+    e.currency,
+    e.amount,
+    bankLabel(e.bankSourceId),
+    e.certainty,
+  ]);
+  const eventMore = useShowMore(eventSearch.filtered, `${windowKey}|${eventSearch.filtered.length}|${eventSearch.query}`);
+
+  const sortedInvoices = useMemo(
+    () => [...invoices].sort((a, b) => String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? ""))),
+    [invoices]
+  );
+  const invoiceSearch = useListSearch(sortedInvoices, (inv) => [
+    inv.vendor,
+    inv.invoiceNumber,
+    fmtDate(inv.dueDate),
+    inv.amount,
+    inv.currency,
+    inv.status,
+    inv.reference,
+    inv.department,
+    inv.costHead,
+    inv.notes,
+  ]);
+  const invoiceMore = useShowMore(invoiceSearch.filtered, `${invoiceSearch.filtered.length}|${invoiceSearch.query}`);
+
+  const sortedRecurring = useMemo(
+    () => [...recurring].sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title)),
+    [recurring]
+  );
+  const recurringSearch = useListSearch(sortedRecurring, (r) => [
+    r.title,
+    r.category,
+    r.beneficiary,
+    r.country,
+    humanizeRecurrence(r),
+    r.amount,
+    r.currency,
+    sourceName(r.paymentSourceId),
+    r.active ? "Active" : "Paused",
+  ]);
+  const recurringMore = useShowMore(recurringSearch.filtered, `${recurringSearch.filtered.length}|${recurringSearch.query}`);
+
+  const cardRuleSearch = useListSearch(cardRules, (rule) => [
+    cardName(rule.id),
+    sourceCurrency(rule.paymentAccountId),
+    rule.settlement,
+    sourceName(rule.paymentAccountId),
+    `Day ${rule.statementDay}`,
+  ]);
+  const cardRuleMore = useShowMore(cardRuleSearch.filtered, `${cardRuleSearch.filtered.length}|${cardRuleSearch.query}`);
+
+  const cycleSearch = useListSearch(forecast.cycles, (c) => [
+    cardName(c.cardRuleId),
+    fmtDate(c.periodStart),
+    fmtDate(c.closingDate),
+    fmtDate(c.dueDate),
+    c.currency,
+    c.chargeTotal,
+    c.amountDue,
+    c.paymentKind,
+    c.accuracy,
+  ]);
+  const cycleMore = useShowMore(cycleSearch.filtered, `${windowKey}|${cycleSearch.filtered.length}|${cycleSearch.query}`);
+
+  const chargeSearch = useListSearch(cardCharges, (c) => {
+    const st = statements.find((s) => s.id === c.statementId);
+    return [c.merchant, c.reference, c.amount, c.currency, st ? cardName(st.cardRuleId) : null, st ? fmtDate(st.closingDate) : null];
+  });
+  const chargeMore = useShowMore(chargeSearch.filtered, `${chargeSearch.filtered.length}|${chargeSearch.query}`);
+
+  const accountFields = (x: AccountProjection) => [x.account, x.currency, x.source, x.balance, x.forecastBalance, x.asOf ? fmtDate(x.asOf) : null];
+  const accountCardSearch = useListSearch(forecast.accounts, accountFields);
+  const accountCardMore = useShowMore(
+    accountCardSearch.filtered,
+    `${windowKey}|${accountCardSearch.filtered.length}|${accountCardSearch.query}`
+  );
+  const accountTableSearch = useListSearch(forecast.accounts, accountFields);
+  const accountTableMore = useShowMore(
+    accountTableSearch.filtered,
+    `${windowKey}|${accountTableSearch.filtered.length}|${accountTableSearch.query}`
+  );
 
   return (
     <div className="p-6">
@@ -551,6 +642,15 @@ export function CreditCyclePage({
             </div>
 
             <WidgetCard title="All upcoming bills and payments, drill into dates and amounts" icon={CalendarDays}>
+              {forecast.events.length > 0 && (
+                <div className="mb-2">
+                  <ListSearch
+                    value={eventSearch.query}
+                    onChange={eventSearch.setQuery}
+                    placeholder="Filter commitments, references, banks…"
+                  />
+                </div>
+              )}
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -565,7 +665,7 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {forecast.events.map((e, i) => (
+                    {eventMore.visible.map((e, i) => (
                       <tr key={i} className="border-b border-base-800 text-ink-300 last:border-0">
                         <td className="px-3 py-2 text-ink-50">{fmtDate(e.date)}</td>
                         <td className="px-3 py-2">{e.label}</td>
@@ -578,16 +678,19 @@ export function CreditCyclePage({
                         </td>
                       </tr>
                     ))}
-                    {forecast.events.length === 0 && (
+                    {eventSearch.filtered.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-3 py-6 text-center text-ink-500">
-                          No payments currently due for this period.
+                          {forecast.events.length === 0
+                            ? "No payments currently due for this period."
+                            : "No payments match this filter."}
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
+              <ShowMoreBar state={eventMore} />
             </WidgetCard>
             {Object.keys(forecast.unassignedByCurrency ?? {}).length > 0 && (
               <div className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-3 text-xs text-status-alert">
@@ -637,7 +740,16 @@ export function CreditCyclePage({
             </div>
 
             <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-              <h3 className="mb-3 text-sm font-medium text-ink-50">Manage invoices</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-medium text-ink-50">Manage invoices</h3>
+                {invoices.length > 0 && (
+                  <ListSearch
+                    value={invoiceSearch.query}
+                    onChange={invoiceSearch.setQuery}
+                    placeholder="Filter suppliers, invoice no., status…"
+                  />
+                )}
+              </div>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -651,49 +763,51 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {[...invoices]
-                      .sort((a, b) => String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? "")))
-                      .map((inv) => (
-                        <tr key={inv.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                          <td className="px-3 py-2">
-                            <b className="text-ink-50">{inv.vendor}</b>
-                            <div className="text-[11px] text-ink-500">{inv.invoiceNumber || "No invoice number"}</div>
-                          </td>
-                          <td className="px-3 py-2">{fmtDate(inv.dueDate)}</td>
-                          <td className="px-3 py-2">{fmt(inv.amount, inv.currency)}</td>
-                          <td className="px-3 py-2">
-                            <StatusBadge status={inv.status} />
-                          </td>
-                          <td className="px-3 py-2">
-                            {inv.documentId ? (
-                              <a href={`/api/documents/${inv.documentId}/download`} target="_blank" rel="noreferrer" className="text-ink-300 underline hover:text-ink-50">
-                                View document
-                              </a>
-                            ) : (
-                              <span className="text-ink-500">Missing document</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <div className="flex justify-end gap-2">
-                              <SmallButton
-                                onClick={() => {
-                                  setEditingInvoice(inv);
-                                  setShowInvoiceModal(true);
-                                }}
-                              >
-                                Review / edit
-                              </SmallButton>
-                              <button onClick={() => handleDeleteInvoice(inv.id)} className="text-ink-500 hover:text-status-inactive" title="Delete invoice">
-                                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                    {invoiceMore.visible.map((inv) => (
+                      <tr key={inv.id} className="border-b border-base-800 text-ink-300 last:border-0">
+                        <td className="px-3 py-2">
+                          <b className="text-ink-50">{inv.vendor}</b>
+                          <div className="text-[11px] text-ink-500">{inv.invoiceNumber || "No invoice number"}</div>
+                        </td>
+                        <td className="px-3 py-2">{fmtDate(inv.dueDate)}</td>
+                        <td className="px-3 py-2">{fmt(inv.amount, inv.currency)}</td>
+                        <td className="px-3 py-2">
+                          <StatusBadge status={inv.status} />
+                        </td>
+                        <td className="px-3 py-2">
+                          {inv.documentId ? (
+                            <a href={`/api/documents/${inv.documentId}/download`} target="_blank" rel="noreferrer" className="text-ink-300 underline hover:text-ink-50">
+                              View document
+                            </a>
+                          ) : (
+                            <span className="text-ink-500">Missing document</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
+                            <SmallButton
+                              onClick={() => {
+                                setEditingInvoice(inv);
+                                setShowInvoiceModal(true);
+                              }}
+                            >
+                              Review / edit
+                            </SmallButton>
+                            <button onClick={() => handleDeleteInvoice(inv.id)} className="text-ink-500 hover:text-status-inactive" title="Delete invoice">
+                              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
                 {invoices.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No invoices recorded yet.</p>}
+                {invoices.length > 0 && invoiceSearch.filtered.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-ink-500">No invoices match this filter.</p>
+                )}
               </div>
+              <ShowMoreBar state={invoiceMore} />
             </div>
           </div>
         )}
@@ -720,6 +834,15 @@ export function CreditCyclePage({
               adjusted and must be confirmed by Finance.
             </div>
             <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+              {recurring.length > 0 && (
+                <div className="mb-3">
+                  <ListSearch
+                    value={recurringSearch.query}
+                    onChange={recurringSearch.setQuery}
+                    placeholder="Filter obligations, people, countries…"
+                  />
+                </div>
+              )}
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -735,55 +858,57 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {[...recurring]
-                      .sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title))
-                      .map((r) => (
-                        <tr key={r.id} className="border-b border-base-800 text-ink-300 last:border-0">
-                          <td className="px-3 py-2">
-                            <b className="text-ink-50">{r.title}</b>
-                            <div className="text-[11px] text-ink-500">{r.category}</div>
-                          </td>
-                          <td className="px-3 py-2">{r.beneficiary || "Not assigned"}</td>
-                          <td className="px-3 py-2">{r.country || "Not set"}</td>
-                          <td className="px-3 py-2">{humanizeRecurrence(r)}</td>
-                          <td className="px-3 py-2">{fmt(r.amount, r.currency)}</td>
-                          <td className="px-3 py-2">{sourceName(r.paymentSourceId) ?? "Unassigned"}</td>
-                          <td className="px-3 py-2">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                r.active ? "bg-status-active/15 text-status-active" : "bg-base-700 text-ink-300"
-                              }`}
+                    {recurringMore.visible.map((r) => (
+                      <tr key={r.id} className="border-b border-base-800 text-ink-300 last:border-0">
+                        <td className="px-3 py-2">
+                          <b className="text-ink-50">{r.title}</b>
+                          <div className="text-[11px] text-ink-500">{r.category}</div>
+                        </td>
+                        <td className="px-3 py-2">{r.beneficiary || "Not assigned"}</td>
+                        <td className="px-3 py-2">{r.country || "Not set"}</td>
+                        <td className="px-3 py-2">{humanizeRecurrence(r)}</td>
+                        <td className="px-3 py-2">{fmt(r.amount, r.currency)}</td>
+                        <td className="px-3 py-2">{sourceName(r.paymentSourceId) ?? "Unassigned"}</td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              r.active ? "bg-status-active/15 text-status-active" : "bg-base-700 text-ink-300"
+                            }`}
+                          >
+                            {r.active ? "Active" : "Paused"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
+                            <SmallButton
+                              disabled={r.category === "Salary" && !canAccessFinancePayroll}
+                              onClick={() => {
+                                setEditingRecurring(r);
+                                setShowRecurringModal(true);
+                              }}
                             >
-                              {r.active ? "Active" : "Paused"}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <div className="flex justify-end gap-2">
-                              <SmallButton
-                                disabled={r.category === "Salary" && !canAccessFinancePayroll}
-                                onClick={() => {
-                                  setEditingRecurring(r);
-                                  setShowRecurringModal(true);
-                                }}
-                              >
-                                Edit
-                              </SmallButton>
-                              <button
-                                onClick={() => handleDeleteRecurring(r.id)}
-                                disabled={r.category === "Salary" && !canAccessFinancePayroll}
-                                className="text-ink-500 hover:text-status-inactive disabled:opacity-40"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                              Edit
+                            </SmallButton>
+                            <button
+                              onClick={() => handleDeleteRecurring(r.id)}
+                              disabled={r.category === "Salary" && !canAccessFinancePayroll}
+                              className="text-ink-500 hover:text-status-inactive disabled:opacity-40"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
                 {recurring.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No recurring payment rules yet.</p>}
+                {recurring.length > 0 && recurringSearch.filtered.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-ink-500">No recurring payments match this filter.</p>
+                )}
               </div>
+              <ShowMoreBar state={recurringMore} />
             </div>
           </div>
         )}
@@ -817,9 +942,14 @@ export function CreditCyclePage({
             </div>
 
             <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-medium text-ink-50">Registered card billing rules</h3>
-                <SmallButton onClick={() => setShowChargeModal(true)}>+ Record missing card charge</SmallButton>
+                <div className="flex flex-wrap items-center gap-2">
+                  {cardRules.length > 0 && (
+                    <ListSearch value={cardRuleSearch.query} onChange={cardRuleSearch.setQuery} placeholder="Filter cards, accounts…" />
+                  )}
+                  <SmallButton onClick={() => setShowChargeModal(true)}>+ Record missing card charge</SmallButton>
+                </div>
               </div>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
@@ -834,7 +964,7 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {cardRules.map((rule) => (
+                    {cardRuleMore.visible.map((rule) => (
                       <tr key={rule.id} className="border-b border-base-800 text-ink-300 last:border-0">
                         <td className="px-3 py-2">
                           <b className="text-ink-50">{cardName(rule.id)}</b> {sourceCurrency(rule.paymentAccountId)}
@@ -857,15 +987,24 @@ export function CreditCyclePage({
                     ))}
                   </tbody>
                 </table>
+                {cardRules.length > 0 && cardRuleSearch.filtered.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-ink-500">No card rules match this filter.</p>
+                )}
               </div>
+              <ShowMoreBar state={cardRuleMore} />
             </div>
 
             <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-medium text-ink-50">Statement cycles and projected settlement dates</h3>
-                <PrimaryButton small onClick={() => setShowStatementModal(true)}>
-                  Enter Amex statement
-                </PrimaryButton>
+                <div className="flex flex-wrap items-center gap-2">
+                  {forecast.cycles.length > 0 && (
+                    <ListSearch value={cycleSearch.query} onChange={cycleSearch.setQuery} placeholder="Filter cards, dates, status…" />
+                  )}
+                  <PrimaryButton small onClick={() => setShowStatementModal(true)}>
+                    Enter Amex statement
+                  </PrimaryButton>
+                </div>
               </div>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
@@ -882,7 +1021,7 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {forecast.cycles.map((c, i) => (
+                    {cycleMore.visible.map((c, i) => (
                       <tr key={i} className="border-b border-base-800 text-ink-300 last:border-0">
                         <td className="px-3 py-2">
                           <b className="text-ink-50">{cardName(c.cardRuleId)}</b>
@@ -917,11 +1056,20 @@ export function CreditCyclePage({
                 {forecast.cycles.length === 0 && (
                   <p className="px-3 py-6 text-center text-xs text-ink-500">Set up a card cutoff date to generate its payment-cycle calendar.</p>
                 )}
+                {forecast.cycles.length > 0 && cycleSearch.filtered.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-ink-500">No statement cycles match this filter.</p>
+                )}
               </div>
+              <ShowMoreBar state={cycleMore} />
             </div>
 
             <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-              <h3 className="mb-3 text-sm font-medium text-ink-50">Manual card charges</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-medium text-ink-50">Manual card charges</h3>
+                {cardCharges.length > 0 && (
+                  <ListSearch value={chargeSearch.query} onChange={chargeSearch.setQuery} placeholder="Filter merchants, references, cards…" />
+                )}
+              </div>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -934,7 +1082,7 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {cardCharges.map((c) => {
+                    {chargeMore.visible.map((c) => {
                       const st = statements.find((s) => s.id === c.statementId);
                       return (
                         <tr key={c.id} className="border-b border-base-800 text-ink-300 last:border-0">
@@ -948,7 +1096,11 @@ export function CreditCyclePage({
                     })}
                   </tbody>
                 </table>
+                {cardCharges.length > 0 && chargeSearch.filtered.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-ink-500">No card charges match this filter.</p>
+                )}
               </div>
+              <ShowMoreBar state={chargeMore} />
             </div>
           </div>
         )}
@@ -966,8 +1118,18 @@ export function CreditCyclePage({
               collections, unknown invoices, currency conversions and card settlements without a paying account are not
               included.
             </div>
+            {forecast.accounts.length > 0 && (
+              <ListSearch
+                value={accountCardSearch.query}
+                onChange={accountCardSearch.setQuery}
+                placeholder="Filter accounts, currencies, sources…"
+              />
+            )}
+            {forecast.accounts.length > 0 && accountCardSearch.filtered.length === 0 && (
+              <p className="text-xs text-ink-500">No accounts match this filter.</p>
+            )}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {forecast.accounts.map((x) => (
+              {accountCardMore.visible.map((x) => (
                 <div key={x.sourceId} className="rounded-xl border border-base-700 bg-base-900 p-4">
                   <h4 className="text-[11px] text-ink-500">{x.account}</h4>
                   <div className="mt-1 text-base font-semibold text-ink-50">
@@ -987,8 +1149,18 @@ export function CreditCyclePage({
                 </div>
               ))}
             </div>
+            <ShowMoreBar state={accountCardMore} className="!mt-2" />
             <div className="rounded-xl border border-base-700 bg-base-900 p-4">
-              <h3 className="mb-3 text-sm font-medium text-ink-50">Bank mapping and balance source</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-medium text-ink-50">Bank mapping and balance source</h3>
+                {forecast.accounts.length > 0 && (
+                  <ListSearch
+                    value={accountTableSearch.query}
+                    onChange={accountTableSearch.setQuery}
+                    placeholder="Filter accounts, currencies, sources…"
+                  />
+                )}
+              </div>
               <div className="overflow-x-auto rounded-xl border border-base-700">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -1002,7 +1174,7 @@ export function CreditCyclePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {forecast.accounts.map((x) => (
+                    {accountTableMore.visible.map((x) => (
                       <tr key={x.sourceId} className="border-b border-base-800 text-ink-300 last:border-0">
                         <td className="px-3 py-2">
                           <b className="text-ink-50">{x.account}</b>
@@ -1016,7 +1188,11 @@ export function CreditCyclePage({
                     ))}
                   </tbody>
                 </table>
+                {forecast.accounts.length > 0 && accountTableSearch.filtered.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-ink-500">No accounts match this filter.</p>
+                )}
               </div>
+              <ShowMoreBar state={accountTableMore} />
             </div>
           </div>
         )}
@@ -1458,38 +1634,59 @@ function SmallButton({ onClick, children, disabled }: { onClick: () => void; chi
 }
 
 function EventsTable({ events, bankLabel }: { events: CashEvent[]; bankLabel: (id: string) => string }) {
+  const search = useListSearch(events, (e) => [
+    fmtDate(e.date),
+    e.label,
+    e.reference,
+    e.currency,
+    e.amount,
+    bankLabel(e.bankSourceId),
+    e.certainty,
+  ]);
+  const more = useShowMore(search.filtered, `${events.length}|${search.filtered.length}|${search.query}`);
   return (
-    <div className="overflow-x-auto rounded-xl border border-base-700">
-      <table className="w-full text-left text-xs">
-        <thead className="border-b border-base-700 bg-base-900 text-ink-500">
-          <tr>
-            <th className="px-3 py-2">Due date</th>
-            <th className="px-3 py-2">Commitment</th>
-            <th className="px-3 py-2">Reference / notes</th>
-            <th className="px-3 py-2">Currency</th>
-            <th className="px-3 py-2">Cash out</th>
-            <th className="px-3 py-2">Payment bank</th>
-            <th className="px-3 py-2">Confidence</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((e, i) => (
-            <tr key={i} className="border-b border-base-800 text-ink-300 last:border-0">
-              <td className="px-3 py-2 text-ink-50">{fmtDate(e.date)}</td>
-              <td className="px-3 py-2">{e.label}</td>
-              <td className="px-3 py-2">{e.reference || "—"}</td>
-              <td className="px-3 py-2">{e.currency}</td>
-              <td className="px-3 py-2">{fmt(e.amount, e.currency)}</td>
-              <td className="px-3 py-2">{bankLabel(e.bankSourceId)}</td>
-              <td className="px-3 py-2">
-                <ConfidencePill value={e.certainty} />
-              </td>
+    <>
+      {events.length > 0 && (
+        <div className="mb-2">
+          <ListSearch value={search.query} onChange={search.setQuery} placeholder="Filter suppliers, invoice no., banks…" />
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-xl border border-base-700">
+        <table className="w-full text-left text-xs">
+          <thead className="border-b border-base-700 bg-base-900 text-ink-500">
+            <tr>
+              <th className="px-3 py-2">Due date</th>
+              <th className="px-3 py-2">Commitment</th>
+              <th className="px-3 py-2">Reference / notes</th>
+              <th className="px-3 py-2">Currency</th>
+              <th className="px-3 py-2">Cash out</th>
+              <th className="px-3 py-2">Payment bank</th>
+              <th className="px-3 py-2">Confidence</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      {events.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No payments currently due for this period.</p>}
-    </div>
+          </thead>
+          <tbody>
+            {more.visible.map((e, i) => (
+              <tr key={i} className="border-b border-base-800 text-ink-300 last:border-0">
+                <td className="px-3 py-2 text-ink-50">{fmtDate(e.date)}</td>
+                <td className="px-3 py-2">{e.label}</td>
+                <td className="px-3 py-2">{e.reference || "—"}</td>
+                <td className="px-3 py-2">{e.currency}</td>
+                <td className="px-3 py-2">{fmt(e.amount, e.currency)}</td>
+                <td className="px-3 py-2">{bankLabel(e.bankSourceId)}</td>
+                <td className="px-3 py-2">
+                  <ConfidencePill value={e.certainty} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {events.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No payments currently due for this period.</p>}
+        {events.length > 0 && search.filtered.length === 0 && (
+          <p className="px-3 py-6 text-center text-xs text-ink-500">No payments match this filter.</p>
+        )}
+      </div>
+      <ShowMoreBar state={more} />
+    </>
   );
 }
 

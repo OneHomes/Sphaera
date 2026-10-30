@@ -5,6 +5,7 @@ import { Pencil } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { DisputeModal } from "./DisputeModal";
+import { ShowMoreBar, useShowMore } from "./ShowMore";
 
 function usd(value: number): string {
   return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
@@ -47,6 +48,8 @@ export function DisputedChargesPage({ transactions }: { transactions: FinanceLed
   const valueUnderReview = useMemo(() => openRows.reduce((s, r) => s + r.amount, 0), [openRows]);
 
   const filtered = includeResolved ? rows : openRows;
+  // Reset only when the toggle flips, so resolving one dispute doesn't collapse an expanded list.
+  const more = useShowMore(filtered, includeResolved);
 
   return (
     <div className="p-6">
@@ -101,7 +104,7 @@ export function DisputedChargesPage({ transactions }: { transactions: FinanceLed
               </tr>
             </thead>
             <tbody>
-              {filtered.map((t) => (
+              {more.visible.map((t) => (
                 <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0 hover:bg-base-800/60">
                   <td className="whitespace-nowrap px-3 py-2">{t.date ? new Date(t.date).toISOString().slice(0, 10) : t.month}</td>
                   <td className="max-w-[260px] px-3 py-2">
@@ -149,6 +152,7 @@ export function DisputedChargesPage({ transactions }: { transactions: FinanceLed
             </tbody>
           </table>
         </div>
+        <ShowMoreBar state={more} />
       </WidgetCard>
 
       {target && (

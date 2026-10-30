@@ -1,5 +1,7 @@
 "use client";
 
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
+
 function usd(value: number): string {
   if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
@@ -25,6 +27,10 @@ export function ChartPicker({
   selected: Set<string> | null;
   onChange: (next: Set<string> | null) => void;
 }) {
+  // Search + "Show more" only narrow which tiles are shown; Select all / Clear all and the
+  // selection itself still cover every row.
+  const search = useListSearch(rows, (r) => [r.key]);
+  const more = useShowMore(search.filtered, `${rows.length}|${search.query}`);
   const n = selected === null ? rows.length : rows.filter((r) => selected.has(r.key)).length;
   function toggle(key: string) {
     const base = selected === null ? new Set(rows.map((r) => r.key)) : new Set(selected);
@@ -62,8 +68,13 @@ export function ChartPicker({
           </button>
         </div>
       </div>
+      {rows.length > 10 && (
+        <div className="mb-2">
+          <ListSearch value={search.query} onChange={search.setQuery} placeholder="Find an entry…" />
+        </div>
+      )}
       <div className="grid max-h-60 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
-        {rows.map((r) => {
+        {more.visible.map((r) => {
           const on = selectionAllows(selected, r.key);
           return (
             <label
@@ -83,7 +94,11 @@ export function ChartPicker({
           );
         })}
         {rows.length === 0 && <p className="text-[11px] text-ink-500">No cost heads available for these filters.</p>}
+        {rows.length > 0 && search.filtered.length === 0 && (
+          <p className="text-[11px] text-ink-500">No entries match &ldquo;{search.query}&rdquo;.</p>
+        )}
       </div>
+      <ShowMoreBar state={more} />
       <p className="mt-2 text-[11px] text-ink-500">
         {selected === null ? "All available entries are included." : "Your selection is active for this view."} Click a
         chart slice to inspect one entry, or select multiple checkboxes to compare them together.

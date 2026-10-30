@@ -1,6 +1,8 @@
 "use client";
 
 import { useTablePager } from "./TablePager";
+import { ShowMoreBar, useShowMore } from "./ShowMore";
+import { promptDialog } from "./dialogs";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -252,9 +254,10 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
   });
 
   const { pageRows: pagedRows, pager: mapPager } = useTablePager(visibleRows);
+  const deptCardsMore = useShowMore(spentByDept, spentByDept.length);
 
   async function createMapHead() {
-    const name = prompt("Name of the new cost head");
+    const name = await promptDialog("It is added to the Finance cost head list and available on every screen.", { title: "New cost head", confirmLabel: "Add cost head", placeholder: "e.g. Performance Bonus" });
     if (!name?.trim()) return;
     const res = await fetch("/api/finance/cost-heads", {
       method: "POST",
@@ -503,8 +506,8 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
         {renameError && <p className="mt-2 text-[11px] text-status-inactive">{renameError}</p>}
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {spentByDept.map((g) => (
+      <div className={`${deptCardsMore.total > 10 ? "" : "mb-5 "}grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
+        {deptCardsMore.visible.map((g) => (
           <Link
             key={g.key}
             href={`/finance/explorer?department=${encodeURIComponent(g.key)}`}
@@ -517,6 +520,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
           </Link>
         ))}
       </div>
+      {deptCardsMore.total > 10 && <ShowMoreBar state={deptCardsMore} className="mb-5" />}
 
       <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-base-700 bg-base-900 p-4">

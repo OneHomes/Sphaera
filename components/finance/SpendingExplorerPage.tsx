@@ -8,6 +8,7 @@ import { PaymentsTable } from "./PaymentsTable";
 import { PaymentDetailModal } from "./PaymentDetailModal";
 import { DonutWidget } from "./DonutWidget";
 import { ChartPicker, selectionAllows } from "./ChartPicker";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import { effectiveCentre, effectiveHead, hasCostSplit, isOperating, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
@@ -147,7 +148,13 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
       ? `/finance/explorer?${deptParam}centre=${encodeURIComponent(name)}`
       : `/finance/payments?mode=${modeParam}&${deptParam}costHead=${encodeURIComponent(c!)}&description=${encodeURIComponent(name)}`;
   const ledgerHref = `/finance/payments?mode=${modeParam}${h ? `&department=${encodeURIComponent(h)}` : ""}${c ? `&costHead=${encodeURIComponent(c)}` : ""}`;
-  const listCap = stage === "description" ? 15 : 45;
+  const groupSearch = useListSearch(groups, (g) => [g.key]);
+  const setGroupQuery = groupSearch.setQuery;
+  useEffect(() => setGroupQuery(""), [h, c, setGroupQuery]);
+  const groupMore = useShowMore(
+    groupSearch.filtered,
+    `${groupSearch.filtered.length}|${groupSearch.query}|${stage}|${h ?? ""}|${c ?? ""}|${basis}`
+  );
 
   const fieldLabel = "flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-ink-500";
   const fieldSelect = "rounded-lg border border-base-700 bg-base-800 px-2.5 py-2 text-xs normal-case tracking-normal text-ink-50 outline-none";
@@ -267,8 +274,17 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
             {stage === "centre" ? "Selected cost heads" : "Largest payment descriptions"}
           </h3>
           <p className="mb-3 mt-1 text-[11px] text-ink-500">These amounts use signed net ledger figures and may include adjustments or credits.</p>
+          {groups.length > 10 && (
+            <div className="mb-2">
+              <ListSearch
+                value={groupSearch.query}
+                onChange={groupSearch.setQuery}
+                placeholder={stage === "centre" ? "Find a cost head…" : "Find a payment description…"}
+              />
+            </div>
+          )}
           <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
-            {groups.slice(0, listCap).map((g) => (
+            {groupMore.visible.map((g) => (
               <Link
                 key={g.key}
                 href={hrefFor(g.key)}
@@ -282,10 +298,11 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
               </Link>
             ))}
             {groups.length === 0 && <p className="py-4 text-center text-xs text-ink-500">Nothing selected. Tick one or more checkboxes above.</p>}
+            {groups.length > 0 && groupSearch.filtered.length === 0 && (
+              <p className="py-4 text-center text-xs text-ink-500">No entries match &ldquo;{groupSearch.query}&rdquo;.</p>
+            )}
           </div>
-          {groups.length > listCap && (
-            <p className="mt-2 text-[11px] text-ink-500">{groups.length - listCap} additional items remain visible in the ledger.</p>
-          )}
+          <ShowMoreBar state={groupMore} />
         </div>
       </div>
 

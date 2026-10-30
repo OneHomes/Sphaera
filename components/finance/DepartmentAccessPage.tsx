@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
+import { confirmDialog } from "./dialogs";
 
 type FinanceUser = {
   id: string;
@@ -119,7 +121,13 @@ export function DepartmentAccessPage() {
 
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   async function handleRemoveUser(user: FinanceUser) {
-    if (!window.confirm(`Remove Finance access for ${user.name} (${user.email})?\n\nThey will no longer see Finance or Payroll. Their Sphaera account is kept, and you can add them again later.`)) return;
+    if (
+      !(await confirmDialog(
+        `Remove Finance access for ${user.name} (${user.email})?\n\nThey will no longer see Finance or Payroll. Their Sphaera account is kept, and you can add them again later.`,
+        { title: "Remove user", confirmLabel: "Remove", danger: true }
+      ))
+    )
+      return;
     setSavingUserId(user.id);
     setNotice(null);
     try {
@@ -173,6 +181,11 @@ export function DepartmentAccessPage() {
     }
   }
 
+  // Hooks stay above the early returns. Searchable by name/email, 10 at a time.
+  const financeUsers = useMemo(() => users.filter((u) => u.canAccessFinance), [users]);
+  const userSearch = useListSearch(financeUsers, (u) => [u.name, u.email, ...(scopeByUser[u.id] ?? [])]);
+  const userMore = useShowMore(userSearch.filtered, `${financeUsers.length}|${userSearch.query}`);
+
   if (isLoading) {
     return <div className="p-6 text-sm text-ink-500">Loading…</div>;
   }
@@ -181,7 +194,6 @@ export function DepartmentAccessPage() {
     return <div className="p-6 text-sm text-status-inactive">{error}</div>;
   }
 
-  const financeUsers = users.filter((u) => u.canAccessFinance);
   const fieldClass =
     "mt-1 w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-sm text-ink-50 placeholder:text-ink-500 focus:border-base-600 focus:outline-none";
 
@@ -226,6 +238,8 @@ export function DepartmentAccessPage() {
         {financeUsers.length === 0 ? (
           <p className="py-3 text-center text-xs text-ink-500">No users have Finance access yet.</p>
         ) : (
+          <>
+          <ListSearch value={userSearch.query} onChange={userSearch.setQuery} placeholder="Search name or email…" className="mb-3" />
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="text-ink-500">
@@ -238,7 +252,7 @@ export function DepartmentAccessPage() {
               </tr>
             </thead>
             <tbody>
-              {financeUsers.map((user) => {
+              {userMore.visible.map((user) => {
                 const scope = scopeByUser[user.id] ?? [];
                 const saving = savingUserId === user.id;
                 return (
@@ -300,6 +314,11 @@ export function DepartmentAccessPage() {
               })}
             </tbody>
           </table>
+          {userSearch.filtered.length === 0 && (
+            <p className="py-3 text-center text-xs text-ink-500">No users match “{userSearch.query}”.</p>
+          )}
+          <ShowMoreBar state={userMore} />
+          </>
         )}
       </WidgetCard>
 

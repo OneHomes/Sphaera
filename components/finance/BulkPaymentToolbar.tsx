@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
+import { confirmDialog, promptDialog } from "./dialogs";
 
 // Direct structural port of the source app's shared bulkPaymentToolbar()
 // render function (index.html line 1045), used by both paymentPage() and
@@ -67,9 +68,10 @@ export function BulkPaymentToolbar({
     if (isSaving || selectedInScope.length === 0 || !department || !costHead) return;
     const total = selectedPayments.reduce((s, t) => s + t.amount, 0);
     if (
-      !confirm(
-        `Reclassify ${selectedInScope.length} selected payments (total ${usd(total)}) to ${department} → ${costHead}?\n\nThis will change the management classification of every selected payment, including any existing classification. Original payment amounts, references and historical-debt tags are retained. The change will be recorded in Change History and can be undone if no later edits conflict.`
-      )
+      !(await confirmDialog(
+        `Reclassify ${selectedInScope.length} selected payments (total ${usd(total)}) to ${department} → ${costHead}?\n\nThis will change the management classification of every selected payment, including any existing classification. Original payment amounts, references and historical-debt tags are retained. The change will be recorded in Change History and can be undone if no later edits conflict.`,
+        { title: "Reclassify payments", confirmLabel: "Reclassify" }
+      ))
     )
       return;
     setIsSaving(true);
@@ -95,7 +97,7 @@ export function BulkPaymentToolbar({
   }
 
   async function createHead() {
-    const name = prompt("Name of the new cost head");
+    const name = await promptDialog("It is added to the Finance cost head list and available on every screen.", { title: "New cost head", confirmLabel: "Add cost head", placeholder: "e.g. Performance Bonus" });
     if (!name?.trim()) return;
     const res = await fetch("/api/finance/cost-heads", {
       method: "POST",

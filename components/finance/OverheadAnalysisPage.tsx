@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import { useTablePager } from "./TablePager";
+import { ShowMoreBar, useShowMore } from "./ShowMore";
+import { confirmDialog } from "./dialogs";
 import { effectiveCentre, effectiveHead, mo, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 
@@ -325,6 +327,9 @@ export function OverheadAnalysisPage({
   const visible = costHeads.filter((x) => x.toLowerCase().includes(search.toLowerCase()));
   const untagged = costHeads.filter((x) => !ruleMap[x] && RECOMMENDATIONS[x]);
   const { pageRows: visibleRows, pager } = useTablePager(visible);
+  const filterKey = `${nature}|${behaviour}|${head}|${filters.department}`;
+  const paymentsMore = useShowMore(distinct, `${distinct.length}|${filterKey}`);
+  const deptMore = useShowMore(sortedDepts, `${sortedDepts.length}|${filterKey}`);
 
   function quick(k: "fixed" | "variable" | "mixed" | "review" | "all") {
     setNature(k === "review" ? "review" : k === "all" ? "all" : "overhead");
@@ -334,7 +339,7 @@ export function OverheadAnalysisPage({
 
   async function applySuggestions() {
     if (!untagged.length || bulkBusy) return;
-    if (!confirm(`Apply ${untagged.length} suggested cost-head rules? Each is undoable through Change History.`)) return;
+    if (!(await confirmDialog(`Apply ${untagged.length} suggested cost-head rules? Each is undoable through Change History.`, { title: "Apply suggested rules", confirmLabel: "Apply" }))) return;
     setBulkBusy(true);
     setBulkMessage(null);
     try {
@@ -452,7 +457,7 @@ export function OverheadAnalysisPage({
         <div className="rounded-xl border border-base-700 bg-base-900 p-4">
           <h3 className="mb-2 text-sm font-medium text-ink-50">Department allocation</h3>
           {sortedDepts.length ? (
-            sortedDepts.map(([d, v]) => (
+            deptMore.visible.map(([d, v]) => (
               <div key={d} className="flex items-center justify-between border-b border-base-800 py-1.5 text-xs last:border-0">
                 <span className="text-ink-300">{d}</span>
                 <strong className="text-ink-50">{usd(v)}</strong>
@@ -461,6 +466,7 @@ export function OverheadAnalysisPage({
           ) : (
             <p className="py-6 text-center text-xs text-ink-500">No departments found for these filters.</p>
           )}
+          <ShowMoreBar state={deptMore} />
         </div>
       </div>
 
@@ -535,7 +541,7 @@ export function OverheadAnalysisPage({
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-medium text-ink-50">Underlying payments</h3>
           <span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">
-            Showing first 40 of {distinct.length} unique payments
+            {distinct.length.toLocaleString()} unique payments
           </span>
         </div>
         <div className="overflow-x-auto rounded-xl border border-base-700">
@@ -551,7 +557,7 @@ export function OverheadAnalysisPage({
               </tr>
             </thead>
             <tbody>
-              {distinct.slice(0, 40).map((t) => (
+              {paymentsMore.visible.map((t) => (
                 <tr key={t.id} className="border-b border-base-800 text-ink-300 last:border-0">
                   <td className="px-3 py-2">{t.date ? new Date(t.date).toLocaleDateString("en-GB") : mo(t.month)}</td>
                   <td className="max-w-[260px] truncate px-3 py-2" title={t.description}>
@@ -574,6 +580,7 @@ export function OverheadAnalysisPage({
           </table>
           {distinct.length === 0 && <p className="px-3 py-4 text-xs text-ink-500">No matching payments.</p>}
         </div>
+        <ShowMoreBar state={paymentsMore} />
         <Link href="/finance/payments" className="mt-2 inline-block text-[11px] text-ink-500 hover:text-ink-300">
           Open All Payments ↗
         </Link>

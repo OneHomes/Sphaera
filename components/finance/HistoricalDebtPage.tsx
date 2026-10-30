@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import { PaymentsTable } from "./PaymentsTable";
 import { PaymentDetailModal } from "./PaymentDetailModal";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { relevantMonths } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 
@@ -69,6 +70,8 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [t]);
+  const headSearch = useListSearch(heads, ([h]) => [h]);
+  const headMore = useShowMore(headSearch.filtered, `${headSearch.filtered.length}|${headSearch.query}`);
 
   const { filters } = useFinanceFilters();
   const months = relevantMonths(rawState, filters);
@@ -139,7 +142,15 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
           {heads.length === 0 && (
             <p className="text-[11px] text-ink-500">Classify any payment as historical debt to build this view.</p>
           )}
-          {heads.map(([h, a]) => (
+          {heads.length > 10 && (
+            <div className="mb-2">
+              <ListSearch value={headSearch.query} onChange={headSearch.setQuery} placeholder="Find a cost head…" />
+            </div>
+          )}
+          {heads.length > 0 && headSearch.filtered.length === 0 && (
+            <p className="text-[11px] text-ink-500">No cost heads match &ldquo;{headSearch.query}&rdquo;.</p>
+          )}
+          {headMore.visible.map(([h, a]) => (
             <button
               key={h}
               onClick={() => {
@@ -154,6 +165,7 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
               <b>{usd(a)}</b>
             </button>
           ))}
+          <ShowMoreBar state={headMore} />
         </div>
       </div>
 

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Network, ClipboardCheck, Landmark, ShieldCheck, Workflow, Pencil } from "lucide-react";
 import Link from "next/link";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ERP_REGIONS, ERP_ENVIRONMENTS, ERP_INTEGRATION_MODES } from "@/lib/finance/erpConstants";
+import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "@/components/finance/ShowMore";
 
 type ErpSource = {
   id: string;
@@ -137,6 +138,24 @@ export function ErpConnectionsPage({
   }
 
   const activeCount = sources.filter((s) => s.active).length;
+
+  const listedSources = useMemo(
+    () => sources.filter((s) => s.active || (s.region && s.region !== "Unassigned")),
+    [sources],
+  );
+  const registrationSearch = useListSearch(listedSources, (s) => [
+    s.name,
+    s.region ?? "Unassigned",
+    s.legalEntity,
+    s.environment,
+    s.integrationMode,
+    s.endpointUrl,
+    s.status,
+  ]);
+  const registrationsMore = useShowMore(
+    registrationSearch.filtered,
+    `${listedSources.length}|${registrationSearch.query}`,
+  );
 
   const fundRowsByRegion = new Map<string, FundSummaryRow[]>();
   for (const row of fundSummary) {
@@ -329,14 +348,21 @@ export function ErpConnectionsPage({
       </div>
 
       <div className="mt-4">
-        <div className="mb-3">
-          <h2 className="text-base font-semibold text-ink-50">ERP registrations</h2>
-          <p className="mt-1 text-xs text-ink-500">
-            Existing ERP sources without a region are marked Unassigned and must be corrected, not guessed.
-          </p>
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-ink-50">ERP registrations</h2>
+            <p className="mt-1 text-xs text-ink-500">
+              Existing ERP sources without a region are marked Unassigned and must be corrected, not guessed.
+            </p>
+          </div>
+          <ListSearch
+            value={registrationSearch.query}
+            onChange={registrationSearch.setQuery}
+            placeholder="Filter by name, region, entity, status…"
+          />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {sources.filter((s) => s.active || (s.region && s.region !== "Unassigned")).map((s) => (
+          {registrationsMore.visible.map((s) => (
               <div key={s.id} className="rounded-lg border border-base-700 bg-base-800 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
                   <span className="rounded-full bg-base-700 px-2 py-0.5 text-[10px] font-medium text-ink-300">
@@ -374,7 +400,11 @@ export function ErpConnectionsPage({
               </div>
           ))}
           {sources.length === 0 && <p className="text-xs text-ink-500">No ERP sources registered yet.</p>}
+          {sources.length > 0 && registrationSearch.query.trim() !== "" && registrationSearch.filtered.length === 0 && (
+            <p className="text-xs text-ink-500">No ERP registrations match this filter.</p>
+          )}
         </div>
+        <ShowMoreBar state={registrationsMore} />
       </div>
     </div>
   );

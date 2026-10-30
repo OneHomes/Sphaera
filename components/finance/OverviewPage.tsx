@@ -19,6 +19,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { ShowMoreBar, useShowMore } from "./ShowMore";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 import {
@@ -231,6 +232,7 @@ export function OverviewPage({
     fixedByMonth.set(t.month, (fixedByMonth.get(t.month) ?? 0) + t.amount);
   }
   const fixedCostHeadRows = Array.from(fixedByCostHead.entries()).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  const fixedCostHeadMore = useShowMore(fixedCostHeadRows, `${fixedCostHeadRows.length}|${fixedDept}`);
   const fixedRightRows =
     fixedDept === "all"
       ? Array.from(fixedByDept.entries())
@@ -559,12 +561,13 @@ export function OverviewPage({
               {fixedCostHeadRows.length === 0 && (
                 <p className="text-[11px] text-ink-500">No approved fixed-overhead payments in this selection.</p>
               )}
-              {fixedCostHeadRows.map(([k, v]) => (
+              {fixedCostHeadMore.visible.map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between border-b border-base-800 py-1 text-xs">
                   <span className="text-ink-300">{k}</span>
                   <span className="font-medium text-ink-50">{usd(v)}</span>
                 </div>
               ))}
+              <ShowMoreBar state={fixedCostHeadMore} />
             </div>
             <div>
               <h4 className="mb-1.5 text-xs font-medium text-ink-50">

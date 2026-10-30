@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RotateCcw, ClipboardList, Undo2 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { useTablePager } from "./TablePager";
+import { ListSearch, useListSearch } from "./ShowMore";
 
 export type ChangeHistoryRow = {
   id: string;
@@ -47,8 +48,10 @@ export function ChangeHistoryPage({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { pageRows: changeRows, pager: changePager } = useTablePager(changes);
-  const { pageRows: auditRows, pager: auditPager } = useTablePager(auditEntries);
+  const changeSearch = useListSearch(changes, (c) => [c.description, historyName(c.action), c.action, c.actorEmail, shortId(c.id)]);
+  const auditSearch = useListSearch(auditEntries, (a) => [a.action, a.paymentId, a.actorEmail]);
+  const { pageRows: changeRows, pager: changePager } = useTablePager(changeSearch.filtered);
+  const { pageRows: auditRows, pager: auditPager } = useTablePager(auditSearch.filtered);
 
   async function handleUndo(id: string) {
     if (pendingId) return;
@@ -129,6 +132,9 @@ export function ChangeHistoryPage({
           are reversible. Undo restores the prior SQL values without touching the imported ledger. An undo is
           permanently recorded in the audit trail.
         </p>
+        <div className="mb-2">
+          <ListSearch value={changeSearch.query} onChange={changeSearch.setQuery} placeholder="Search changes, actions or users…" />
+        </div>
         <div className="overflow-x-auto rounded-xl border border-base-700">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -196,6 +202,13 @@ export function ChangeHistoryPage({
                   </td>
                 </tr>
               )}
+              {changes.length > 0 && changeSearch.filtered.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-ink-500">
+                    No changes match &ldquo;{changeSearch.query}&rdquo;.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
           {changePager}
@@ -209,6 +222,9 @@ export function ChangeHistoryPage({
             invoice actions, remain visible for audit. They cannot be undone automatically because reversal could
             break financial or linked records. Use an approved corrective action with Finance.
           </p>
+          <div className="mb-2">
+            <ListSearch value={auditSearch.query} onChange={auditSearch.setQuery} placeholder="Search actions, payment IDs or users…" />
+          </div>
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -236,6 +252,13 @@ export function ChangeHistoryPage({
                   <tr>
                     <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
                       No older audit entries.
+                    </td>
+                  </tr>
+                )}
+                {auditEntries.length > 0 && auditSearch.filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-6 text-center text-ink-500">
+                      No audit entries match &ldquo;{auditSearch.query}&rdquo;.
                     </td>
                   </tr>
                 )}

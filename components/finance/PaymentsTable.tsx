@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { effectiveCentre, effectiveHead, hasCostSplit, isUnidentified, mo } from "@/lib/finance/financeReporting";
 import { useFinanceLookups } from "./FinanceFilterContext";
+import { LIST_PAGE, ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 
-// Port of the source txTable(): 30-row pages, reference/source column, shared-cost splits and review status.
-
-const PAGE_SIZE = 30;
+// Port of the source txTable(): reference/source column, shared-cost splits and review status.
+// Sphaera: first 10 rows with "Show more", plus a search box for the rows on this table.
 
 function usd(value: number): string {
   return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
@@ -41,10 +41,20 @@ export function PaymentsTable({
   const lookups = useFinanceLookups();
   sourceNames = sourceNames ?? lookups.sourceNames;
   subscriptionNames = subscriptionNames ?? lookups.subscriptionNames;
-  const [page, setPage] = useState(0);
-  const maxPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
-  const safePage = Math.min(page, maxPage);
-  const pageRows = rows.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  // Its own search box (description, reference, department, cost head, amount, month).
+  const search = useListSearch(rows, (x) => [
+    x.description,
+    x.paymentReference,
+    effectiveHead(x),
+    effectiveCentre(x),
+    x.month,
+    x.country,
+    Math.round(x.amount),
+  ]);
+  const filteredRows = search.filtered;
+  // First 10, then "Show more" (resets when the rows or the search change).
+  const more = useShowMore(filteredRows, `${filteredRows.length}|${filteredRows[0]?.id ?? ""}|${search.query}`);
+  const pageRows = more.visible;
   const pageIds = pageRows.map((r) => r.id);
   const allVisiblePage = pageIds.length > 0 && selected ? pageIds.every((id) => selected.has(id)) : false;
   const pageIdsKey = pageIds.join(",");
@@ -98,6 +108,16 @@ export function PaymentsTable({
 
   return (
     <div>
+      {rows.length > LIST_PAGE && (
+        <div className="mb-2 flex items-center gap-2">
+          <ListSearch value={search.query} onChange={search.setQuery} placeholder="Filter these payments (name, reference, amount…)" />
+          {search.query && (
+            <span className="text-[11px] text-ink-500">
+              {filteredRows.length.toLocaleString()} of {rows.length.toLocaleString()} match
+            </span>
+          )}
+        </div>
+      )}
       <div className="overflow-x-auto rounded-xl border border-base-700">
         <table className="w-full text-left text-xs">
           <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -108,7 +128,7 @@ export function PaymentsTable({
                     type="checkbox"
                     checked={allVisiblePage}
                     onChange={() => onToggleAllPage?.(pageIds, !allVisiblePage)}
-                    title="Select all payments on this page"
+                    title="Select all payments shown"
                     className="h-3.5 w-3.5 rounded border-base-700 bg-base-800"
                   />
                 </th>
@@ -189,28 +209,10 @@ export function PaymentsTable({
         </table>
         {pageRows.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No payments match these filters.</p>}
       </div>
-      <div className="mt-2 flex items-center justify-between text-[11px] text-ink-500">
-        <span>
-          Showing {rows.length ? safePage * PAGE_SIZE + 1 : 0} to {Math.min((safePage + 1) * PAGE_SIZE, rows.length)} of{" "}
-          {rows.length.toLocaleString()} payments
-        </span>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setPage(Math.max(0, safePage - 1))}
-            disabled={safePage === 0}
-            className="rounded-lg border border-base-700 px-2.5 py-1 text-ink-300 hover:text-ink-50 disabled:opacity-40"
-          >
-            ← Previous
-          </button>
-          <button
-            onClick={() => setPage(Math.min(maxPage, safePage + 1))}
-            disabled={safePage >= maxPage}
-            className="rounded-lg border border-base-700 px-2.5 py-1 text-ink-300 hover:text-ink-50 disabled:opacity-40"
-          >
-            Next →
-          </button>
-        </div>
-      </div>
+      {filteredRows.length <= LIST_PAGE && filteredRows.length > 0 && (
+        <p className="mt-2 text-[11px] text-ink-500">{filteredRows.length.toLocaleString()} payments</p>
+      )}
+      <ShowMoreBar state={more} />
     </div>
   );
 }

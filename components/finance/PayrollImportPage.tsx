@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { LIST_PAGE, ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
+import { confirmDialog } from "./dialogs";
 
 // People Costs skill: payroll master CSV -> controlled review workbook -> reviewed import ->
 // Finance approval -> reconciliation against person allocations on real ledger payments.
@@ -180,7 +182,13 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
     act("approve", async () => {
       if (!run) return;
       if (dirtyCount) throw new Error("Save your changes before approving.");
-      if (!window.confirm(`Approve payroll run for ${run.payPeriod}? Employees will be linked to People records with their approved departments. Approved runs are locked. This does not post anything to the ledger.`)) return;
+      if (
+        !(await confirmDialog(
+          `Approve payroll run for ${run.payPeriod}? Employees will be linked to People records with their approved departments. Approved runs are locked. This does not post anything to the ledger.`,
+          { title: "Approve payroll run", confirmLabel: "Approve" }
+        ))
+      )
+        return;
       const body = await json(`/api/finance/payroll/runs/${run.id}/approve`, { method: "POST" });
       await Promise.all([loadRun(run.id), refreshRuns()]);
       return `Approved. ${body.linked} employees linked to People records.`;
@@ -188,7 +196,7 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
 
   const remove = () =>
     act("delete", async () => {
-      if (!run || !window.confirm("Delete this draft payroll run?")) return;
+      if (!run || !(await confirmDialog("Delete this draft payroll run?", { title: "Delete draft", confirmLabel: "Delete", danger: true }))) return;
       await json(`/api/finance/payroll/runs/${run.id}`, { method: "DELETE" });
       await refreshRuns();
       setSelectedId(null);
@@ -216,6 +224,36 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
     });
     return rows.filter((r) => r.employees > 0);
   }, [stats, run, departments]);
+
+  // Lists show 10 at a time (Show more). Lists without a filter of their own get a small search.
+  const runSearch = useListSearch(runs, (r) => [r.payPeriod, r.sourceName, r.status, r.createdBy, r.approvedBy]);
+  const runMore = useShowMore(runSearch.filtered, `${runs.length}|${runSearch.query}`);
+
+  // Payroll master already has its "Review rows only" toggle. The reset key leaves out the row count so
+  // approving a department (which can drop a row out of "review only") doesn't collapse the list mid-edit.
+  const masterLines = useMemo(
+    () => (stats ? stats.lines.filter((l) => !onlyReview || Math.abs(l.variance) > 0.009 || !l.approvedDepartment) : []),
+    [stats, onlyReview]
+  );
+  const masterMore = useShowMore(masterLines, `${run?.id ?? ""}|${onlyReview}`);
+
+  const deptSearch = useListSearch(deptSummary, (r) => [r.department]);
+  const deptMore = useShowMore(deptSearch.filtered, `${run?.id ?? ""}|${deptSearch.query}`);
+
+  const exceptionSearch = useListSearch(run?.exceptions ?? [], (e) => [e.csvRow, e.subject, e.issue, e.currency, e.evidence]);
+  const exceptionMore = useShowMore(exceptionSearch.filtered, `${run?.id ?? ""}|${run?.exceptions.length ?? 0}|${exceptionSearch.query}`);
+
+  // Reconciliation: matched rows and "not on payroll master" rows as one list so both page together.
+  const reconRows = useMemo(() => {
+    const rec = run?.reconciliation;
+    if (!rec) return [];
+    return [
+      ...rec.rows.map((r, i) => ({ key: `row-${i}`, employeeName: r.employeeName, department: r.department, master: r.masterUsdEquivalent as number | null, attributed: r.attributedUsd, difference: r.difference, status: r.status, notOnMaster: false })),
+      ...rec.notOnMaster.map((r) => ({ key: r.personId, employeeName: r.employeeName, department: null as string | null, master: null as number | null, attributed: r.attributedUsd, difference: r.attributedUsd, status: "Not on payroll master", notOnMaster: true })),
+    ];
+  }, [run]);
+  const reconSearch = useListSearch(reconRows, (r) => [r.employeeName, r.department, r.status]);
+  const reconMore = useShowMore(reconSearch.filtered, `${run?.id ?? ""}|${reconRows.length}|${reconSearch.query}`);
 
   return (
     <div className="space-y-4 p-4">
@@ -257,7 +295,10 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
         </WidgetCard>
       </div>
 
-      <WidgetCard title="Payroll runs">
+      <WidgetCard
+        title="Payroll runs"
+        action={runs.length > LIST_PAGE ? <ListSearch value={runSearch.query} onChange={runSearch.setQuery} placeholder="Filter runs…" /> : undefined}
+      >
         {runs.length === 0 ? (
           <p className="text-xs text-ink-500">No payroll runs imported yet.</p>
         ) : (
@@ -267,7 +308,7 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
                 <tr><th className={th}>Pay period</th><th className={th}>Source</th><th className={th}>Employees</th><th className={th}>Status</th><th className={th}>Imported</th><th className={th}>Approved</th></tr>
               </thead>
               <tbody>
-                {runs.map((r) => (
+                {runMore.visible.map((r) => (
                   <tr key={r.id} onClick={() => setSelectedId(r.id)} className={`cursor-pointer border-b border-base-800 hover:bg-base-800 ${r.id === selectedId ? "bg-base-800" : ""}`}>
                     <td className={td}>{r.payPeriod ?? <span className="text-amber-400">Not confirmed</span>}</td>
                     <td className={td}>{r.sourceName}</td>
@@ -277,8 +318,10 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
                     <td className={td}>{r.approvedAt ? `${new Date(r.approvedAt).toLocaleDateString("en-GB")} · ${r.approvedBy}` : "—"}</td>
                   </tr>
                 ))}
+                {!runSearch.filtered.length && <tr><td className={td} colSpan={6}>No runs match.</td></tr>}
               </tbody>
             </table>
+            <ShowMoreBar state={runMore} />
           </div>
         )}
       </WidgetCard>
@@ -327,16 +370,15 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
                 </label>
               }
             >
-              <div className="max-h-[60vh] overflow-auto">
+              <div className="overflow-x-auto">
                 <table className="w-full text-xs">
-                  <thead className="sticky top-0 border-b border-base-700 bg-base-900">
+                  <thead className="border-b border-base-700 bg-base-900">
                     <tr>
                       {["CSV row", "Employee", "Source dept", "Approved department", "Designation", "Cur", "Base", "Transport", "Bookings", "Deal closed", "Components", "Payable", "Variance", "USD equiv.", "Status", "Source comments", "Review note"].map((h) => <th key={h} className={th}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
-                    {stats.lines
-                      .filter((l) => !onlyReview || Math.abs(l.variance) > 0.009 || !l.approvedDepartment)
+                    {masterMore.visible
                       .map((l) => {
                         const varies = Math.abs(l.variance) > 0.009;
                         const review = varies || !l.approvedDepartment;
@@ -381,15 +423,19 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
                   </tbody>
                 </table>
               </div>
+              <ShowMoreBar state={masterMore} />
             </WidgetCard>
           )}
 
           {tab === "Department Summary" && (
-            <WidgetCard title="Department allocation | payroll">
+            <WidgetCard
+              title="Department allocation | payroll"
+              action={deptSummary.length > LIST_PAGE ? <ListSearch value={deptSearch.query} onChange={deptSearch.setQuery} placeholder="Filter departments…" /> : undefined}
+            >
               <table className="w-full text-xs">
                 <thead className="border-b border-base-700"><tr>{["Approved department", "Employees", "USD payable", "PKR payable", "USD equivalent", "Review rows"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {deptSummary.map((r) => (
+                  {deptMore.visible.map((r) => (
                     <tr key={r.department} className="border-b border-base-800">
                       <td className={td + " text-ink-50"}>{r.department}</td>
                       <td className={tdNum}>{r.employees}</td>
@@ -399,18 +445,23 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
                       <td className={`${tdNum} ${r.review ? "text-amber-400" : ""}`}>{r.review}</td>
                     </tr>
                   ))}
+                  {deptSummary.length > 0 && !deptSearch.filtered.length && <tr><td className={td} colSpan={6}>No departments match.</td></tr>}
                 </tbody>
               </table>
+              <ShowMoreBar state={deptMore} />
             </WidgetCard>
           )}
 
           {tab === "Exceptions" && (
-            <WidgetCard title="Finance review queue">
+            <WidgetCard
+              title="Finance review queue"
+              action={run.exceptions.length > LIST_PAGE ? <ListSearch value={exceptionSearch.query} onChange={exceptionSearch.setQuery} placeholder="Filter employee, issue, evidence…" /> : undefined}
+            >
               <p className="mb-2 text-[11px] text-ink-500">Every discrepancy is preserved. A source comment may explain a difference but is not approval. Exceptions reflect the saved draft.</p>
               <table className="w-full text-xs">
                 <thead className="border-b border-base-700"><tr>{["CSV row", "Employee / summary", "Issue", "Currency", "Components", "Payable", "Variance", "Evidence"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {run.exceptions.map((e, i) => (
+                  {exceptionMore.visible.map((e, i) => (
                     <tr key={i} className="border-b border-base-800 align-top">
                       <td className={tdNum}>{e.csvRow ?? ""}</td>
                       <td className={td + " text-ink-50"}>{e.subject}</td>
@@ -422,8 +473,10 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
                       <td className="max-w-[360px] whitespace-pre-wrap px-2 py-1.5 text-[11px] text-ink-500">{e.evidence}</td>
                     </tr>
                   ))}
+                  {run.exceptions.length > 0 && !exceptionSearch.filtered.length && <tr><td className={td} colSpan={8}>No exceptions match.</td></tr>}
                 </tbody>
               </table>
+              <ShowMoreBar state={exceptionMore} />
             </WidgetCard>
           )}
 
@@ -450,7 +503,10 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
           )}
 
           {tab === "Reconciliation" && (
-            <WidgetCard title="Payroll master vs attributed ledger spend">
+            <WidgetCard
+              title="Payroll master vs attributed ledger spend"
+              action={reconRows.length > LIST_PAGE ? <ListSearch value={reconSearch.query} onChange={reconSearch.setQuery} placeholder="Filter employee, department, status…" /> : undefined}
+            >
               {!run.reconciliation ? (
                 <p className="text-xs text-ink-500">Confirm and save the pay period to reconcile against person allocations for that month.</p>
               ) : (
@@ -463,28 +519,22 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
                   <table className="w-full text-xs">
                     <thead className="border-b border-base-700"><tr>{["Employee", "Department", "Master USD equiv.", "Attributed USD", "Difference", "Status"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
                     <tbody>
-                      {run.reconciliation.rows.map((r, i) => (
-                        <tr key={i} className="border-b border-base-800">
+                      {reconMore.visible.map((r) => (
+                        <tr key={r.key} className="border-b border-base-800">
                           <td className={td + " text-ink-50"}>{r.employeeName}</td>
                           <td className={td}>{r.department ?? "—"}</td>
-                          <td className={tdNum}>{num(r.masterUsdEquivalent)}</td>
-                          <td className={tdNum}>{num(r.attributedUsd)}</td>
+                          <td className={tdNum}>{r.master === null ? "—" : num(r.master)}</td>
+                          <td className={tdNum}>{num(r.attributed)}</td>
                           <td className={tdNum}>{num(r.difference)}</td>
-                          <td className={td}><span className={r.status === "Matched" ? "text-emerald-400" : "text-amber-400"}>{r.status}</span></td>
+                          <td className={td}>
+                            <span className={r.notOnMaster ? "text-red-400" : r.status === "Matched" ? "text-emerald-400" : "text-amber-400"}>{r.status}</span>
+                          </td>
                         </tr>
                       ))}
-                      {run.reconciliation.notOnMaster.map((r) => (
-                        <tr key={r.personId} className="border-b border-base-800">
-                          <td className={td + " text-ink-50"}>{r.employeeName}</td>
-                          <td className={td}>—</td>
-                          <td className={tdNum}>—</td>
-                          <td className={tdNum}>{num(r.attributedUsd)}</td>
-                          <td className={tdNum}>{num(r.attributedUsd)}</td>
-                          <td className={td}><span className="text-red-400">Not on payroll master</span></td>
-                        </tr>
-                      ))}
+                      {reconRows.length > 0 && !reconSearch.filtered.length && <tr><td className={td} colSpan={6}>No employees match.</td></tr>}
                     </tbody>
                   </table>
+                  <ShowMoreBar state={reconMore} />
                 </>
               )}
             </WidgetCard>
