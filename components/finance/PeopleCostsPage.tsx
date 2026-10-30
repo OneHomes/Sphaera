@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Upload } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
@@ -169,6 +169,8 @@ export function PeopleCostsPage({
   transactions: FinanceLedgerRow[];
 }) {
   const [data, setData] = useState<PersonCostState>(state);
+  // Fresh server data (Refresh button, Back/Forward) replaces what this screen holds.
+  useEffect(() => setData(state), [state]);
   const { people, allocations } = data;
   const { filters } = useFinanceFilters();
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);

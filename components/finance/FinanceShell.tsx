@@ -3,6 +3,7 @@
 import { Fragment, Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, GripVertical, RefreshCw, X } from "lucide-react";
 import { FinanceFilterProvider, FinanceLookupProvider, useFinanceFilters } from "./FinanceFilterContext";
 import { FinanceFilterBar } from "./FinanceFilterBar";
@@ -236,10 +237,12 @@ function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }
   return (
     // Prefetch on hover only: prefetching all ~22 screens on every page load made 22 server
     // renders (and their DB queries) compete with the page the user actually opened.
+    // "auto" prefetches only the loading shell, never the page's data: a full prefetch was
+    // cached for up to 5 minutes, so People Costs showed stale links after a save.
     <Link
       href={item.href}
       prefetch={false}
-      onMouseEnter={() => router.prefetch(item.href)}
+      onMouseEnter={() => router.prefetch(item.href, { kind: PrefetchKind.AUTO })}
       className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
         isActive ? "bg-[#efede8] font-semibold text-[#111111]" : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
       }`}
@@ -300,6 +303,13 @@ function FinanceActionBar({ departmentLimited }: { departmentLimited: boolean })
     return () => clearInterval(t);
   }, []);
   const mins = lastUpdated ? Math.floor((Date.now() - lastUpdated) / 60_000) : null;
+  // Browser Back/Forward restores a screen from Next's cache; refetch its server data so it
+  // never shows the state from before a save made on another screen.
+  useEffect(() => {
+    const onPop = () => setTimeout(() => router.refresh(), 0);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [router]);
 
   // Reloads the shared ledger and this screen's own server data.
   async function handleRefresh() {

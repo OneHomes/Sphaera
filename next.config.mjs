@@ -6,6 +6,11 @@ const nextConfig = {
   // managed backend can behave unpredictably (see Microsoft Learn:
   // "Deploy hybrid Next.js websites on Azure Static Web Apps").
   output: "standalone",
+  // Don't reuse a visited page's server data for 30s on back/forward navigation: Finance
+  // screens (e.g. People Costs) would show the state from before a save until then.
+  experimental: {
+    staleTimes: { dynamic: 0 },
+  },
   webpack: (config, { isServer }) => {
     // lib/prisma.ts uses Node's `async_hooks` (for the multi-tenancy
     // AsyncLocalStorage context, 2026-10-23) — fine for server code, but
