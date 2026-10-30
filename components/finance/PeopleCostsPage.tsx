@@ -391,7 +391,12 @@ export function PeopleCostsPage({
       if (!ids.length) throw new Error("Select proposed matches first.");
       const total = suggestions.filter((s) => selectedMatches.has(s.transactionId)).reduce((n, s) => n + s.amountUsd, 0);
       if (!window.confirm(`Assign ${ids.length} existing payments to the suggested employees? Total: ${usd(total)}\n\nReview the individual employee names first.`)) return;
-      const body = await postJson("/api/finance/people/link-suggestions", { transactionIds: ids });
+      const body = await postJson("/api/finance/people/link-suggestions", { transactionIds: ids }).catch(async (err) => {
+        // A timeout can still have saved on the server: reload so the screen shows what really happened.
+        setSelectedMatches(new Set());
+        await reload();
+        throw new Error(`${err instanceof Error ? err.message : "Request failed"}. The page was refreshed; check the history below before trying again.`);
+      });
       setSelectedMatches(new Set());
       await reload();
       return `${body.linked} payments linked; ${usd(body.totalUsd)} attributed. Original ledger unchanged.`;
@@ -455,6 +460,9 @@ export function PeopleCostsPage({
       const body = await postJson("/api/finance/people/allocate-batch", {
         personId: selectedEmployee,
         items: pickEntries.map(([transactionId, p]) => ({ transactionId, ...p })),
+      }).catch(async (err) => {
+        await reload();
+        throw new Error(`${err instanceof Error ? err.message : "Request failed"}. The page was refreshed; check the history below before trying again.`);
       });
       setPicks({});
       await reload();

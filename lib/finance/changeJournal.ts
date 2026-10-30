@@ -70,6 +70,18 @@ async function revisionRecord(table: RevertibleTable, id: string): Promise<Recor
 }
 
 export async function revisionItems(table: RevertibleTable, ids: string[]): Promise<RevisionItem[]> {
+  if (!COMPOUND_KEY_TABLES.has(table) && ids.length > 1) {
+    // One query per 500 keys instead of one per row (bulk saves touch hundreds of rows).
+    const keyField = REVERTIBLE_TABLES[table];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const delegate = delegateFor(table) as any;
+    const byKey = new Map<string, Record<string, unknown>>();
+    for (let i = 0; i < ids.length; i += 500) {
+      const rows: Record<string, unknown>[] = await delegate.findMany({ where: { [keyField]: { in: ids.slice(i, i + 500) } } });
+      for (const row of rows) byKey.set(String(row[keyField]), JSON.parse(JSON.stringify(row)));
+    }
+    return ids.map((id) => ({ table, id, row: byKey.get(id) ?? null }));
+  }
   return Promise.all(ids.map(async (id) => ({ table, id, row: await revisionRecord(table, id) })));
 }
 

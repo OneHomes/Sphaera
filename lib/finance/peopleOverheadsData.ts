@@ -440,6 +440,9 @@ function suggestionType(t: { originalCentre: string | null; originalHead: string
 export async function paymentSuggestions(
   people: { id: string; fullName: string; paymentAlias: string; jobTitle: string; department: string | null; active: boolean }[],
   allocated: Set<string>,
+  // When saving, only the selected payments are re-checked (read straight from SQL), so a save
+  // never waits on reloading the whole ledger.
+  onlyIds?: string[],
 ): Promise<PaymentSuggestion[]> {
   const active = people
     .filter((p) => p.active)
@@ -457,20 +460,24 @@ export async function paymentSuggestions(
       };
     });
   if (!active.length) return [];
-  // Reuses the cached ledger (getFinanceState) instead of re-reading every payment from SQL.
-  const { getFinanceState } = await import("./ledgerData");
   const key = (d: Date | string | null) => (d ? new Date(d).getTime() : 0);
-  const txs = (await getFinanceState()).transactions
-    .filter((t) => t.amount > 0)
-    .map((t) => ({
-      id: t.id,
-      description: t.description,
-      originalCentre: t.costCentre,
-      originalHead: t.head,
-      month: t.month,
-      paymentDate: t.date,
-      amountUsd: t.amount,
-    }))
+  const source = onlyIds
+    ? await prisma.financeTransaction.findMany({
+        where: { id: { in: onlyIds } },
+        select: { id: true, description: true, originalCentre: true, originalHead: true, month: true, paymentDate: true, amountUsd: true },
+      })
+    : // Reuses the cached ledger (getFinanceState) instead of re-reading every payment from SQL.
+      (await (await import("./ledgerData")).getFinanceState()).transactions.map((t) => ({
+        id: t.id,
+        description: t.description,
+        originalCentre: t.costCentre,
+        originalHead: t.head,
+        month: t.month,
+        paymentDate: t.date,
+        amountUsd: t.amount,
+      }));
+  const txs = source
+    .filter((t) => t.amountUsd > 0)
     .sort((a, b) => b.month.localeCompare(a.month) || key(b.paymentDate) - key(a.paymentDate) || (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));
   const out: PaymentSuggestion[] = [];
   for (const t of txs) {
@@ -529,20 +536,26 @@ export async function linkSuggestions(params: { transactionIds: string[]; actorI
   }
   const [people, allocated] = await Promise.all([
     prisma.financePerson.findMany(),
-    prisma.financePersonCostAllocation.findMany({ select: { transactionId: true }, distinct: ["transactionId"] }),
+    prisma.financePersonCostAllocation.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true }, distinct: ["transactionId"] }),
   ]);
-  const current = new Map((await paymentSuggestions(people, new Set(allocated.map((a) => a.transactionId)))).map((s) => [s.transactionId, s]));
+  const current = new Map((await paymentSuggestions(people, new Set(allocated.map((a) => a.transactionId)), ids)).map((s) => [s.transactionId, s]));
   if (ids.some((id) => !current.has(id))) {
     return { ok: false as const, status: 409, error: "Suggestions changed. Refresh and review current matches before saving." };
   }
-  const txs = await prisma.financeTransaction.findMany({ where: { id: { in: ids } }, select: { id: true, organizationId: true, amountUsd: true } });
+  const [txs, splits] = await Promise.all([
+    prisma.financeTransaction.findMany({ where: { id: { in: ids } }, select: { id: true, organizationId: true, amountUsd: true } }),
+    prisma.financePaymentCostSplit.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true } }),
+  ]);
+  const preloaded = { splitTransactionIds: new Set(splits.map((s) => s.transactionId)), peopleById: new Map(people.map((p) => [p.id, p])) };
   const built: BuiltLine[] = [];
   let totalCents = 0;
   for (const tx of txs) {
     const s = current.get(tx.id)!;
-    const result = await buildPaymentLines(tx, [
-      { personId: s.personId, costType: s.costType, amountUsd: s.amountUsd.toFixed(2), reference: "Excel staff / transaction description match", note: "Reviewed suggested payment match" },
-    ]);
+    const result = await buildPaymentLines(
+      tx,
+      [{ personId: s.personId, costType: s.costType, amountUsd: s.amountUsd.toFixed(2), reference: "Excel staff / transaction description match", note: "Reviewed suggested payment match" }],
+      preloaded
+    );
     if (!result.ok) return { ...result, error: `${tx.id}: ${result.error}` };
     built.push(...result.lines);
     totalCents += result.totalCents;
@@ -606,18 +619,26 @@ type BuildResult =
  * v41 dropped the old "payment must already sit under a people-cost head" gate so any payment
  * (Browse: All payments) can be attributed.
  */
-async function buildPaymentLines(tx: PaymentRow, lines: PersonPaymentLine[]): Promise<BuildResult> {
+async function buildPaymentLines(
+  tx: PaymentRow,
+  lines: PersonPaymentLine[],
+  // Bulk callers pass these preloaded so validation doesn't cost two queries per payment.
+  preloaded?: { splitTransactionIds: Set<string>; peopleById: Map<string, { id: string; department: string | null; jobTitle: string }> }
+): Promise<BuildResult> {
   if (!Array.isArray(lines) || lines.length > 100) {
     return { ok: false, status: 400, error: "Use 0 to 100 allocation lines per payment." };
   }
-  const split = await prisma.financePaymentCostSplit.findFirst({ where: { transactionId: tx.id }, select: { id: true } });
+  const split = preloaded
+    ? preloaded.splitTransactionIds.has(tx.id)
+    : await prisma.financePaymentCostSplit.findFirst({ where: { transactionId: tx.id }, select: { id: true } });
   if (split) {
     return { ok: false, status: 409, error: "Split payments require Finance review before personnel attribution." };
   }
 
   const personIds = Array.from(new Set(lines.map((l) => String(l?.personId ?? "")).filter(Boolean)));
-  const people = personIds.length ? await prisma.financePerson.findMany({ where: { id: { in: personIds } } }) : [];
-  const peopleById = new Map(people.map((p) => [p.id, p]));
+  const peopleById =
+    preloaded?.peopleById ??
+    new Map((personIds.length ? await prisma.financePerson.findMany({ where: { id: { in: personIds } } }) : []).map((p) => [p.id, p]));
 
   const sourceCents = Math.round(tx.amountUsd * 100);
   const built: BuiltLine[] = [];
@@ -667,7 +688,10 @@ async function writePaymentLines(params: {
   const before = await revisionItems("FinancePersonCostAllocation", touched);
   await prisma.$transaction([
     prisma.financePersonCostAllocation.deleteMany({ where: { transactionId: { in: params.transactionIds } } }),
-    ...params.built.map((line) => prisma.financePersonCostAllocation.create({ data: line })),
+    // Batched inserts: SQL Server allows ~2100 parameters, so 150 rows of 11 columns per chunk.
+    ...Array.from({ length: Math.ceil(params.built.length / 150) }, (_, i) =>
+      prisma.financePersonCostAllocation.createMany({ data: params.built.slice(i * 150, i * 150 + 150) })
+    ),
   ]);
   const after = await revisionItems("FinancePersonCostAllocation", touched);
   return logReversible({
@@ -735,11 +759,14 @@ export async function allocateBatch(params: {
   const person = await prisma.financePerson.findFirst({ where: { id: params.personId }, select: { id: true, fullName: true } });
   if (!person) return { ok: false, status: 400, error: "Choose a valid employee." };
 
-  const [txs, existing] = await Promise.all([
+  const [txs, existing, splits] = await Promise.all([
     prisma.financeTransaction.findMany({ where: { id: { in: ids } }, select: { id: true, organizationId: true, amountUsd: true } }),
     prisma.financePersonCostAllocation.findMany({ where: { transactionId: { in: ids } } }),
+    prisma.financePaymentCostSplit.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true } }),
   ]);
   const txById = new Map(txs.map((t) => [t.id, t]));
+  const linePeople = await prisma.financePerson.findMany({ where: { id: { in: Array.from(new Set([person.id, ...existing.map((a) => a.personId)])) } } });
+  const preloaded = { splitTransactionIds: new Set(splits.map((s) => s.transactionId)), peopleById: new Map(linePeople.map((p) => [p.id, p])) };
   const built: BuiltLine[] = [];
   let addedCents = 0;
   for (const item of items) {
@@ -748,10 +775,11 @@ export async function allocateBatch(params: {
     const kept: PersonPaymentLine[] = existing
       .filter((a) => a.transactionId === tx.id)
       .map((a) => ({ personId: a.personId, costType: a.costType, amountUsd: a.amountUsd.toFixed(2), reference: a.reference ?? "", note: a.note ?? "" }));
-    const result = await buildPaymentLines(tx, [
-      ...kept,
-      { personId: person.id, costType: item.costType, amountUsd: item.amountUsd, reference: item.reference, note: item.note },
-    ]);
+    const result = await buildPaymentLines(
+      tx,
+      [...kept, { personId: person.id, costType: item.costType, amountUsd: item.amountUsd, reference: item.reference, note: item.note }],
+      preloaded
+    );
     if (!result.ok) return { ...result, error: `${tx.id}: ${result.error}` };
     // Kept lines keep their original snapshots; only the new line takes today's department/title.
     const keptRows = existing.filter((a) => a.transactionId === tx.id);
