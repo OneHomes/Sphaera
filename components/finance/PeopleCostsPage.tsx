@@ -198,6 +198,29 @@ export function PeopleCostsPage({
     apply(existing ?? name);
   }
 
+  // Change one history line's category in place (amount, employee and snapshots stay the same).
+  const [savingCategory, setSavingCategory] = useState<string | null>(null);
+  const [historyMessage, setHistoryMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  async function changeCategory(allocationId: string, costType: string) {
+    const line = allocations.find((a) => a.id === allocationId);
+    if (!line || line.costType === costType) return;
+    setSavingCategory(allocationId);
+    setHistoryMessage(null);
+    try {
+      const body = await postJson("/api/finance/people/category", { allocationId, costType });
+      setData((prev) => ({
+        ...prev,
+        allocations: prev.allocations.map((a) => (a.id === allocationId ? { ...a, costType: body.costType } : a)),
+        costTypes: prev.costTypes.includes(body.costType) ? prev.costTypes : [...prev.costTypes, body.costType],
+      }));
+      setHistoryMessage({ kind: "ok", text: `${line.personName}: ${line.costType} → ${body.costType}. You can undo this in Change History.` });
+    } catch (err) {
+      setHistoryMessage({ kind: "error", text: err instanceof Error ? err.message : "Could not change the category" });
+    } finally {
+      setSavingCategory(null);
+    }
+  }
+
   const txById = useMemo(() => new Map(transactions.map((t) => [t.id, t])), [transactions]);
   const usedCents = useMemo(() => {
     const m = new Map<string, number>();
@@ -1357,6 +1380,11 @@ export function PeopleCostsPage({
           title={filterPerson !== "all" ? `Payments linked to ${people.find((p) => p.id === filterPerson)?.fullName ?? "this person"}` : "Commission and payroll history"}
           action={<Link href="/finance/history" className="text-[11px] text-ink-300 hover:text-ink-50">Change History ↗</Link>}
         >
+          {historyMessage && (
+            <p className={`mb-3 rounded-lg border px-3 py-2 text-xs ${historyMessage.kind === "ok" ? "border-status-active/40 bg-status-active/10 text-status-active" : "border-status-inactive/40 bg-status-inactive/10 text-status-inactive"}`}>
+              {historyMessage.text}
+            </p>
+          )}
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-base-700 bg-base-900 text-ink-500">
@@ -1375,7 +1403,18 @@ export function PeopleCostsPage({
                     <td className="px-3 py-2">{h.paymentDate ? String(h.paymentDate).slice(0, 10) : h.month}</td>
                     <td className="px-3 py-2 font-medium text-ink-50">{h.personName}</td>
                     <td className="px-3 py-2">{h.departmentSnapshot ?? "—"}</td>
-                    <td className="px-3 py-2">{h.costType}</td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={h.costType}
+                        disabled={savingCategory === h.id}
+                        onChange={(e) => chooseCategory(e.target.value, (costType) => changeCategory(h.id, costType))}
+                        className="rounded-md border border-base-700 bg-base-800 px-2 py-1 text-xs text-ink-50 outline-none disabled:opacity-50"
+                      >
+                        {!categoryOptions.includes(h.costType) && <option value={h.costType}>{h.costType}</option>}
+                        {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                        <option value={NEW_CATEGORY}>+ Add new category…</option>
+                      </select>
+                    </td>
                     <td className="max-w-[280px] px-3 py-2">
                       <p className="truncate" title={h.paymentDescription}>{h.paymentDescription}</p>
                       <p className="text-[10px] text-ink-500">{h.reference || h.transactionId}</p>

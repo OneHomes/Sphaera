@@ -726,6 +726,41 @@ async function writePaymentLines(params: {
   });
 }
 
+/**
+ * Sphaera addition: change only the cost category of one allocation line (from the history
+ * table). Amount, employee and the department/job-title snapshots are left untouched, and the
+ * change is logged as an undoable step.
+ */
+export async function changeAllocationCategory(params: {
+  allocationId: string;
+  costType: unknown;
+  actorId: string;
+  actorEmail: string;
+}): Promise<{ ok: true; costType: string; previous: string; changeId: string } | { ok: false; status: number; error: string }> {
+  const costType = normalisePersonCostType(params.costType);
+  if (!costType) return { ok: false, status: 400, error: "Choose a cost category (custom names must be 2 to 60 characters)." };
+  const line = await prisma.financePersonCostAllocation.findFirst({
+    where: { id: String(params.allocationId ?? "") },
+    select: { id: true, organizationId: true, costType: true, person: { select: { fullName: true } } },
+  });
+  if (!line) return { ok: false, status: 404, error: "Allocation not found. Refresh the page." };
+  if (line.costType === costType) return { ok: true, costType, previous: line.costType, changeId: "" };
+
+  const before = await revisionItems("FinancePersonCostAllocation", [line.id]);
+  await prisma.financePersonCostAllocation.update({ where: { id: line.id }, data: { costType } });
+  const after = await revisionItems("FinancePersonCostAllocation", [line.id]);
+  const changeId = await logReversible({
+    organizationId: line.organizationId,
+    action: "person_cost_category",
+    description: `People costs · ${line.person.fullName}: ${line.costType} → ${costType}`,
+    actorId: params.actorId,
+    actorEmail: params.actorEmail,
+    before,
+    after,
+  });
+  return { ok: true, costType, previous: line.costType, changeId };
+}
+
 /** Port of /api/people/allocate: replaces the full personnel allocation of ONE payment. */
 export async function savePersonPayment(params: {
   transactionId: string;
