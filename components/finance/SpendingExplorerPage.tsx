@@ -58,7 +58,6 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
   useEffect(() => setRows(filtered), [filtered]);
 
   const [basis, setBasis] = useState<Basis>("operating");
-  const [selectedHeads, setSelectedHeads] = useState<Set<string> | null>(null);
   const [selectedCentres, setSelectedCentres] = useState<Set<string> | null>(null);
   const [paySelected, setPaySelected] = useState<Set<string>>(new Set());
   const [pageIds, setPageIds] = useState<string[]>([]);
@@ -88,41 +87,47 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
   }, [rows, basis, state.departments]);
   const reportBase = useMemo(() => reportingRows(base, filters.department), [base, filters.department]);
 
-  const stage: "head" | "centre" | "description" = c ? "description" : h ? "centre" : "head";
+  // Sphaera (One Homes request): the chart always shows Simple cost heads, across all departments
+  // or within the department chosen above; a cost head then drills into its payment descriptions.
+  const stage: "centre" | "description" = c ? "description" : "centre";
   const choices = useMemo(
-    () => groupCosts(h ? reportBase.filter((t) => effectiveHead(t) === h) : reportBase, h ? effectiveCentre : effectiveHead),
+    () => groupCosts(h ? reportBase.filter((t) => effectiveHead(t) === h) : reportBase, effectiveCentre),
     [reportBase, h]
   );
-  const selected = stage === "head" ? selectedHeads : stage === "centre" ? selectedCentres : null;
+  const selected = stage === "centre" ? selectedCentres : null;
 
   const tx = useMemo(() => {
     let out = base;
     if (h) out = out.filter((t) => belongsToDepartment(t, h));
     if (c) out = out.filter((t) => belongsToCostHead(t, c));
-    else if (!h)
-      out = out.filter((t) =>
-        hasCostSplit(t) ? t.departmentSplits.some((x) => selectionAllows(selectedHeads, x.department)) : selectionAllows(selectedHeads, effectiveHead(t))
-      );
     else
       out = out.filter((t) =>
         hasCostSplit(t) ? t.departmentSplits.some((x) => selectionAllows(selectedCentres, x.costHead)) : selectionAllows(selectedCentres, effectiveCentre(t))
       );
     const dateKey = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
     return [...out].sort((a, b) => b.month.localeCompare(a.month) || dateKey(b.date).localeCompare(dateKey(a.date)) || b.amount - a.amount);
-  }, [base, h, c, selectedHeads, selectedCentres]);
+  }, [base, h, c, selectedCentres]);
 
   const displayed = reportBase.filter(
     (t) =>
       (!h || effectiveHead(t) === h) &&
       (!c || effectiveCentre(t) === c) &&
-      (!c && !h ? selectionAllows(selectedHeads, effectiveHead(t)) : !c ? selectionAllows(selectedCentres, effectiveCentre(t)) : true)
+      (stage === "centre" ? selectionAllows(selectedCentres, effectiveCentre(t)) : true)
   );
-  const groups = groupCosts(displayed, stage === "head" ? effectiveHead : stage === "centre" ? effectiveCentre : (x) => x.description);
+  const groups = groupCosts(displayed, stage === "centre" ? effectiveCentre : (x) => x.description);
   const all = displayed.reduce((s, t) => s + t.amount, 0);
   const baseAmount = (h ? reportBase.filter((t) => effectiveHead(t) === h) : reportBase).reduce((s, t) => s + t.amount, 0);
   const percent = baseAmount > 0 ? `${((100 * all) / baseAmount).toFixed(1)}%` : "Not available";
-  const label = stage === "head" ? "Cost heads" : stage === "centre" ? `Cost heads within ${h}` : `Payment descriptions within ${c}`;
+  const label =
+    stage === "centre" ? (h ? `Cost heads within ${h}` : "Cost heads across all departments") : `Payment descriptions within ${c}${h ? ` (${h})` : ""}`;
   const headOptions = Array.from(new Set(filtered.map(effectiveHead))).sort();
+  // Every registered Simple cost head (same list as the payment form), plus any found in the data.
+  const costHeadOptions = Array.from(new Set([...state.managementCostHeads, ...filtered.map(effectiveCentre)])).sort((a, b) => a.localeCompare(b));
+  const costHeadTotals = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of reportBase) m.set(effectiveCentre(t), (m.get(effectiveCentre(t)) ?? 0) + 1);
+    return m;
+  }, [reportBase]);
   const browseNote =
     basis === "operating"
       ? "Classified current-year spending, excluding historical debt and unresolved movements"
@@ -131,17 +136,16 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
         : "All recorded payments, including movements that may not be expenses";
   const selectedCount = selected === null ? choices.length : choices.filter((g) => selected.has(g.key)).length;
   const budgetNote =
-    stage === "head" && basis === "operating" && filters.department === "all" && filters.country === "all" && !filters.query && selectedHeads === null
+    stage === "centre" && !h && basis === "operating" && filters.department === "all" && filters.country === "all" && !filters.query && selectedCentres === null
       ? "The separate Budget vs Actual page shows the full operating budget. Use that page to assess overall budget variance."
       : "The source does not allocate budgets to individual cost heads or cost centres. A reliable over/under-budget comparison is unavailable for this custom selection.";
 
   const modeParam = basis === "operating" ? "operating" : basis === "debt" ? "debt" : "all";
+  const deptParam = h ? `department=${encodeURIComponent(h)}&` : "";
   const hrefFor = (name: string) =>
-    stage === "head"
-      ? `/finance/explorer?department=${encodeURIComponent(name)}`
-      : stage === "centre"
-        ? `/finance/explorer?department=${encodeURIComponent(h!)}&centre=${encodeURIComponent(name)}`
-        : `/finance/payments?mode=${modeParam}&department=${encodeURIComponent(h!)}&costHead=${encodeURIComponent(c!)}&description=${encodeURIComponent(name)}`;
+    stage === "centre"
+      ? `/finance/explorer?${deptParam}centre=${encodeURIComponent(name)}`
+      : `/finance/payments?mode=${modeParam}&${deptParam}costHead=${encodeURIComponent(c!)}&description=${encodeURIComponent(name)}`;
   const ledgerHref = `/finance/payments?mode=${modeParam}${h ? `&department=${encodeURIComponent(h)}` : ""}${c ? `&costHead=${encodeURIComponent(c)}` : ""}`;
   const listCap = stage === "description" ? 15 : 45;
 
@@ -176,8 +180,8 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
         </label>
         <label className={fieldLabel}>
           Open a department
-          <select value={h ?? "all"} onChange={(e) => go(e.target.value === "all" ? null : e.target.value)} className={fieldSelect}>
-            <option value="all">All available cost heads</option>
+          <select value={h ?? "all"} onChange={(e) => go(e.target.value === "all" ? null : e.target.value, c)} className={fieldSelect}>
+            <option value="all">All departments</option>
             {headOptions.map((x) => (
               <option key={x} value={x}>
                 {x}
@@ -185,14 +189,25 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
             ))}
           </select>
         </label>
+        <label className={fieldLabel}>
+          Simple cost head
+          <select value={c ?? "all"} onChange={(e) => go(h, e.target.value === "all" ? null : e.target.value)} className={fieldSelect}>
+            <option value="all">All simple cost heads</option>
+            {costHeadOptions.map((x) => (
+              <option key={x} value={x}>
+                {x} ({costHeadTotals.get(x) ?? 0})
+              </option>
+            ))}
+          </select>
+        </label>
         <button onClick={() => go(null)} className="rounded-lg border border-base-700 px-3 py-2 text-xs text-ink-300 hover:text-ink-50">
-          View all cost heads
+          View everything
         </button>
       </div>
 
       <nav className="mb-4 flex flex-wrap items-center gap-1.5 text-xs">
-        <button onClick={() => go(null)} className={h ? "text-status-active hover:underline" : "font-medium text-status-active"}>
-          All cost heads
+        <button onClick={() => go(null)} className={h || c ? "text-status-active hover:underline" : "font-medium text-status-active"}>
+          All departments
         </button>
         {h && (
           <>
@@ -210,11 +225,13 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
         )}
       </nav>
 
-      {stage === "head" && (
-        <ChartPicker title="Select departments" rows={choices} selected={selectedHeads} onChange={setSelectedHeads} />
-      )}
       {stage === "centre" && (
-        <ChartPicker title={`Select cost heads in ${h}`} rows={choices} selected={selectedCentres} onChange={setSelectedCentres} />
+        <ChartPicker
+          title={h ? `Select cost heads in ${h}` : "Select cost heads (all departments)"}
+          rows={choices}
+          selected={selectedCentres}
+          onChange={setSelectedCentres}
+        />
       )}
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -241,13 +258,13 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
           <DonutWidget
             wide
             rows={groups.map((g) => ({ name: g.key, value: g.value, count: g.count }))}
-            otherLabel={stage === "head" ? "Other heads" : stage === "centre" ? "Other cost centres" : "Other payments"}
+            otherLabel={stage === "centre" ? "Other cost heads" : "Other payments"}
             hrefFor={hrefFor}
           />
         </div>
         <div className="rounded-xl border border-base-700 bg-base-900 p-4 lg:col-span-2">
           <h3 className="text-sm font-medium text-ink-50">
-            {stage === "head" ? "Selected departments" : stage === "centre" ? "Selected cost heads" : "Largest payment descriptions"}
+            {stage === "centre" ? "Selected cost heads" : "Largest payment descriptions"}
           </h3>
           <p className="mb-3 mt-1 text-[11px] text-ink-500">These amounts use signed net ledger figures and may include adjustments or credits.</p>
           <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
