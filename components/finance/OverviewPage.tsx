@@ -363,6 +363,50 @@ export function OverviewPage({
             Collections and expenditure are different accounting measures. This chart helps assess cash coverage, it
             is not a profit and loss statement.
           </p>
+          {/* Month-by-month figures behind the bars; a row opens that month's payments like a bar click. */}
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-base-700 text-ink-500">
+                  <th className="py-1.5 text-left font-medium">Month</th>
+                  <th className="py-1.5 text-right font-medium">Collections</th>
+                  <th className="py-1.5 text-right font-medium">Spending</th>
+                  <th className="py-1.5 text-right font-medium">Budget</th>
+                  <th className="py-1.5 text-right font-medium">Cash gap</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthRows.map((m) => {
+                  const gap = m.hasCollections ? m.collections - m.opex : null;
+                  return (
+                    <tr
+                      key={m.month}
+                      onClick={() => openMonth({ month: m.month })}
+                      className="cursor-pointer border-b border-base-800 text-ink-300 hover:bg-base-800 hover:text-ink-50"
+                    >
+                      <td className="py-1">{mo(m.month)}</td>
+                      <td className="py-1 text-right">{m.hasCollections ? usd(m.collections, true) : "—"}</td>
+                      <td className="py-1 text-right">{usd(m.opex, true)}</td>
+                      <td className="py-1 text-right">{m.budgetAvailable ? usd(m.budget, true) : "—"}</td>
+                      <td className={`py-1 text-right font-medium ${gap === null ? "" : gap < 0 ? "text-status-inactive" : "text-status-active"}`}>
+                        {gap === null ? "—" : `${gap < 0 ? "-" : "+"}${usd(Math.abs(gap), true)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="font-semibold text-ink-50">
+                  <td className="pt-1.5">Total</td>
+                  <td className="pt-1.5 text-right">{usd(cash, true)}</td>
+                  <td className="pt-1.5 text-right">{usd(monthRows.reduce((s, m) => s + m.opex, 0), true)}</td>
+                  <td className="pt-1.5 text-right">{budgetedMonths.length ? usd(monthRows.reduce((s, m) => s + (m.budgetAvailable ? m.budget : 0), 0), true) : "—"}</td>
+                  <td className={`pt-1.5 text-right ${cash - monthRows.reduce((s, m) => s + m.opex, 0) < 0 ? "text-status-inactive" : "text-status-active"}`}>
+                    {cash - monthRows.reduce((s, m) => s + m.opex, 0) < 0 ? "-" : "+"}
+                    {usd(Math.abs(cash - monthRows.reduce((s, m) => s + m.opex, 0)), true)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </WidgetCard>
 
         <WidgetCard
