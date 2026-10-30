@@ -285,6 +285,19 @@ export const PERSON_COST_TYPES = [
 ] as const;
 const PERSON_COST_TYPE_SET = new Set<string>(PERSON_COST_TYPES);
 
+/**
+ * Sphaera extension: besides the standard types, Finance can add its own category (e.g.
+ * "Performance bonus"). Standard types are matched case-insensitively to their canonical
+ * spelling; a custom one is kept as typed (2-60 characters, no formula prefix).
+ */
+export function normalisePersonCostType(raw: unknown): string | null {
+  const value = String(raw ?? "").trim().split(/\s+/).join(" ");
+  const standard = PERSON_COST_TYPES.find((t) => t.toLowerCase() === value.toLowerCase());
+  if (standard) return standard;
+  if (value.length < 2 || value.length > 60 || /^[=+\-@]/.test(value)) return null;
+  return value;
+}
+
 export type SavePersonResult = { ok: true; id: string } | { ok: false; status: number; error: string };
 
 /**
@@ -381,7 +394,13 @@ export async function getPersonCostState() {
       paymentAmount: a.transaction.amountUsd,
       personName: a.person.fullName,
     })),
-    costTypes: [...PERSON_COST_TYPES].slice().sort(),
+    // Standard types first, then any custom categories already in use.
+    costTypes: [
+      ...PERSON_COST_TYPES,
+      ...Array.from(new Set(allocations.map((a) => a.costType)))
+        .filter((t) => !PERSON_COST_TYPE_SET.has(t))
+        .sort((a, b) => a.localeCompare(b)),
+    ],
     suggestions: await paymentSuggestions(people, new Set(allocations.map((a) => a.transactionId))),
   };
 }
@@ -454,8 +473,9 @@ export async function paymentSuggestions(
       const last = words[words.length - 1];
       return {
         p,
-        phrases: [p.fullName, p.paymentAlias].map(matchNorm).filter((x) => x.length >= 5),
-        variantPhrases: [p.fullName, p.paymentAlias].map(variantNorm).filter((x) => x.length >= 5),
+        // Payment alias may hold several bank spellings separated by ";".
+        phrases: [p.fullName, ...p.paymentAlias.split(";")].map(matchNorm).filter((x) => x.length >= 5),
+        variantPhrases: [p.fullName, ...p.paymentAlias.split(";")].map(variantNorm).filter((x) => x.length >= 5),
         firstLast: words.length >= 2 && first.length >= 3 && last.length >= 3 ? [first, last] : null,
       };
     });
@@ -646,8 +666,8 @@ async function buildPaymentLines(
   for (const line of lines) {
     const person = peopleById.get(String(line?.personId ?? ""));
     if (!person) return { ok: false, status: 400, error: "Choose a valid employee on every line." };
-    const costType = String(line?.costType ?? "").trim();
-    if (!PERSON_COST_TYPE_SET.has(costType)) return { ok: false, status: 400, error: "Choose a valid salary or commission type." };
+    const costType = normalisePersonCostType(line?.costType);
+    if (!costType) return { ok: false, status: 400, error: "Choose a cost category (custom names must be 2 to 60 characters)." };
     const cents = parseMoneyToCents(line?.amountUsd);
     if (cents === null) return { ok: false, status: 400, error: "Enter a valid USD amount to two decimal places." };
     if (cents <= 0) return { ok: false, status: 400, error: "Allocation amounts must be positive." };

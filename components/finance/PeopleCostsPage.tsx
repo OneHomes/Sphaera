@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Upload } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
@@ -16,6 +16,7 @@ import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 // existing ledger payments; they are never additional expenses.
 
 const COST_TYPES = ["Salary", "Commission", "Bonus", "Employer taxes", "Benefits", "Other personnel"] as const;
+const NEW_CATEGORY = "__new_category__";
 
 type Person = {
   id: string;
@@ -176,6 +177,26 @@ export function PeopleCostsPage({
     const res = await fetch("/api/finance/people");
     if (res.ok) setData(await res.json());
   }, []);
+
+  // Cost categories: the standard ones, any custom ones already used, and ones added on this page.
+  const [addedTypes, setAddedTypes] = useState<string[]>([]);
+  const categoryOptions = useMemo(
+    () => Array.from(new Set<string>([...COST_TYPES, ...(data.costTypes ?? []), ...addedTypes])),
+    [data.costTypes, addedTypes]
+  );
+  /** Handles a category <select>: the "+ Add new category…" entry asks for a name first. */
+  function chooseCategory(value: string, apply: (costType: string) => void) {
+    if (value !== NEW_CATEGORY) return apply(value);
+    const name = window.prompt("New cost category (e.g. Performance bonus):")?.trim().split(/\s+/).join(" ");
+    if (!name) return;
+    if (name.length < 2 || name.length > 60 || /^[=+\-@]/.test(name)) {
+      window.alert("Category name must be 2 to 60 characters.");
+      return;
+    }
+    const existing = categoryOptions.find((c) => c.toLowerCase() === name.toLowerCase());
+    if (!existing) setAddedTypes((prev) => [...prev, name]);
+    apply(existing ?? name);
+  }
 
   const txById = useMemo(() => new Map(transactions.map((t) => [t.id, t])), [transactions]);
   const usedCents = useMemo(() => {
@@ -379,6 +400,68 @@ export function PeopleCostsPage({
     return { rows: Array.from(groups.values()).sort((a, b) => b.total - a.total), companyCount, companyTotal };
   }, [transactions, suggestions, balance]);
   const [showAllUnknown, setShowAllUnknown] = useState(false);
+
+  // Add an unknown payee as a new employee, or attach the bank name to an existing employee as a
+  // payment alias. Either way their payments then show up in the suggestions for review.
+  const [payeeForm, setPayeeForm] = useState<
+    { bankName: string; mode: "add" | "link"; fullName: string; department: string; jobTitle: string; personId: string } | null
+  >(null);
+  const [payeeMessage, setPayeeMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  function openPayeeForm(bankName: string, mode: "add" | "link") {
+    setPayeeMessage(null);
+    setPayeeForm({ bankName, mode, fullName: bankName, department: filterDept !== "all" ? filterDept : "", jobTitle: "", personId: "" });
+  }
+  const savePayee = () =>
+    run("payee", async () => {
+      if (!payeeForm) return;
+      setPayeeMessage(null);
+      const f = payeeForm;
+      let personId: string;
+      let personName: string;
+      try {
+        if (f.mode === "add") {
+          const name = f.fullName.trim();
+          const body = await postJson("/api/finance/people", {
+            name,
+            department: f.department,
+            jobTitle: f.jobTitle,
+            // Keep the bank spelling as an alias when the employee name is written differently.
+            paymentAlias: name.toLowerCase() === f.bankName.toLowerCase() ? "" : f.bankName,
+          });
+          personId = body.id;
+          personName = name;
+        } else {
+          const p = people.find((x) => x.id === f.personId);
+          if (!p) throw new Error("Choose the employee these payments belong to.");
+          const aliases = p.paymentAlias.split(";").map((a) => a.trim()).filter(Boolean);
+          if (!aliases.some((a) => a.toLowerCase() === f.bankName.toLowerCase())) aliases.push(f.bankName);
+          await postJson("/api/finance/people", {
+            id: p.id,
+            name: p.fullName,
+            department: p.department ?? "",
+            jobTitle: p.jobTitle,
+            email: p.email,
+            paymentAlias: aliases.join("; "),
+            active: p.active,
+          });
+          personId = p.id;
+          personName = p.fullName;
+        }
+      } catch (err) {
+        setPayeeMessage({ kind: "error", text: err instanceof Error ? err.message : "Save failed" });
+        throw err;
+      }
+      setPayeeForm(null);
+      const res = await fetch("/api/finance/people");
+      const next: PersonCostState | null = res.ok ? await res.json() : null;
+      if (next) setData(next);
+      const found = next ? next.suggestions.filter((s) => s.personId === personId).length : 0;
+      const text = found
+        ? `${f.mode === "add" ? `Added ${personName}` : `Linked “${f.bankName}” to ${personName}`}. ${found} of their payments are now in “Suggested salary and commission matches” above: review them and click Link.`
+        : `${f.mode === "add" ? `Added ${personName}` : `Linked “${f.bankName}” to ${personName}`}, but no payment matched automatically. Use Find payments to assign them by hand.`;
+      setPayeeMessage({ kind: "ok", text });
+      return text;
+    });
   const searchPayments = (text: string) => {
     setQueryInput(text);
     setQuery(text);
@@ -447,6 +530,38 @@ export function PeopleCostsPage({
     setSelectedEmployee(id);
     if (scroll) setTimeout(() => findRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
+
+  // --- Edit one employee (name, department, job title, payment alias) --------------------------
+  const [editPerson, setEditPerson] = useState<Person | null>(null);
+  const employeesRef = useRef<HTMLDivElement | null>(null);
+  const [personError, setPersonError] = useState<string | null>(null);
+  function startEditPerson(p: Person) {
+    setPersonError(null);
+    setEditPerson({ ...p });
+  }
+  const savePersonEdit = () =>
+    run("person", async () => {
+      if (!editPerson) return;
+      setPersonError(null);
+      const before = people.find((p) => p.id === editPerson.id);
+      await postJson("/api/finance/people", {
+        id: editPerson.id,
+        name: editPerson.fullName,
+        department: editPerson.department ?? "",
+        jobTitle: editPerson.jobTitle,
+        email: editPerson.email,
+        paymentAlias: editPerson.paymentAlias,
+        active: editPerson.active,
+      }).catch((err) => {
+        setPersonError(err instanceof Error ? err.message : "Save failed");
+        throw err;
+      });
+      setEditPerson(null);
+      await reload();
+      return before && before.fullName !== editPerson.fullName.trim()
+        ? `Renamed ${before.fullName} to ${editPerson.fullName.trim()}.`
+        : `Saved ${editPerson.fullName.trim()}.`;
+    });
 
   const saveBatch = () =>
     run("batch", async () => {
@@ -742,10 +857,16 @@ export function PeopleCostsPage({
           >
             <p className="mb-3 text-xs text-ink-500">
               These names received salary or commission but don&apos;t match anyone in the employee list (they may have left, or their name is
-              written differently on the bank). To link them: add them to the employee Excel, or put the bank name in the{" "}
-              <b className="text-ink-300">Payment alias</b> column of the right employee, then upload. Their payments will then appear in the
-              suggestions above. You can also assign them by hand with <b className="text-ink-300">Find payments</b>.
+              written differently on the bank). Use <b className="text-ink-300">Add as employee</b> for a new person, or{" "}
+              <b className="text-ink-300">Link to existing</b> when the bank name belongs to someone already in the list (it is saved as their
+              payment alias). Their payments then appear in the suggestions above for review. You can also assign them by hand with{" "}
+              <b className="text-ink-300">Find payments</b>.
             </p>
+            {payeeMessage && (
+              <p className={`mb-3 rounded-lg border px-3 py-2 text-xs ${payeeMessage.kind === "ok" ? "border-status-active/40 bg-status-active/10 text-status-active" : "border-status-inactive/40 bg-status-inactive/10 text-status-inactive"}`}>
+                {payeeMessage.text}
+              </p>
+            )}
             <div className="max-h-[320px] overflow-auto rounded-xl border border-base-700">
               <table className="w-full text-left text-xs">
                 <thead className="sticky top-0 border-b border-base-700 bg-base-900 text-ink-500">
@@ -759,17 +880,80 @@ export function PeopleCostsPage({
                 </thead>
                 <tbody>
                   {(showAllUnknown ? unknownPayees.rows : unknownPayees.rows.slice(0, 25)).map((g) => (
-                    <tr key={g.name} className="border-b border-base-800 text-ink-300 last:border-0">
+                    <Fragment key={g.name}>
+                    <tr className="border-b border-base-800 text-ink-300 last:border-0">
                       <td className="px-3 py-1.5 font-medium text-ink-50">{g.name}</td>
                       <td className="px-3 py-1.5 text-right">{g.count}</td>
                       <td className="px-3 py-1.5">{g.latest}</td>
                       <td className="px-3 py-1.5 text-right">{usd(g.total)}</td>
-                      <td className="px-3 py-1.5 text-right">
-                        <button onClick={() => searchPayments(g.name)} className={smallBtn}>
-                          Find payments
-                        </button>
+                      <td className="px-3 py-1.5">
+                        <span className="flex justify-end gap-1.5">
+                          <button onClick={() => searchPayments(g.name)} className={smallBtn}>
+                            Find payments
+                          </button>
+                          <button onClick={() => openPayeeForm(g.name, "add")} className={smallBtn}>
+                            Add as employee
+                          </button>
+                          <button onClick={() => openPayeeForm(g.name, "link")} className={smallBtn}>
+                            Link to existing
+                          </button>
+                        </span>
                       </td>
                     </tr>
+                    {payeeForm?.bankName === g.name && (
+                      <tr className="border-b border-base-800 bg-base-800">
+                        <td colSpan={5} className="px-3 py-3">
+                          {payeeForm.mode === "add" ? (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <label className={labelClass}>
+                                Employee full name
+                                <input autoFocus value={payeeForm.fullName} onChange={(e) => setPayeeForm({ ...payeeForm, fullName: e.target.value })} className={`${inputClass} normal-case tracking-normal`} />
+                              </label>
+                              <label className={labelClass}>
+                                Department
+                                <select value={payeeForm.department} onChange={(e) => setPayeeForm({ ...payeeForm, department: e.target.value })} className={`${inputClass} normal-case tracking-normal`}>
+                                  <option value="">Choose…</option>
+                                  {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                              </label>
+                              <label className={labelClass}>
+                                Job title
+                                <input value={payeeForm.jobTitle} onChange={(e) => setPayeeForm({ ...payeeForm, jobTitle: e.target.value })} className={`${inputClass} normal-case tracking-normal`} />
+                              </label>
+                            </div>
+                          ) : (
+                            <label className={`${labelClass} max-w-md`}>
+                              Which employee is “{g.name}”?
+                              <select autoFocus value={payeeForm.personId} onChange={(e) => setPayeeForm({ ...payeeForm, personId: e.target.value })} className={`${inputClass} normal-case tracking-normal`}>
+                                <option value="">Choose employee…</option>
+                                {people.map((p) => <option key={p.id} value={p.id}>{p.fullName} ({p.department ?? "—"})</option>)}
+                              </select>
+                            </label>
+                          )}
+                          <div className="mt-3 flex items-center justify-end gap-2">
+                            <span className="mr-auto text-[11px] text-ink-500">
+                              {payeeForm.mode === "add"
+                                ? "Creates the employee; the bank name is kept as their payment alias if it is spelled differently."
+                                : `“${g.name}” is added to this employee's payment alias. Nothing is linked until you review the suggestions.`}
+                            </span>
+                            <button onClick={() => setPayeeForm(null)} disabled={busy === "payee"} className={smallBtn}>Cancel</button>
+                            <button
+                              onClick={savePayee}
+                              disabled={
+                                busy === "payee" ||
+                                (payeeForm.mode === "add"
+                                  ? payeeForm.fullName.trim().length < 2 || !payeeForm.department || !payeeForm.jobTitle.trim()
+                                  : !payeeForm.personId)
+                              }
+                              className={primaryBtn}
+                            >
+                              {busy === "payee" ? "Saving…" : payeeForm.mode === "add" ? "Add employee" : "Link"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -827,7 +1011,7 @@ export function PeopleCostsPage({
                   <th className="px-3 py-2">Job title</th>
                   <th className="px-3 py-2 text-right">Salary</th>
                   <th className="px-3 py-2 text-right">Commission</th>
-                  <th className="px-3 py-2 text-right">Other employer costs</th>
+                  <th className="px-3 py-2 text-right" title="Bonus, benefits, employer taxes and any custom category">Bonus &amp; other costs</th>
                   <th className="px-3 py-2 text-right">Total cost</th>
                 </tr>
               </thead>
@@ -848,6 +1032,19 @@ export function PeopleCostsPage({
                     <td className="px-3 py-2 font-medium text-ink-50">
                       {row.name}
                       {!row.total && <span className="ml-1.5 rounded-full bg-base-800 px-1.5 py-0.5 text-[10px] font-normal text-ink-500">nothing linked</span>}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const person = people.find((p) => p.id === row.personId);
+                          if (!person) return;
+                          startEditPerson(person);
+                          setTimeout(() => employeesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+                        }}
+                        title="Edit name, department or job title"
+                        className="ml-2 text-[10px] font-normal text-ink-500 underline-offset-2 hover:text-ink-50 hover:underline"
+                      >
+                        Edit
+                      </button>
                     </td>
                     <td className="px-3 py-2">{row.department ?? "—"}</td>
                     <td className="px-3 py-2">{row.jobTitle || "—"}</td>
@@ -881,25 +1078,71 @@ export function PeopleCostsPage({
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div ref={employeesRef} className="scroll-mt-4">
         <WidgetCard title={`Employees (${people.length})`}>
           <p className="mb-3 text-xs text-ink-500">
-            Employees are added and updated only through the Excel import above. The template already lists every current employee with their ID.
+            Employees are added through the Excel import above. Click Edit to correct a name, department, job title or payment alias; linked
+            payments stay with the person.
           </p>
           <div className="flex max-h-[520px] flex-col gap-1 overflow-y-auto">
             {people.length === 0 && <p className="px-2 py-6 text-center text-xs text-ink-500">No employees yet. Upload the employee Excel to add them.</p>}
-            {people.map((p) => (
+            {people.map((p) =>
+              editPerson?.id === p.id ? (
+                <div key={p.id} className="rounded-lg border border-base-600 bg-base-800 p-3 text-xs">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label className={labelClass}>
+                      Full name
+                      <input
+                        autoFocus
+                        value={editPerson.fullName}
+                        onChange={(e) => setEditPerson({ ...editPerson, fullName: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") savePersonEdit();
+                          if (e.key === "Escape") setEditPerson(null);
+                        }}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      Department
+                      <select value={editPerson.department ?? ""} onChange={(e) => setEditPerson({ ...editPerson, department: e.target.value })} className={inputClass}>
+                        {!departments.includes(editPerson.department ?? "") && <option value={editPerson.department ?? ""}>{editPerson.department || "Choose…"}</option>}
+                        {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </label>
+                    <label className={labelClass}>
+                      Job title
+                      <input value={editPerson.jobTitle} onChange={(e) => setEditPerson({ ...editPerson, jobTitle: e.target.value })} className={inputClass} />
+                    </label>
+                    <label className={labelClass}>
+                      Payment alias (name on bank payments)
+                      <input value={editPerson.paymentAlias} onChange={(e) => setEditPerson({ ...editPerson, paymentAlias: e.target.value })} className={inputClass} />
+                    </label>
+                  </div>
+                  {personError && <p className="mt-2 text-status-alert">{personError}</p>}
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button onClick={() => setEditPerson(null)} disabled={busy === "person"} className={smallBtn}>Cancel</button>
+                    <button onClick={savePersonEdit} disabled={busy === "person" || editPerson.fullName.trim().length < 2} className={primaryBtn}>
+                      {busy === "person" ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <div key={p.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-base-800">
                 <span className="min-w-0 text-ink-300">
                   <span className="font-medium text-ink-50">{p.fullName}</span> · {p.department ?? "—"} · {p.jobTitle || <span className="text-status-alert">Job title missing</span>}
                   {!p.active && <span className="ml-1.5 rounded-full bg-status-inactive/15 px-1.5 py-0.5 text-[10px] text-status-inactive">Archived</span>}
                 </span>
                 <span className="flex shrink-0 gap-1.5">
+                  <button onClick={() => startEditPerson(p)} className={smallBtn}>Edit</button>
                   <button onClick={() => chooseEmployee(p.id)} className={smallBtn}>Assign payments</button>
                 </span>
               </div>
-            ))}
+              )
+            )}
           </div>
         </WidgetCard>
+        </div>
 
         <div ref={findRef} className="scroll-mt-4">
         <WidgetCard title="Find payroll and commission payments">
@@ -1005,8 +1248,9 @@ export function PeopleCostsPage({
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <label className={labelClass}>
                         Cost category
-                        <select value={p.costType} onChange={(e) => set({ costType: e.target.value })} className={`${inputClass} normal-case tracking-normal`}>
-                          {COST_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
+                        <select value={p.costType} onChange={(e) => chooseCategory(e.target.value, (costType) => set({ costType }))} className={`${inputClass} normal-case tracking-normal`}>
+                          {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                          <option value={NEW_CATEGORY}>+ Add new category…</option>
                         </select>
                       </label>
                       <label className={labelClass}>
@@ -1060,8 +1304,9 @@ export function PeopleCostsPage({
                     <option value="">Select employee</option>
                     {people.map((p) => <option key={p.id} value={p.id}>{p.fullName} ({p.department ?? "—"})</option>)}
                   </select>
-                  <select value={line.costType} onChange={(e) => updateLine(line.key, { costType: e.target.value })} className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none">
-                    {COST_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <select value={line.costType} onChange={(e) => chooseCategory(e.target.value, (costType) => updateLine(line.key, { costType }))} className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none">
+                    {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    <option value={NEW_CATEGORY}>+ Add new category…</option>
                   </select>
                   <input type="number" min="0.01" step="0.01" value={line.amountUsd} onChange={(e) => updateLine(line.key, { amountUsd: e.target.value })} placeholder="0.00" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
                   <input value={line.reference} maxLength={180} onChange={(e) => updateLine(line.key, { reference: e.target.value })} placeholder="Deal, pay period or reference" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
