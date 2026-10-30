@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { subscriptionSplitPreview } from "@/lib/finance/paymentTraceData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Applies the split — writes FinancePaymentCostSplit rows and an
 // undoable change-journal entry (handled inside subscriptionSplitPreview
@@ -9,7 +10,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

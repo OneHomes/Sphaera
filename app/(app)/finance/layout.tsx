@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { getFinanceFilterOptions } from "@/lib/finance/ledgerData";
+import { getUserDepartmentScope } from "@/lib/finance/departmentAccess";
 import { FinanceShell } from "@/components/finance/FinanceShell";
 
 export const dynamic = "force-dynamic";
@@ -27,12 +28,17 @@ export default async function FinanceLayout({ children }: { children: React.Reac
       );
     }
 
-    const filterOptions = await getFinanceFilterOptions();
+    const [allFilterOptions, scope] = await Promise.all([getFinanceFilterOptions(), getUserDepartmentScope(authUser.id)]);
+    // A department-limited user only picks from their own departments in the filter bar.
+    const filterOptions = scope
+      ? { ...allFilterOptions, departments: allFilterOptions.departments.filter((d) => scope.includes(d)) }
+      : allFilterOptions;
 
     return (
       <FinanceShell
         canAccessFinancePayroll={authUser.canAccessFinancePayroll}
         isAdmin={authUser.role === "ADMIN"}
+        departmentScope={scope}
         filterOptions={filterOptions}
       >
         {children}

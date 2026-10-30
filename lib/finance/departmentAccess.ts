@@ -19,6 +19,24 @@ export async function getUserDepartmentScope(userId: string): Promise<string[] |
   return rows.map((r) => r.department);
 }
 
+/** True when the user is restricted to specific departments (a "Head of Department" login). */
+export async function isDepartmentScoped(userId: string): Promise<boolean> {
+  return (await prisma.financeDepartmentAccess.count({ where: { userId } })) > 0;
+}
+
+/**
+ * For writes on specific payments: a scoped user may only change payments inside their own
+ * departments (the same rows their screens show). Returns an error message, or null when allowed.
+ */
+export async function paymentsOutsideScope(userId: string, transactionIds: string[]): Promise<string | null> {
+  const scope = await getUserDepartmentScope(userId);
+  if (!scope) return null;
+  const { getFinanceState } = await import("./ledgerData");
+  const visible = new Set((await getFinanceState(scope)).transactions.map((t) => t.id));
+  const outside = transactionIds.filter((id) => !visible.has(id));
+  return outside.length ? "You can only change payments in your own departments." : null;
+}
+
 export type DepartmentAccessEntry = {
   userId: string;
   userName: string;

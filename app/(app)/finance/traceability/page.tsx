@@ -5,6 +5,8 @@ import { withTenantPage } from "@/lib/withTenant";
 import { getTraceState } from "@/lib/finance/paymentTraceData";
 import { getFinanceState } from "@/lib/finance/ledgerData";
 import { PaymentTraceabilityPage } from "@/components/finance/PaymentTraceabilityPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,8 @@ export default async function FinanceTraceabilityRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
+  return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const [state, finance] = await Promise.all([getTraceState(), getFinanceState()]);
     return (
       <PaymentTraceabilityPage

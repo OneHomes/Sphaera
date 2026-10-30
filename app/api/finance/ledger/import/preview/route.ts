@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { previewLedgerImport } from "@/lib/finance/ledgerImportData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const formData = await request.formData();

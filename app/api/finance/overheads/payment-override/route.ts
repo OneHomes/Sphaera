@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { changeOverheadPaymentOverride } from "@/lib/finance/peopleOverheadsData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { paymentsOutsideScope } from "@/lib/finance/departmentAccess";
 
 // Tags (or clears) up to 5,000 individual payments' overhead
 // nature/behaviour, overriding any cost-head rule for those transactions.
@@ -12,6 +13,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();
+      const outOfScope = await paymentsOutsideScope(authUser.id, Array.isArray(body.ids) ? body.ids.map(String) : [String(body.id ?? "")]);
+      if (outOfScope) return NextResponse.json({ error: outOfScope }, { status: 403 });
       const result = await changeOverheadPaymentOverride({
         ids: Array.isArray(body.ids) ? body.ids.map(String) : undefined,
         id: body.id !== undefined ? String(body.id) : undefined,

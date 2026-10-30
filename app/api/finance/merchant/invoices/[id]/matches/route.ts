@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { suggestPaymentMatchesForInvoice } from "@/lib/finance/merchantReconcileData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Suggested ledger-payment matches for one invoice, ranked by
 // supplier-name + amount match. Nothing here auto-links a payment — see
@@ -10,7 +11,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const invoice = await prisma.financeMerchantInvoice.findUnique({ where: { id: params.id } });

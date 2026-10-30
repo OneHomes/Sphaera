@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildMerchantReviewExportRows } from "@/lib/finance/merchantReconcileData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Returns the row data + per-cell lock map for a merchant/cost-head/FY
 // review batch. Real XLSX byte generation (the source's protected-cell
@@ -13,7 +14,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function GET(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const { searchParams } = new URL(request.url);

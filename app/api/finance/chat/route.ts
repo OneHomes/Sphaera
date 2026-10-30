@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { askJanus } from "@/lib/janus";
 import { getFinanceAnalyticsSummary } from "@/lib/finance/financeGrounding";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // "Ask Your Data" — the source app's OpenAI-based chat assistant,
 // replaced with Sphaera's own Janus per the product decision for this
@@ -23,7 +24,7 @@ Rules:
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 

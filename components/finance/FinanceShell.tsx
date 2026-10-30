@@ -7,6 +7,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, GripVertical, RefreshCw, X 
 import { FinanceFilterProvider, FinanceLookupProvider, useFinanceFilters } from "./FinanceFilterContext";
 import { FinanceFilterBar } from "./FinanceFilterBar";
 import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
+import { DEPARTMENT_SCOPED_PATHS } from "@/lib/finance/scopedPaths";
 import {
   LayoutDashboard,
   PieChart,
@@ -280,7 +281,7 @@ function getPageSubtitle(pathname: string, fy: string): string {
 // "↻ Refresh" / "+ Import monthly data" on the right, all in one row,
 // global on every Finance screen. Must render inside FinanceFilterProvider
 // (the subtitle's default branch reflects the Financial year filter).
-function FinanceActionBar() {
+function FinanceActionBar({ departmentLimited }: { departmentLimited: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { filters } = useFinanceFilters();
@@ -308,13 +309,15 @@ function FinanceActionBar() {
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
           Refresh
         </button>
-        <Link
-          href="/finance/upload"
-          className="flex items-center gap-1.5 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:brightness-110"
-        >
-          <UploadCloud className="h-3.5 w-3.5" strokeWidth={1.75} />
-          Import monthly data
-        </Link>
+        {!departmentLimited && (
+          <Link
+            href="/finance/upload"
+            className="flex items-center gap-1.5 rounded-lg bg-status-active px-3 py-1.5 text-xs font-medium text-base-950 hover:brightness-110"
+          >
+            <UploadCloud className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Import monthly data
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -324,11 +327,13 @@ export function FinanceShell({
   children,
   canAccessFinancePayroll,
   isAdmin,
+  departmentScope,
   filterOptions,
 }: {
   children: React.ReactNode;
   canAccessFinancePayroll: boolean;
   isAdmin: boolean;
+  departmentScope: string[] | null;
   filterOptions: FinanceFilterOptions;
 }) {
   const pathname = usePathname();
@@ -347,6 +352,8 @@ export function FinanceShell({
   }, []);
 
   const isVisible = (id: string) => {
+    // Department-limited users only get the screens that filter by department.
+    if (departmentScope && !DEPARTMENT_SCOPED_PATHS.includes(id)) return false;
     const item = FINANCE_NAV.find((x) => x.href === id);
     if (!item) return id === BANKS_ID;
     return !(item.payrollOnly && !canAccessFinancePayroll) && !(item.adminOnly && !isAdmin);
@@ -433,7 +440,7 @@ export function FinanceShell({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <Suspense fallback={null}>
           <FinanceFilterProvider>
-            <FinanceActionBar />
+            <FinanceActionBar departmentLimited={!!departmentScope} />
             <FinanceFilterBar options={filterOptions} />
             <FinanceLookupProvider paymentSources={filterOptions.paymentSources} subscriptions={filterOptions.subscriptions}>
               {children}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getFinanceState } from "@/lib/finance/ledgerData";
+import { getUserDepartmentScope } from "@/lib/finance/departmentAccess";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // The mega-join powering most Finance ledger/reporting screens — direct
@@ -10,7 +11,8 @@ export async function GET() {
       if (!authUser.canAccessFinance) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      const state = await getFinanceState();
+      // Department-scoped users get only their departments' payments, like their screens.
+      const state = await getFinanceState(await getUserDepartmentScope(authUser.id));
       return NextResponse.json(state);
     });
   } catch (err) {

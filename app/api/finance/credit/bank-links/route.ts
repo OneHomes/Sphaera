@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { listBankBalances, saveBankLink } from "@/lib/finance/creditCycleData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // GET lists every bank-account payment source with its resolved balance
 // (ERP-reported, manual snapshot, or none) — this is the read surface for
@@ -11,7 +12,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function GET() {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const balances = await listBankBalances();
@@ -28,7 +29,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

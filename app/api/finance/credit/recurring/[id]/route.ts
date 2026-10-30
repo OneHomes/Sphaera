@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { getRecurring, upsertRecurring, deleteRecurring } from "@/lib/finance/creditCycleData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();
@@ -66,7 +67,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const existing = await getRecurring(params.id);

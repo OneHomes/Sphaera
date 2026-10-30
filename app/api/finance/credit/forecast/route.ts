@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { projection } from "@/lib/finance/creditCycleData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Cash-outflow forecast — direct wrapper around projection(). Query params:
 //   start           YYYY-MM-DD (defaults to today, inside projection())
@@ -15,7 +16,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function GET(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const { searchParams } = new URL(request.url);

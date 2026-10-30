@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Honest stub: the source app's /api/restore was not part of the Stage
 // 3/4 backend port. Payroll-gated to match the Data & Backups screen.
@@ -8,7 +9,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function POST() {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinancePayroll) {
+      if (!authUser.canAccessFinancePayroll || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       return NextResponse.json({ error: "Finance restore is not yet implemented" }, { status: 501 });

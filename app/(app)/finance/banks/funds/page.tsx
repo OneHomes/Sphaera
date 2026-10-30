@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { getTreasuryForecast, getTreasuryStateWithForecast } from "@/lib/finance/treasuryForecast";
 import { TreasuryFundsPage } from "@/components/finance/TreasuryFundsPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,7 @@ export default async function FinanceTreasuryFundsRoute() {
   }
 
   return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const includePayroll = Boolean(authUser.canAccessFinancePayroll);
     const [state, forecast] = await Promise.all([
       getTreasuryStateWithForecast(includePayroll),

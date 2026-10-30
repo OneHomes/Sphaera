@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { getTreasuryForecast } from "@/lib/finance/treasuryForecast";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 export async function GET(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const months = new URL(request.url).searchParams.get("months") ?? "3";

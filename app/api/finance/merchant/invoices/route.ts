@@ -8,6 +8,7 @@ import {
   extractInvoiceFieldSuggestions,
 } from "@/lib/finance/merchantReconcileData";
 import { logAudit } from "@/lib/auditLog";
+import { paymentsOutsideScope } from "@/lib/finance/departmentAccess";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 
 // Invoice evidence already linked to one payment (the payment detail form's "Invoice evidence").
@@ -19,6 +20,8 @@ export async function GET(request: Request) {
       }
       const transactionId = new URL(request.url).searchParams.get("transactionId") ?? "";
       if (!transactionId) return NextResponse.json({ error: "transactionId is required" }, { status: 400 });
+      const outOfScope = await paymentsOutsideScope(authUser.id, [transactionId]);
+      if (outOfScope) return NextResponse.json({ error: outOfScope }, { status: 403 });
       const links = await prisma.financeMerchantInvoiceLink.findMany({
         where: { transactionId },
         select: { invoice: { select: { id: true, supplier: true, documentId: true, amount: true, currency: true, invoiceDate: true } } },

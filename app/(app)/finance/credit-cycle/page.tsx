@@ -12,6 +12,8 @@ import {
   projection,
 } from "@/lib/finance/creditCycleData";
 import { CreditCyclePage } from "@/components/finance/CreditCyclePage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,7 @@ export default async function FinanceCreditCycleRoute() {
   }
 
   return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const [invoices, recurring, forecast, cardRules, cardCharges, statements, paymentSources] = await Promise.all([
       listInvoices(),
       listRecurring(),

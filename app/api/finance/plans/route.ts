@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { financePlanData } from "@/lib/finance/financialPlanningData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // financePlanData() (lib/finance/financialPlanningData.ts) is a direct port
 // of the source's plan_data() and takes no arguments — it always returns
@@ -14,7 +15,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function GET(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 

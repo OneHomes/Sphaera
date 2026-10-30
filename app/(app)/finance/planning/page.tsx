@@ -5,6 +5,8 @@ import { withTenantPage } from "@/lib/withTenant";
 import { financePlanData } from "@/lib/finance/financialPlanningData";
 import { getFinanceState } from "@/lib/finance/ledgerData";
 import { FinancialPlanningPage } from "@/components/finance/FinancialPlanningPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,8 @@ export default async function FinancePlanningRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
+  return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const [{ plans, lines, targets }, financeState] = await Promise.all([
       financePlanData(),
       getFinanceState(),

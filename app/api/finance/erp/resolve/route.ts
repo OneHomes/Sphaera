@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { resolveErpItem } from "@/lib/finance/erpRegistryData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Manually matches a staged ERP record against a real FinanceTransaction
 // — direct port of resolve_erp_item().
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

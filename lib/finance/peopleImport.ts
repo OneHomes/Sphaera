@@ -1,7 +1,6 @@
 import ExcelJS from "exceljs";
-import { prisma } from "@/lib/prisma";
+import { prisma, tenantContext } from "@/lib/prisma";
 import { getDepartmentCatalogue } from "@/lib/finance/payrollData";
-import { savePerson } from "@/lib/finance/peopleOverheadsData";
 
 // Port of v41 people_costs.py template() / parse_excel() / import_rows(): the employee roster
 // workbook. It creates or updates People records only and never touches a payment.
@@ -246,8 +245,12 @@ export async function validatePeopleRows(input: PeopleRawRow[]): Promise<PeopleI
     const emailOwner = email ? byEmail.get(namekey(email)) : undefined;
     if (ident && emailOwner && emailOwner.id !== ident) errors.push("Email belongs to another employee");
     if (!ident && emailOwner && !sharing.length) ident = emailOwner.id;
-    if (!ident && !email) {
-      const matches = people.filter((p) => namekey(p.fullName) === namekey(name) && namekey(p.department) === namekey(department));
+    // No ID and no email owner: the same name + department is the same person (an email typed
+    // now is added to them), unless that record already has a different email.
+    if (!ident) {
+      const matches = people.filter(
+        (p) => namekey(p.fullName) === namekey(name) && namekey(p.department) === namekey(department) && (!p.email || !email || namekey(p.email) === namekey(email))
+      );
       if (matches.length === 1) ident = matches[0].id;
       if (matches.length > 1) errors.push("Ambiguous existing name; use Employee ID");
     }
@@ -278,27 +281,74 @@ export async function parsePeopleWorkbook(buf: ArrayBuffer): Promise<PeopleImpor
   return validatePeopleRows(await readPeopleWorkbook(buf));
 }
 
-/** Commit: re-validates the rows server-side (never trusts the preview result) and saves each person. */
-export async function importPeople(input: PeopleRawRow[], actor: { id: string; email: string }) {
+/**
+ * Commit: re-validates the rows server-side (never trusts the preview result), then saves them
+ * all in ONE transaction that holds an import lock for the organization. Inside the lock every
+ * new row is matched again against the people saved so far (email, else name + department), so
+ * a second click or a second upload running at the same time updates people instead of
+ * creating duplicates. Unchanged people are skipped and new ones are inserted in one batch.
+ */
+export async function importPeople(input: PeopleRawRow[]) {
   const rows = await validatePeopleRows(input);
   if (rows.some((r) => r.errors.length)) throw new Error("Resolve all errors before importing");
-  let added = 0;
-  let updated = 0;
-  for (const r of rows) {
-    const result = await savePerson({
-      id: r.id || undefined,
-      name: r.full_name,
-      department: r.department,
-      jobTitle: r.job_title,
-      email: r.email,
-      paymentAlias: r.payment_alias,
-      active: r.active,
-      actorId: actor.id,
-      actorEmail: actor.email,
-    });
-    if (!result.ok) throw new Error(`Row ${r.row}: ${result.error} (${added + updated} earlier rows were saved)`);
-    if (r.id) updated++;
-    else added++;
-  }
-  return { ok: true as const, added, updated, total: rows.length };
+  const org = tenantContext.getStore()?.organizationId ?? "default";
+
+  return prisma.$transaction(
+    async (tx) => {
+      // Serializes imports per organization until this transaction ends (SQL Server app lock).
+      const lock = await tx.$queryRawUnsafe<{ r: number }[]>(
+        "DECLARE @r int; EXEC @r = sp_getapplock @Resource = @P1, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 60000; SELECT @r AS r;",
+        `finance-people-import:${org}`
+      );
+      if (!lock[0] || lock[0].r < 0) throw new Error("Another employee import is still running. Try again in a minute.");
+
+      const existing = await tx.financePerson.findMany({
+        select: { id: true, fullName: true, department: true, jobTitle: true, email: true, paymentAlias: true, active: true },
+      });
+      const byId = new Map(existing.map((p) => [p.id, p]));
+      const byEmail = new Map(existing.filter((p) => p.email).map((p) => [p.email.toLowerCase(), p]));
+      const byNameDept = new Map<string, (typeof existing)[number][]>();
+      for (const p of existing) {
+        const k = `${namekey(p.fullName)}|${namekey(p.department)}`;
+        byNameDept.set(k, [...(byNameDept.get(k) ?? []), p]);
+      }
+
+      const creates: { fullName: string; department: string; jobTitle: string; email: string; paymentAlias: string; active: boolean }[] = [];
+      const seenNew = new Set<string>();
+      let added = 0;
+      let updated = 0;
+      let unchanged = 0;
+      for (const r of rows) {
+        const data = { fullName: r.full_name, department: r.department, jobTitle: r.job_title, email: r.email, paymentAlias: r.payment_alias, active: r.active };
+        const nameKey = `${namekey(r.full_name)}|${namekey(r.department)}`;
+        const sameName = (byNameDept.get(nameKey) ?? []).filter((p) => !p.email || !r.email || p.email.toLowerCase() === r.email);
+        const match =
+          (r.id && byId.get(r.id)) ||
+          (r.email && byEmail.get(r.email)) ||
+          (sameName.length === 1 ? sameName[0] : undefined);
+        if (match) {
+          if (r.email && byEmail.get(r.email) && byEmail.get(r.email)!.id !== match.id) {
+            throw new Error(`Row ${r.row}: that email is already assigned to another employee. Nothing was saved.`);
+          }
+          const same =
+            match.fullName === data.fullName && match.department === data.department && match.jobTitle === data.jobTitle &&
+            match.email === data.email && match.paymentAlias === data.paymentAlias && match.active === data.active;
+          if (same) unchanged++;
+          else {
+            await tx.financePerson.update({ where: { id: match.id }, data });
+            updated++;
+          }
+          continue;
+        }
+        const newKey = r.email ? `e:${r.email}` : `n:${nameKey}`;
+        if (seenNew.has(newKey)) continue; // same new person twice in one file
+        seenNew.add(newKey);
+        creates.push(data);
+        added++;
+      }
+      if (creates.length) await tx.financePerson.createMany({ data: creates });
+      return { ok: true as const, added, updated, unchanged, total: rows.length };
+    },
+    { timeout: 120000, maxWait: 30000 }
+  );
 }

@@ -78,21 +78,53 @@ export type FinanceState = {
  * rows are restricted.
  */
 // In-process cache: the ledger mega-join is ~3s against Azure SQL and every Finance page needs it.
-// Entries are dropped on any Finance* write in this process (financeWriteVersion) and after
-// CACHE_TTL_MS to bound staleness from writes on other instances.
-const CACHE_TTL_MS = 30_000;
-const stateCache = new Map<string, { at: number; version: number; value: Promise<FinanceState> }>();
+// Any Finance* write in this process (financeWriteVersion) drops the entry, so a user always sees
+// their own change. Otherwise stale-while-revalidate: an entry younger than FRESH_MS is served
+// as is; one up to STALE_MS old is served immediately while a refresh runs in the background
+// (bounding staleness from writes on other instances); older than that is reloaded inline.
+const FRESH_MS = 30_000;
+const STALE_MS = 15 * 60_000;
+type CacheEntry = { at: number; version: number; value: Promise<FinanceState>; refreshing?: boolean };
+const stateCache = new Map<string, CacheEntry>();
+
+function loadIntoCache(key: string, version: number, departmentScope?: string[] | null): Promise<FinanceState> {
+  const value = loadFinanceState(departmentScope);
+  stateCache.set(key, { at: Date.now(), version, value });
+  value.catch(() => stateCache.delete(key));
+  return value;
+}
 
 export async function getFinanceState(departmentScope?: string[] | null): Promise<FinanceState> {
   const org = tenantContext.getStore()?.organizationId ?? "default";
   const key = `${org}|${departmentScope ? [...departmentScope].sort().join(",") : "*"}`;
   const version = financeWriteVersion(org);
   const hit = stateCache.get(key);
-  if (hit && hit.version === version && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
-  const value = loadFinanceState(departmentScope);
-  stateCache.set(key, { at: Date.now(), version, value });
-  value.catch(() => stateCache.delete(key));
-  return value;
+  if (hit && hit.version === version) {
+    const age = Date.now() - hit.at;
+    if (age < FRESH_MS) return hit.value;
+    if (age < STALE_MS) {
+      if (!hit.refreshing) {
+        hit.refreshing = true;
+        const store = tenantContext.getStore();
+        const refresh = () => {
+          const next = loadFinanceState(departmentScope);
+          next
+            .then(() => {
+              // Only replace if no write happened meanwhile (that path reloads on its own).
+              if (stateCache.get(key) === hit) stateCache.set(key, { at: Date.now(), version, value: next });
+            })
+            .catch(() => {
+              hit.refreshing = false;
+            });
+        };
+        // Keep the tenant context for the background query.
+        if (store) tenantContext.run(store, refresh);
+        else refresh();
+      }
+      return hit.value;
+    }
+  }
+  return loadIntoCache(key, version, departmentScope);
 }
 
 async function loadFinanceState(departmentScope?: string[] | null): Promise<FinanceState> {
@@ -254,7 +286,23 @@ export function fyOf(month: string): number {
  * distinct-column reads instead of re-running the whole ledger join twice
  * per navigation.
  */
+// Filter-bar options (months, countries, departments, sources) for every Finance page: cached per
+// organization and dropped on any Finance write in this process, like getFinanceState.
+const filterOptionsCache = new Map<string, { at: number; version: number; value: Promise<FinanceFilterOptions> }>();
+const FILTER_OPTIONS_TTL_MS = 5 * 60_000;
+
 export async function getFinanceFilterOptions(): Promise<FinanceFilterOptions> {
+  const org = tenantContext.getStore()?.organizationId ?? "default";
+  const version = financeWriteVersion(org);
+  const hit = filterOptionsCache.get(org);
+  if (hit && hit.version === version && Date.now() - hit.at < FILTER_OPTIONS_TTL_MS) return hit.value;
+  const value = loadFinanceFilterOptions();
+  filterOptionsCache.set(org, { at: Date.now(), version, value });
+  value.catch(() => filterOptionsCache.delete(org));
+  return value;
+}
+
+async function loadFinanceFilterOptions(): Promise<FinanceFilterOptions> {
   const [monthRows, countryRows, departmentRows, paymentSources, subscriptions] = await Promise.all([
     prisma.financeTransaction.findMany({ distinct: ["month"], select: { month: true }, orderBy: { month: "asc" } }),
     prisma.financeTransaction.findMany({

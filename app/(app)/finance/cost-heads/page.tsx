@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { getFinanceState } from "@/lib/finance/ledgerData";
 import { CostHeadsPage } from "@/components/finance/CostHeadsPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +15,8 @@ export default async function FinanceCostHeadsRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
+  return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const state = await getFinanceState();
     return <CostHeadsPage state={state} />;
   });

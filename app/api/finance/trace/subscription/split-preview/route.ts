@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { subscriptionSplitPreview } from "@/lib/finance/paymentTraceData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Preview only — never writes. See split-approve for the apply path.
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

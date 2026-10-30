@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { linkInvoiceToTransaction } from "@/lib/finance/merchantReconcileData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { paymentsOutsideScope } from "@/lib/finance/departmentAccess";
 
 // Records Finance's explicit approval of a suggested invoice-to-payment
 // match. [id] is the invoice id; the transaction to link is in the body.
@@ -12,6 +13,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();
+      const outOfScope = await paymentsOutsideScope(authUser.id, [String(body.transactionId ?? "")]);
+      if (outOfScope) return NextResponse.json({ error: outOfScope }, { status: 403 });
       if (!body.transactionId) {
         return NextResponse.json({ error: "transactionId is required" }, { status: 400 });
       }

@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { createMerchantReviewBatch, listRecentMerchantBatches } from "@/lib/finance/merchantReconcileData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Review-batch lifecycle tracking (export/commit bookkeeping) for the
 // merchant/cost-head/FY Excel round-trip workflow.
 export async function GET() {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const batches = await listRecentMerchantBatches();
@@ -25,7 +26,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

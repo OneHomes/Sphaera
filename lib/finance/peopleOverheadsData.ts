@@ -423,11 +423,21 @@ export async function paymentSuggestions(
     .filter((p) => p.active)
     .map((p) => ({ p, phrases: [p.fullName, p.paymentAlias].map(matchNorm).filter((x) => x.length >= 5) }));
   if (!active.length) return [];
-  const txs = await prisma.financeTransaction.findMany({
-    where: { amountUsd: { gt: 0 } },
-    orderBy: [{ month: "desc" }, { paymentDate: "desc" }, { id: "desc" }],
-    select: { id: true, description: true, originalCentre: true, originalHead: true, month: true, paymentDate: true, amountUsd: true },
-  });
+  // Reuses the cached ledger (getFinanceState) instead of re-reading every payment from SQL.
+  const { getFinanceState } = await import("./ledgerData");
+  const key = (d: Date | string | null) => (d ? new Date(d).getTime() : 0);
+  const txs = (await getFinanceState()).transactions
+    .filter((t) => t.amount > 0)
+    .map((t) => ({
+      id: t.id,
+      description: t.description,
+      originalCentre: t.costCentre,
+      originalHead: t.head,
+      month: t.month,
+      paymentDate: t.date,
+      amountUsd: t.amount,
+    }))
+    .sort((a, b) => b.month.localeCompare(a.month) || key(b.paymentDate) - key(a.paymentDate) || (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));
   const out: PaymentSuggestion[] = [];
   for (const t of txs) {
     if (allocated.has(t.id)) continue;

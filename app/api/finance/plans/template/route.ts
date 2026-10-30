@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateBudgetTemplate } from "@/lib/finance/financialPlanningData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Generates the blank annual budget XLSX template (Summary + Cost Head
 // Budgets sheets) for a given fiscal year and streams it back as a file
@@ -10,7 +11,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function GET(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 

@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { getPersonCostState, savePerson } from "@/lib/finance/peopleOverheadsData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Read-only summary joining every person-cost allocation back to its
 // source payment and employee, for the People Costs screen.
 export async function GET() {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinancePayroll) {
+      if (!authUser.canAccessFinancePayroll || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const state = await getPersonCostState();
@@ -26,7 +27,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinancePayroll) {
+      if (!authUser.canAccessFinancePayroll || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

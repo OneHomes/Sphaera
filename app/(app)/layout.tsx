@@ -8,6 +8,36 @@ import { withTenantPage } from "@/lib/withTenant";
 
 export const dynamic = "force-dynamic";
 
+// The top-bar revenue leaderboard ran on EVERY page load (every user plus all their Closed Won
+// deals). It changes only when deals close, so it is cached per organization for 2 minutes.
+const LEADERBOARD_TTL_MS = 2 * 60_000;
+const leaderboardCache = new Map<string, { at: number; value: Promise<{ id: string; name: string; revenue: number }[]> }>();
+
+function getLeaderboard(organizationId: string) {
+  const hit = leaderboardCache.get(organizationId);
+  if (hit && Date.now() - hit.at < LEADERBOARD_TTL_MS) return hit.value;
+  const value = prisma.opportunity
+    .groupBy({
+      by: ["assignedUserId"],
+      where: { stage: "Closed Won", assignedUserId: { not: null } },
+      _sum: { value: true },
+    })
+    .then(async (rows) => {
+      const top = rows
+        .map((r) => ({ id: r.assignedUserId as string, revenue: r._sum.value ?? 0 }))
+        .filter((r) => r.revenue > 0)
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10);
+      const names = new Map(
+        (await prisma.user.findMany({ where: { id: { in: top.map((t) => t.id) } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
+      );
+      return top.map((t) => ({ id: t.id, name: names.get(t.id) ?? "Unknown", revenue: t.revenue }));
+    });
+  leaderboardCache.set(organizationId, { at: Date.now(), value });
+  value.catch(() => leaderboardCache.delete(organizationId));
+  return value;
+}
+
 export default async function AppLayout({
   children,
 }: {
@@ -51,24 +81,7 @@ export default async function AppLayout({
     // 1-10" names); now computed from real Opportunity.assignedUserId
     // data, which became available once RBAC/Productivity Index work
     // added that relation.
-    const users = await prisma.user.findMany({
-      include: {
-        assignedOpportunities: {
-          where: { stage: "Closed Won" },
-          select: { value: true },
-        },
-      },
-    });
-
-    const leaderboard = users
-      .map((u) => ({
-        id: u.id,
-        name: u.name,
-        revenue: u.assignedOpportunities.reduce((sum, o) => sum + o.value, 0),
-      }))
-      .filter((entry) => entry.revenue > 0)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10);
+    const leaderboard = await getLeaderboard(authUser.organizationId);
 
     return (
       <AppShell

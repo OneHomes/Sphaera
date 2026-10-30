@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ungroupSupplierAlias } from "@/lib/finance/merchantReconcileData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Removes one approved alias from a provider ("ungroup"). [id] is the
 // FinanceMerchantProvider id; the exact alias to remove is passed in the
@@ -11,7 +12,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json().catch(() => ({}));

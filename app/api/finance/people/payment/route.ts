@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { savePersonPayment } from "@/lib/finance/peopleOverheadsData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Replaces the full set of personnel cost-allocation lines attributed to
 // one source payment.
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinancePayroll) {
+      if (!authUser.canAccessFinancePayroll || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

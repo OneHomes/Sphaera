@@ -89,6 +89,12 @@ type Pick = { costType: string; amountUsd: string; reference: string };
 
 // Source peMoney(): exact USD with cents.
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Payment dates arrive as Date objects (or ISO strings); show them as 2026-09-30.
+function isoDate(value: Date | string): string {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value).slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
 function usd(value: number): string {
   return moneyFmt.format(Number(value) || 0);
 }
@@ -269,21 +275,30 @@ export function PeopleCostsPage({
   const keepEmailOn = (rowNo: number, others: number[]) =>
     editRows((rows) => rows.map((r) => (others.includes(r.row) ? { ...r, email: "" } : r)));
 
-  const commitExcel = () =>
-    run("commit", async () => {
+  // A ref (not state) so a fast double-click can't send the import twice before React re-renders.
+  const importing = useRef(false);
+  const commitExcel = () => {
+    if (importing.current) return;
+    return run("commit", async () => {
       if (!preview || preview.errors || rechecking) throw new Error("Fix the highlighted rows before import.");
       if (!window.confirm(`Import ${preview.rows.length} employee records? No payment amounts will be changed.`)) return;
-      const res = await fetch("/api/finance/people/commit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: preview.rawRows, fileName: preview.fileName }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(body?.error ?? "Import failed");
-      setPreview(null);
-      await reload();
-      return `People directory: ${body.added} added, ${body.updated} updated. Review suggested payment matches below.`;
+      importing.current = true;
+      try {
+        const res = await fetch("/api/finance/people/commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: preview.rawRows, fileName: preview.fileName }),
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error ?? "Import failed");
+        setPreview(null);
+        await reload();
+        return `People directory: ${body.added} added, ${body.updated} updated, ${body.unchanged} unchanged. Review suggested payment matches below.`;
+      } finally {
+        importing.current = false;
+      }
     });
+  };
 
   // --- Suggested matches ------------------------------------------------------------------------
   const [selectedMatches, setSelectedMatches] = useState<Set<string>>(new Set());
@@ -315,7 +330,7 @@ export function PeopleCostsPage({
       .filter((t) => {
         if (!(Number(t.amount) > 0)) return false;
         if (!terms.length && scope === "personnel" && !isPersonnel(t)) return false;
-        const hay = [t.id, t.description, t.head, t.costCentre, t.month, t.date ? String(t.date).slice(0, 10) : "", t.paymentReference, t.erpPaymentId, t.invoiceReference, t.traceSupplier, t.tracePurpose, t.country, Number(t.amount).toFixed(2)]
+        const hay = [t.id, t.description, t.head, t.costCentre, t.month, t.date ? isoDate(t.date) : "", t.paymentReference, t.erpPaymentId, t.invoiceReference, t.traceSupplier, t.tracePurpose, t.country, Number(t.amount).toFixed(2)]
           .join(" ")
           .toLowerCase();
         if (!terms.every((term) => hay.includes(term))) return false;
@@ -339,9 +354,9 @@ export function PeopleCostsPage({
       return next;
     });
   }
+  // Ticks are kept when the employee is chosen (or changed) after selecting payments.
   function chooseEmployee(id: string) {
     setSelectedEmployee(id);
-    setPicks({});
   }
 
   const saveBatch = () =>
@@ -698,8 +713,12 @@ export function PeopleCostsPage({
           <div className="space-y-2">
             <label className={labelClass}>
               Employee to receive selected payments
-              <select value={selectedEmployee} onChange={(e) => chooseEmployee(e.target.value)} className={`${inputClass} normal-case tracking-normal`}>
-                <option value="">Select employee first</option>
+              <select
+                value={selectedEmployee}
+                onChange={(e) => chooseEmployee(e.target.value)}
+                className={`${inputClass} normal-case tracking-normal ${!selectedEmployee && pickEntries.length ? "border-status-inactive ring-1 ring-status-inactive" : ""}`}
+              >
+                <option value="">Choose employee…</option>
                 {people.filter((p) => p.active || p.id === selectedEmployee).map((p) => (
                   <option key={p.id} value={p.id}>{p.fullName} ({p.department ?? "—"})</option>
                 ))}
@@ -726,7 +745,7 @@ export function PeopleCostsPage({
                 <option value="all">All payments</option>
               </select>
               <button
-                disabled={!selectedEmployee || !displayed.length}
+                disabled={!displayed.length}
                 onClick={() => setPicks((prev) => { const next = { ...prev }; displayed.forEach((t) => addPick(t, next)); return next; })}
                 className={smallBtn}
               >
@@ -743,11 +762,11 @@ export function PeopleCostsPage({
               return (
                 <div key={t.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-base-800">
                   <label className="flex min-w-0 flex-1 items-center gap-2">
-                    <input type="checkbox" checked={picked} disabled={!selectedEmployee || (!picked && left <= 0)} onChange={(e) => togglePick(t, e.target.checked)} />
+                    <input type="checkbox" checked={picked} disabled={!picked && left <= 0} title={left <= 0 ? "Fully allocated already" : undefined} onChange={(e) => togglePick(t, e.target.checked)} />
                     <span className="min-w-0">
                       <span className="block truncate font-medium text-ink-50" title={t.description}>{t.description}</span>
                       <span className="block text-[10px] text-ink-500">
-                        {t.date ? String(t.date).slice(0, 10) : t.month} · {effectiveCentre(t) || "—"} · {usd(t.amount)} · Available {usd(left)}
+                        {t.date ? isoDate(t.date) : t.month} · {effectiveCentre(t) || "—"} · {usd(t.amount)} · Available {usd(left)}
                         {used ? ` · Already allocated ${usd(used)}` : ""}
                       </span>
                     </span>
@@ -781,7 +800,7 @@ export function PeopleCostsPage({
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-xs font-medium text-ink-50" title={t.description}>{t.description}</p>
-                        <p className="text-[10px] text-ink-500">{t.date ? String(t.date).slice(0, 10) : t.month} · {id} · {usd(t.amount)} original · {usd(balance(t))} available</p>
+                        <p className="text-[10px] text-ink-500">{t.date ? isoDate(t.date) : t.month} · {id} · {usd(t.amount)} original · {usd(balance(t))} available</p>
                       </div>
                       <button onClick={() => togglePick(t, false)} className={smallBtn}>Remove</button>
                     </div>
@@ -806,10 +825,19 @@ export function PeopleCostsPage({
               })}
             </div>
           ) : (
-            <p className="text-xs text-ink-500">Select an employee and tick payments in the search results above.</p>
+            <p className="text-xs text-ink-500">Tick payments in the search results above, and choose the employee who should receive them.</p>
+          )}
+          {pickEntries.length > 0 && !selectedEmployee && (
+            <p className="mt-3 rounded-lg border border-status-inactive/40 bg-status-inactive/10 px-3 py-2 text-xs text-status-inactive">
+              Choose the employee who should receive these payments in “Employee to receive selected payments” above.
+            </p>
           )}
           <button onClick={saveBatch} disabled={!!busy || !selectedEmployee || !pickEntries.length} className={`${primaryBtn} mt-3`}>
-            {busy === "batch" ? "Allocating…" : `Allocate ${pickEntries.length} selected payments`}
+            {busy === "batch"
+              ? "Allocating…"
+              : selectedEmployee
+                ? `Allocate ${pickEntries.length} selected payments to ${selectedName ?? "employee"}`
+                : `Allocate ${pickEntries.length} selected payments`}
           </button>
         </WidgetCard>
       </div>
@@ -821,7 +849,7 @@ export function PeopleCostsPage({
             action={<button onClick={() => setEditPaymentId(null)} className="text-[11px] text-ink-500 hover:text-ink-300">Close</button>}
           >
             <p className="mb-3 text-xs text-ink-500">
-              {editPayment.id} · {editPayment.date ? String(editPayment.date).slice(0, 10) : editPayment.month} · Original amount {usd(editPayment.amount)}
+              {editPayment.id} · {editPayment.date ? isoDate(editPayment.date) : editPayment.month} · Original amount {usd(editPayment.amount)}
             </p>
             <p className="mb-3 rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-300">
               This editor replaces the complete personnel allocation for ONE payment. Use it if a payroll transfer covers several people. The

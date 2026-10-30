@@ -5,6 +5,8 @@ import { withTenantPage } from "@/lib/withTenant";
 import { getPersonCostState } from "@/lib/finance/peopleOverheadsData";
 import { getFinanceState } from "@/lib/finance/ledgerData";
 import { PeopleCostsPage } from "@/components/finance/PeopleCostsPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,7 @@ export default async function FinancePeopleRoute() {
   }
 
   return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     if (!authUser.canAccessFinancePayroll) {
       return (
         <div className="flex h-full items-center justify-center p-6">

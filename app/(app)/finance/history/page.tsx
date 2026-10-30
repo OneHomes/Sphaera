@@ -5,6 +5,8 @@ import { withTenantPage } from "@/lib/withTenant";
 import { getChangeHistory } from "@/lib/finance/changeJournal";
 import { prisma } from "@/lib/prisma";
 import { ChangeHistoryPage } from "@/components/finance/ChangeHistoryPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,8 @@ export default async function FinanceChangeHistoryRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
+  return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const [changes, auditEntries] = await Promise.all([
       getChangeHistory(),
       prisma.auditLog.findMany({ where: { action: { startsWith: "finance_" } }, orderBy: { createdAt: "desc" }, take: 150 }),

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { previewFinancialPlan } from "@/lib/finance/financialPlanningData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Validates an uploaded XLSX budget workbook (legacy flat sheet or the
 // two-sheet Summary + Cost Head Budgets layout, both handled inside
@@ -13,7 +14,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 import { logAudit } from "@/lib/auditLog";
 import { PayrollRuleError } from "@/lib/finance/payrollData";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 type Ctx = { userId: string; email: string; audit: (action: string, details: string, targetId?: string) => Promise<void> };
 
@@ -11,6 +12,10 @@ export async function payrollRoute(handler: (ctx: Ctx) => Promise<Response>): Pr
     return await withTenant(async (authUser, session) => {
       if (!authUser.canAccessFinancePayroll) {
         return NextResponse.json({ error: "Payroll permission required." }, { status: 403 });
+      }
+      // Payroll and the people directory are company-wide, so department-scoped users are excluded.
+      if (await isDepartmentScoped(authUser.id)) {
+        return NextResponse.json({ error: "Not available with department-limited access." }, { status: 403 });
       }
       const email = session.user?.email ?? "unknown";
       const audit = (action: string, details: string, targetId?: string) =>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { recordSettlement } from "@/lib/finance/treasuryData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Records a Stripe / Trust Payments processor payout and (optionally)
 // reconciles it against a bank ledger movement — direct wrap of
@@ -11,7 +12,7 @@ import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

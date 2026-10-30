@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { listErpSources, saveErpSource } from "@/lib/finance/erpRegistryData";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Registered ERP source list/registration — normal user-facing Finance
 // admin screen, direct port of the source app's source-registry CRUD.
 export async function GET() {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const sources = await listErpSources();
@@ -25,7 +26,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     return await withTenant(async (authUser, session) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const body = await request.json();

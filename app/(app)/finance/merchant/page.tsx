@@ -10,6 +10,8 @@ import {
   listManagementCostHeadNames,
 } from "@/lib/finance/merchantReconcileData";
 import { MerchantReconciliationPage } from "@/components/finance/MerchantReconciliationPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,8 @@ export default async function FinanceMerchantRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
+  return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const [batches, suggestions, catalog, allRows, costHeadOptions] = await Promise.all([
       listRecentMerchantBatches(),
       supplierClusterSuggestions(),

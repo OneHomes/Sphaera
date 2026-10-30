@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { getErpFundSummary } from "@/lib/finance/erpRegistryData";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 
 // Pending ERP fund-movement totals awaiting treasury posting — adapted
 // port of erp_fund_summary().
 export async function GET() {
   try {
     return await withTenant(async (authUser) => {
-      if (!authUser.canAccessFinance) {
+      if (!authUser.canAccessFinance || (await isDepartmentScoped(authUser.id))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const summary = await getErpFundSummary();

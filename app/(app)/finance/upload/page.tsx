@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { listRecentFinanceImports } from "@/lib/finance/ledgerData";
 import { UploadNewMonthsPage } from "@/components/finance/UploadNewMonthsPage";
+import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
+import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +19,8 @@ export default async function FinanceUploadRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async () => {
+  return withTenantPage(session, async (authUser) => {
+    if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
     const importHistory = await listRecentFinanceImports();
     return <UploadNewMonthsPage importHistory={importHistory} />;
   });
