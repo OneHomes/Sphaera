@@ -1,5 +1,7 @@
 import { prisma, tenantContext, financeWriteVersion } from "../prisma";
 import { logReversible, revisionItems } from "./changeJournal";
+import { syncPersonLinesToLedger } from "./personLedgerSync";
+import { personCostHead } from "./personCostHeads";
 
 // Core ledger/taxonomy logic, ported from the source Python app's
 // server.py (`fetch_state`, `classify`, `bulk_management_classify`,
@@ -424,14 +426,16 @@ export async function classifyTransaction(params: {
   });
 
   const after = await revisionItems("FinanceAllocation", [transactionId]);
+  // People Costs lines on this payment follow the new department / Simple cost head.
+  const people = await syncPersonLinesToLedger({ transactionIds: [transactionId], department, costHead });
   const changeId = await logReversible({
     organizationId: tx.organizationId,
     action: "classify",
-    description: `Payment classification · ${transactionId}`,
+    description: `Payment classification · ${transactionId}${people.after.length ? ` · ${people.after.length} People Costs lines updated` : ""}`,
     actorId: params.actorId,
     actorEmail: params.actorEmail,
-    before,
-    after,
+    before: [...before, ...people.before],
+    after: [...after, ...people.after],
   });
 
   return { ok: true, changeId };
@@ -501,14 +505,15 @@ export async function bulkClassifyTransactions(params: {
   }
 
   const after = await revisionItems("FinanceAllocation", ids);
+  const people = await syncPersonLinesToLedger({ transactionIds: ids, department: params.department, costHead: params.costHead });
   const changeId = await logReversible({
     organizationId: found[0]?.organizationId ?? null,
     action: "bulk_management_classify",
-    description: `${ids.length} payments → ${params.department} / ${params.costHead}`,
+    description: `${ids.length} payments → ${params.department} / ${params.costHead}${people.after.length ? ` · ${people.after.length} People Costs lines updated` : ""}`,
     actorId: params.actorId,
     actorEmail: params.actorEmail,
-    before,
-    after,
+    before: [...before, ...people.before],
+    after: [...after, ...people.after],
   });
 
   return { ok: true, updated: ids.length, changeId };
@@ -626,6 +631,9 @@ export async function renameDepartment(
   await prisma.financeManagementDepartment.update({ where: { id: dept.id }, data: { name: trimmed } });
   await prisma.financeAllocation.updateMany({ where: { department: oldName }, data: { department: trimmed } });
   await prisma.financeLegacyMapping.updateMany({ where: { department: oldName }, data: { department: trimmed } });
+  // People Costs uses the same department names (employees and their payment lines).
+  await prisma.financePerson.updateMany({ where: { department: oldName }, data: { department: trimmed } });
+  await prisma.financePersonCostAllocation.updateMany({ where: { departmentSnapshot: oldName }, data: { departmentSnapshot: trimmed } });
   return { ok: true };
 }
 
@@ -682,18 +690,30 @@ export async function mergeCostHead(params: {
   await prisma.financeManagementCostHead.deleteMany({ where: { name: source } });
 
   const after = ids.length ? await revisionItems("FinanceAllocation", ids) : [];
+  // People Costs lines on the retired head move to the replacement too (on every payment, not
+  // only the ones with their own allocation row; lines are matched by the head they stand for).
+  const lineTxIds = Array.from(
+    new Set(
+      (await prisma.financePersonCostAllocation.findMany({ select: { transactionId: true, costType: true } }))
+        .filter((l) => personCostHead(l.costType) === source)
+        .map((l) => l.transactionId)
+    )
+  );
+  const people = await syncPersonLinesToLedger({ transactionIds: lineTxIds, costHead: target, onlyCostHead: source });
+  before.push(...people.before);
+  after.push(...people.after);
 
   let changeId: string | null = null;
-  if (ids.length) {
+  if (before.length) {
     const found = await prisma.financeTransaction.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: [...ids, ...lineTxIds].slice(0, 1) } },
       select: { organizationId: true },
       take: 1,
     });
     changeId = await logReversible({
       organizationId: found[0]?.organizationId ?? null,
       action: "merge_cost_head",
-      description: `Merged cost head "${source}" into "${target}" (${ids.length} payments)`,
+      description: `Merged cost head "${source}" into "${target}" (${ids.length} payments${people.after.length ? `, ${people.after.length} People Costs lines` : ""})`,
       actorId: params.actorId,
       actorEmail: params.actorEmail,
       before,

@@ -8,6 +8,7 @@ import { useFinanceFilters } from "./FinanceFilterContext";
 import { fyOf } from "@/lib/finance/financeFilters";
 import { effectiveCentre } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
+import { PERSONNEL_COST_HEADS, personCostColumn, personCostHead } from "@/lib/finance/personCostHeads";
 
 // Port of the source app's People Costs screen at v41: employee roster Excel import, suggested
 // name/alias payment matches, the cost-per-person report, the employee register (job title,
@@ -15,7 +16,6 @@ import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 // employee, the single-payment split editor and the allocation history. Allocations attribute
 // existing ledger payments; they are never additional expenses.
 
-const COST_TYPES = ["Salary", "Commission", "Bonus", "Employer taxes", "Benefits", "Other personnel"] as const;
 const NEW_CATEGORY = "__new_category__";
 
 type Person = {
@@ -103,13 +103,15 @@ function usd(value: number): string {
 const cents = (n: number | string) => Math.round(Number(n) * 100);
 
 // Source peType() / peIsPersonnel().
+// Returns a Simple cost head: the payment's own head when it is already a staff head.
 function guessType(t: FinanceLedgerRow): string {
+  if (t.managementCostHead && PERSONNEL_COST_HEADS.has(t.managementCostHead)) return t.managementCostHead;
   const s = [effectiveCentre(t), t.head, t.description].join(" ").toLowerCase();
-  if (/commission|comm\b|referral/.test(s)) return "Commission";
-  if (/bonus|incentive/.test(s)) return "Bonus";
-  if (/employer tax|payroll tax/.test(s)) return "Employer taxes";
-  if (/benefit|pension/.test(s)) return "Benefits";
-  return "Salary";
+  if (/commission|comm\b|referral/.test(s)) return "Commissions";
+  if (/bonus|incentive/.test(s)) return "Bonuses & Incentives";
+  if (/employer tax|payroll tax/.test(s)) return "Employer Payroll Taxes";
+  if (/benefit|pension/.test(s)) return "Staff Benefits & Pensions";
+  return "Salaries";
 }
 // Same keywords the server uses for suggestions (salary / commission / bonus payments).
 const isStaffPayment = (t: FinanceLedgerRow) => /commission|salary|payroll|bonus|incentive/.test(`${t.costCentre ?? ""} ${t.head ?? ""} ${t.description}`.toLowerCase());
@@ -144,7 +146,7 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
 }
 
 function newDraftLine(): AllocationLineDraft {
-  return { key: Math.random().toString(36).slice(2), personId: "", costType: "Salary", amountUsd: "", reference: "", note: "" };
+  return { key: Math.random().toString(36).slice(2), personId: "", costType: "Salaries", amountUsd: "", reference: "", note: "" };
 }
 
 const inputClass = "w-full rounded-lg border border-base-700 bg-base-800 px-2.5 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500";
@@ -180,24 +182,27 @@ export function PeopleCostsPage({
     if (res.ok) setData(await res.json());
   }, []);
 
-  // Cost categories: the standard ones, any custom ones already used, and ones added on this page.
+  // Simple cost heads: the ledger's full list (same as the payment detail form), plus any added here.
   const [addedTypes, setAddedTypes] = useState<string[]>([]);
-  const categoryOptions = useMemo(
-    () => Array.from(new Set<string>([...COST_TYPES, ...(data.costTypes ?? []), ...addedTypes])),
-    [data.costTypes, addedTypes]
-  );
-  /** Handles a category <select>: the "+ Add new category…" entry asks for a name first. */
-  function chooseCategory(value: string, apply: (costType: string) => void) {
+  const categoryOptions = useMemo(() => Array.from(new Set<string>([...(data.costTypes ?? []), ...addedTypes])), [data.costTypes, addedTypes]);
+  /**
+   * Handles a Simple cost head <select>. "+ Add new cost head…" registers the head in Finance
+   * (the same list Organise Costs and the payment form use), so it is available everywhere.
+   */
+  async function chooseCategory(value: string, apply: (costType: string) => void) {
     if (value !== NEW_CATEGORY) return apply(value);
-    const name = window.prompt("New cost category (e.g. Performance bonus):")?.trim().split(/\s+/).join(" ");
+    const name = window.prompt("New Simple cost head (e.g. Performance Bonus). It is added to the Finance cost head list:")?.trim().split(/\s+/).join(" ");
     if (!name) return;
-    if (name.length < 2 || name.length > 60 || /^[=+\-@]/.test(name)) {
-      window.alert("Category name must be 2 to 60 characters.");
+    const existing = categoryOptions.find((c) => c.toLowerCase() === name.toLowerCase());
+    if (existing) return apply(existing);
+    try {
+      await postJson("/api/finance/cost-heads", { name });
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Could not add the cost head");
       return;
     }
-    const existing = categoryOptions.find((c) => c.toLowerCase() === name.toLowerCase());
-    if (!existing) setAddedTypes((prev) => [...prev, name]);
-    apply(existing ?? name);
+    setAddedTypes((prev) => [...prev, name]);
+    apply(name);
   }
 
   // Change one history line's category in place (amount, employee and snapshots stay the same).
@@ -215,7 +220,10 @@ export function PeopleCostsPage({
         allocations: prev.allocations.map((a) => (a.id === allocationId ? { ...a, costType: body.costType } : a)),
         costTypes: prev.costTypes.includes(body.costType) ? prev.costTypes : [...prev.costTypes, body.costType],
       }));
-      setHistoryMessage({ kind: "ok", text: `${line.personName}: ${line.costType} → ${body.costType}. You can undo this in Change History.` });
+      setHistoryMessage({
+        kind: "ok",
+        text: `${line.personName}: ${personCostHead(line.costType)} → ${body.costType}. The payment shows the same cost head in Spending Explorer. You can undo this in Change History.`,
+      });
     } catch (err) {
       setHistoryMessage({ kind: "error", text: err instanceof Error ? err.message : "Could not change the category" });
     } finally {
@@ -256,16 +264,17 @@ export function PeopleCostsPage({
   );
 
   const sumBy = (pred: (a: Allocation) => boolean) => filteredAllocations.filter(pred).reduce((s, a) => s + a.amountUsd, 0);
-  const attributedSalary = sumBy((a) => a.costType === "Salary");
-  const attributedCommission = sumBy((a) => a.costType === "Commission");
-  const otherEmployerCosts = sumBy((a) => a.costType !== "Salary" && a.costType !== "Commission");
+  const attributedSalary = sumBy((a) => personCostColumn(a.costType) === "salary");
+  const attributedCommission = sumBy((a) => personCostColumn(a.costType) === "commission");
+  const otherEmployerCosts = sumBy((a) => personCostColumn(a.costType) === "other");
 
   const costPerPerson = useMemo(() => {
     const map = new Map<string, { personId: string; name: string; department: string | null; jobTitle: string; salary: number; commission: number; other: number; total: number }>();
     for (const a of filteredAllocations) {
       const e = map.get(a.personId) ?? { personId: a.personId, name: a.personName, department: a.departmentSnapshot, jobTitle: a.jobTitleSnapshot, salary: 0, commission: 0, other: 0, total: 0 };
-      if (a.costType === "Salary") e.salary += a.amountUsd;
-      else if (a.costType === "Commission") e.commission += a.amountUsd;
+      const column = personCostColumn(a.costType);
+      if (column === "salary") e.salary += a.amountUsd;
+      else if (column === "commission") e.commission += a.amountUsd;
       else e.other += a.amountUsd;
       e.total += a.amountUsd;
       map.set(a.personId, e);
@@ -644,7 +653,7 @@ export function PeopleCostsPage({
     const existing = allocations.filter((a) => a.transactionId === id);
     setDraftLines(
       existing.length
-        ? existing.map((a) => ({ key: a.id, personId: a.personId, costType: a.costType, amountUsd: a.amountUsd.toFixed(2), reference: a.reference ?? "", note: a.note ?? "" }))
+        ? existing.map((a) => ({ key: a.id, personId: a.personId, costType: personCostHead(a.costType), amountUsd: a.amountUsd.toFixed(2), reference: a.reference ?? "", note: a.note ?? "" }))
         : [newDraftLine()]
     );
   }
@@ -1081,7 +1090,7 @@ export function PeopleCostsPage({
                   <th className="px-3 py-2">Job title</th>
                   <th className="px-3 py-2 text-right">Salary</th>
                   <th className="px-3 py-2 text-right">Commission</th>
-                  <th className="px-3 py-2 text-right" title="Bonus, benefits, employer taxes and any custom category">Bonus &amp; other costs</th>
+                  <th className="px-3 py-2 text-right" title="Every Simple cost head other than Salaries and Commissions">Bonus &amp; other costs</th>
                   <th className="px-3 py-2 text-right">Total cost</th>
                 </tr>
               </thead>
@@ -1306,7 +1315,7 @@ export function PeopleCostsPage({
           title={`Allocate selected payments to ${selectedName ?? "an employee"}`}
           action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{pickEntries.length} selected · {usd(pickTotal)}</span>}
         >
-          <p className="mb-2 text-xs text-ink-500">Set a separate category and USD amount for each payment. Existing employee allocations are not overwritten.</p>
+          <p className="mb-2 text-xs text-ink-500">Set a Simple cost head and USD amount for each payment (Spending Explorer uses the same cost head). Existing employee allocations are not overwritten.</p>
           {pickEntries.length ? (
             <div className="flex flex-col divide-y divide-base-800">
               {pickEntries.map(([id, p]) => {
@@ -1324,10 +1333,11 @@ export function PeopleCostsPage({
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <label className={labelClass}>
-                        Cost category
+                        Simple cost head
                         <select value={p.costType} onChange={(e) => chooseCategory(e.target.value, (costType) => set({ costType }))} className={`${inputClass} normal-case tracking-normal`}>
+                          {!categoryOptions.includes(p.costType) && <option value={p.costType}>{p.costType}</option>}
                           {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                          <option value={NEW_CATEGORY}>+ Add new category…</option>
+                          <option value={NEW_CATEGORY}>+ Add new cost head…</option>
                         </select>
                       </label>
                       <label className={labelClass}>
@@ -1381,9 +1391,15 @@ export function PeopleCostsPage({
                     <option value="">Select employee</option>
                     {people.map((p) => <option key={p.id} value={p.id}>{p.fullName} ({p.department ?? "—"})</option>)}
                   </select>
-                  <select value={line.costType} onChange={(e) => chooseCategory(e.target.value, (costType) => updateLine(line.key, { costType }))} className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none">
+                  <select
+                    value={line.costType}
+                    title="Simple cost head"
+                    onChange={(e) => chooseCategory(e.target.value, (costType) => updateLine(line.key, { costType }))}
+                    className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none"
+                  >
+                    {!categoryOptions.includes(line.costType) && <option value={line.costType}>{line.costType}</option>}
                     {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                    <option value={NEW_CATEGORY}>+ Add new category…</option>
+                    <option value={NEW_CATEGORY}>+ Add new cost head…</option>
                   </select>
                   <input type="number" min="0.01" step="0.01" value={line.amountUsd} onChange={(e) => updateLine(line.key, { amountUsd: e.target.value })} placeholder="0.00" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
                   <input value={line.reference} maxLength={180} onChange={(e) => updateLine(line.key, { reference: e.target.value })} placeholder="Deal, pay period or reference" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
@@ -1431,7 +1447,7 @@ export function PeopleCostsPage({
                   <th className="px-3 py-2">Date</th>
                   <th className="px-3 py-2">Employee</th>
                   <th className="px-3 py-2">Department</th>
-                  <th className="px-3 py-2">Cost category</th>
+                  <th className="px-3 py-2">Simple cost head</th>
                   <th className="px-3 py-2">Source payment / reference</th>
                   <th className="px-3 py-2 text-right">Attributed USD</th>
                 </tr>
@@ -1444,14 +1460,14 @@ export function PeopleCostsPage({
                     <td className="px-3 py-2">{h.departmentSnapshot ?? "—"}</td>
                     <td className="px-3 py-2">
                       <select
-                        value={h.costType}
+                        value={personCostHead(h.costType)}
                         disabled={savingCategory === h.id}
                         onChange={(e) => chooseCategory(e.target.value, (costType) => changeCategory(h.id, costType))}
                         className="rounded-md border border-base-700 bg-base-800 px-2 py-1 text-xs text-ink-50 outline-none disabled:opacity-50"
                       >
-                        {!categoryOptions.includes(h.costType) && <option value={h.costType}>{h.costType}</option>}
+                        {!categoryOptions.includes(personCostHead(h.costType)) && <option value={personCostHead(h.costType)}>{personCostHead(h.costType)}</option>}
                         {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                        <option value={NEW_CATEGORY}>+ Add new category…</option>
+                        <option value={NEW_CATEGORY}>+ Add new cost head…</option>
                       </select>
                     </td>
                     <td className="max-w-[280px] px-3 py-2">

@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "../prisma";
 import { logReversible, revisionItems } from "./changeJournal";
+import { PERSONNEL_COST_HEADS, isLegacyPersonCostType, personCostHead } from "./personCostHeads";
 
 // People & Overheads business logic, ported from the source Python app's
 // server.py (`overhead_pair`, `change_overhead_rule`, `change_overhead_payments`,
@@ -275,27 +276,23 @@ export async function listOverheadHeadRules() {
 
 // --- Personnel cost attribution ----------------------------------------
 
-export const PERSON_COST_TYPES = [
-  "Salary",
-  "Commission",
-  "Bonus",
-  "Employer taxes",
-  "Benefits",
-  "Other personnel",
-] as const;
-const PERSON_COST_TYPE_SET = new Set<string>(PERSON_COST_TYPES);
+/** The registered "Simple cost head" names, used as People Costs line categories. */
+async function managementCostHeadNames(): Promise<string[]> {
+  return (await prisma.financeManagementCostHead.findMany({ select: { name: true }, orderBy: { name: "asc" } })).map((h) => h.name);
+}
 
 /**
- * Sphaera extension: besides the standard types, Finance can add its own category (e.g.
- * "Performance bonus"). Standard types are matched case-insensitively to their canonical
- * spelling; a custom one is kept as typed (2-60 characters, no formula prefix).
+ * A line's category must be one of the ledger's Simple cost heads (matched case-insensitively to
+ * its registered spelling). Old v41 categories ("Salary", ...) are still accepted so lines saved
+ * before the switch can be kept unchanged when other lines on the same payment are edited.
  */
-export function normalisePersonCostType(raw: unknown): string | null {
+export function resolvePersonCostHead(raw: unknown, costHeads: string[]): string | null {
   const value = String(raw ?? "").trim().split(/\s+/).join(" ");
-  const standard = PERSON_COST_TYPES.find((t) => t.toLowerCase() === value.toLowerCase());
-  if (standard) return standard;
-  if (value.length < 2 || value.length > 60 || /^[=+\-@]/.test(value)) return null;
-  return value;
+  if (!value) return null;
+  const head = costHeads.find((h) => h.toLowerCase() === value.toLowerCase());
+  if (head) return head;
+  if (isLegacyPersonCostType(value)) return value;
+  return null;
 }
 
 export type SavePersonResult = { ok: true; id: string } | { ok: false; status: number; error: string };
@@ -394,13 +391,8 @@ export async function getPersonCostState() {
       paymentAmount: a.transaction.amountUsd,
       personName: a.person.fullName,
     })),
-    // Standard types first, then any custom categories already in use.
-    costTypes: [
-      ...PERSON_COST_TYPES,
-      ...Array.from(new Set(allocations.map((a) => a.costType)))
-        .filter((t) => !PERSON_COST_TYPE_SET.has(t))
-        .sort((a, b) => a.localeCompare(b)),
-    ],
+    // The ledger's full Simple cost head list (same list as the payment detail form).
+    costTypes: await managementCostHeadNames(),
     suggestions: await paymentSuggestions(people, new Set(allocations.map((a) => a.transactionId))),
   };
 }
@@ -445,9 +437,10 @@ const NAME_PREFIXES = new Set(["syed", "muhammad", "mr", "mrs", "ms", "miss", "d
 
 function suggestionType(t: { originalCentre: string | null; originalHead: string | null; description: string }) {
   const s = `${t.originalCentre ?? ""} ${t.originalHead ?? ""} ${t.description}`.toLowerCase();
-  if (s.includes("commission")) return "Commission";
-  if (s.includes("salary") || s.includes("payroll")) return "Salary";
-  if (s.includes("bonus") || s.includes("incentive")) return "Bonus";
+  // Suggested lines use the ledger's Simple cost head names.
+  if (s.includes("commission")) return "Commissions";
+  if (s.includes("salary") || s.includes("payroll")) return "Salaries";
+  if (s.includes("bonus") || s.includes("incentive")) return "Bonuses & Incentives";
   return null;
 }
 
@@ -567,7 +560,11 @@ export async function linkSuggestions(params: { transactionIds: string[]; actorI
     prisma.financeTransaction.findMany({ where: { id: { in: ids } }, select: { id: true, organizationId: true, amountUsd: true } }),
     prisma.financePaymentCostSplit.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true } }),
   ]);
-  const preloaded = { splitTransactionIds: new Set(splits.map((s) => s.transactionId)), peopleById: new Map(people.map((p) => [p.id, p])) };
+  const preloaded = {
+    splitTransactionIds: new Set(splits.map((s) => s.transactionId)),
+    peopleById: new Map(people.map((p) => [p.id, p])),
+    costHeads: await managementCostHeadNames(),
+  };
   const built: BuiltLine[] = [];
   let totalCents = 0;
   for (const tx of txs) {
@@ -644,7 +641,11 @@ async function buildPaymentLines(
   tx: PaymentRow,
   lines: PersonPaymentLine[],
   // Bulk callers pass these preloaded so validation doesn't cost two queries per payment.
-  preloaded?: { splitTransactionIds: Set<string>; peopleById: Map<string, { id: string; department: string | null; jobTitle: string }> }
+  preloaded?: {
+    splitTransactionIds: Set<string>;
+    peopleById: Map<string, { id: string; department: string | null; jobTitle: string }>;
+    costHeads?: string[];
+  }
 ): Promise<BuildResult> {
   if (!Array.isArray(lines) || lines.length > 100) {
     return { ok: false, status: 400, error: "Use 0 to 100 allocation lines per payment." };
@@ -661,14 +662,15 @@ async function buildPaymentLines(
     preloaded?.peopleById ??
     new Map((personIds.length ? await prisma.financePerson.findMany({ where: { id: { in: personIds } } }) : []).map((p) => [p.id, p]));
 
+  const costHeads = preloaded?.costHeads ?? (await managementCostHeadNames());
   const sourceCents = Math.round(tx.amountUsd * 100);
   const built: BuiltLine[] = [];
   let totalCents = 0;
   for (const line of lines) {
     const person = peopleById.get(String(line?.personId ?? ""));
     if (!person) return { ok: false, status: 400, error: "Choose a valid employee on every line." };
-    const costType = normalisePersonCostType(line?.costType);
-    if (!costType) return { ok: false, status: 400, error: "Choose a cost category (custom names must be 2 to 60 characters)." };
+    const costType = resolvePersonCostHead(line?.costType, costHeads);
+    if (!costType) return { ok: false, status: 400, error: `"${String(line?.costType ?? "")}" is not a Simple cost head. Choose one from the list or add it first.` };
     const cents = parseMoneyToCents(line?.amountUsd);
     if (cents === null) return { ok: false, status: 400, error: "Enter a valid USD amount to two decimal places." };
     if (cents <= 0) return { ok: false, status: 400, error: "Allocation amounts must be positive." };
@@ -695,37 +697,8 @@ async function buildPaymentLines(
 // One Homes asked that a payment linked to an employee in People Costs also sits under that
 // employee's department in the ledger (Spending Explorer), instead of the bank's original centre.
 // The department comes from the line's point-in-time departmentSnapshot (never the person's current
-// department), the cost head from the cost category. A cost head someone set by hand that is not a
-// personnel head (e.g. "Loans") is kept; only the department moves.
-
-const PERSONNEL_COST_HEADS = new Set([
-  "Salaries",
-  "Commissions",
-  "Commissions Agent",
-  "Bonuses & Incentives",
-  "Employer Payroll Taxes",
-  "Staff Benefits & Pensions",
-]);
-
-function costHeadForType(costType: string): string {
-  switch (costType) {
-    case "Salary":
-      return "Salaries";
-    case "Commission":
-      return "Commissions";
-    case "Bonus":
-      return "Bonuses & Incentives";
-    case "Employer taxes":
-      return "Employer Payroll Taxes";
-    case "Benefits":
-      return "Staff Benefits & Pensions";
-    default:
-      // Custom categories: "Performance bonus" -> bonuses, anything with "commission" -> commissions.
-      if (/bonus|incentive/i.test(costType)) return "Bonuses & Incentives";
-      if (/commission/i.test(costType)) return "Commissions";
-      return "Salaries";
-  }
-}
+// department), the cost head from the line's Simple cost head. The reverse direction (a payment
+// reclassified in the ledger updates its People Costs lines) lives in syncPersonLinesToLedger below.
 
 export type LedgerDepartmentChange = {
   transactionId: string;
@@ -801,12 +774,18 @@ export async function planLedgerDepartments(transactionIds?: string[]): Promise<
     if (!validDept.has(department)) continue;
     const now = current.get(transactionId);
     if (!now) continue;
-    let costHead = costHeadForType(largest(depts.get(department)!));
-    // A non-personnel cost head set by hand on this payment (e.g. "Loans") is kept.
-    if (now.ownCostHead && !PERSONNEL_COST_HEADS.has(now.ownCostHead)) costHead = now.ownCostHead;
-    if (!validHead.has(costHead)) {
-      if (validHead.has("Salaries")) costHead = "Salaries";
-      else continue;
+    const lineValue = largest(depts.get(department)!);
+    let costHead: string;
+    if (validHead.has(lineValue)) {
+      // Chosen from the Simple cost head list in People Costs: the ledger follows it exactly.
+      costHead = lineValue;
+    } else {
+      // Old v41 category (or a custom one from before the switch): its equivalent head, but a
+      // non-personnel head set by hand on the payment (e.g. "Loans") is kept.
+      costHead = personCostHead(lineValue);
+      if (!validHead.has(costHead)) costHead = /bonus|incentive/i.test(lineValue) ? "Bonuses & Incentives" : /commission/i.test(lineValue) ? "Commissions" : "Salaries";
+      if (now.ownCostHead && !PERSONNEL_COST_HEADS.has(now.ownCostHead)) costHead = now.ownCostHead;
+      if (!validHead.has(costHead)) continue;
     }
     if (now.department === department && now.costHead === costHead) continue;
     changes.push({
@@ -967,8 +946,10 @@ export async function changeAllocationCategory(params: {
   actorId: string;
   actorEmail: string;
 }): Promise<{ ok: true; costType: string; previous: string; changeId: string } | { ok: false; status: number; error: string }> {
-  const costType = normalisePersonCostType(params.costType);
-  if (!costType) return { ok: false, status: 400, error: "Choose a cost category (custom names must be 2 to 60 characters)." };
+  const costType = resolvePersonCostHead(params.costType, await managementCostHeadNames());
+  if (!costType || isLegacyPersonCostType(costType)) {
+    return { ok: false, status: 400, error: "Choose a Simple cost head from the list (or add it first)." };
+  }
   const line = await prisma.financePersonCostAllocation.findFirst({
     where: { id: String(params.allocationId ?? "") },
     select: { id: true, organizationId: true, transactionId: true, costType: true, person: { select: { fullName: true } } },
@@ -1054,7 +1035,11 @@ export async function allocateBatch(params: {
   ]);
   const txById = new Map(txs.map((t) => [t.id, t]));
   const linePeople = await prisma.financePerson.findMany({ where: { id: { in: Array.from(new Set([person.id, ...existing.map((a) => a.personId)])) } } });
-  const preloaded = { splitTransactionIds: new Set(splits.map((s) => s.transactionId)), peopleById: new Map(linePeople.map((p) => [p.id, p])) };
+  const preloaded = {
+    splitTransactionIds: new Set(splits.map((s) => s.transactionId)),
+    peopleById: new Map(linePeople.map((p) => [p.id, p])),
+    costHeads: await managementCostHeadNames(),
+  };
   const built: BuiltLine[] = [];
   let addedCents = 0;
   for (const item of items) {
