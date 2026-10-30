@@ -404,12 +404,12 @@ export function PeopleCostsPage({
   // Add an unknown payee as a new employee, or attach the bank name to an existing employee as a
   // payment alias. Either way their payments then show up in the suggestions for review.
   const [payeeForm, setPayeeForm] = useState<
-    { bankName: string; mode: "add" | "link"; fullName: string; department: string; jobTitle: string; personId: string } | null
+    { bankName: string; mode: "add" | "link"; fullName: string; department: string; jobTitle: string; active: boolean; personId: string } | null
   >(null);
   const [payeeMessage, setPayeeMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   function openPayeeForm(bankName: string, mode: "add" | "link") {
     setPayeeMessage(null);
-    setPayeeForm({ bankName, mode, fullName: bankName, department: filterDept !== "all" ? filterDept : "", jobTitle: "", personId: "" });
+    setPayeeForm({ bankName, mode, fullName: bankName, department: filterDept !== "all" ? filterDept : "", jobTitle: "", active: true, personId: "" });
   }
   const savePayee = () =>
     run("payee", async () => {
@@ -425,6 +425,7 @@ export function PeopleCostsPage({
             name,
             department: f.department,
             jobTitle: f.jobTitle,
+            active: f.active,
             // Keep the bank spelling as an alias when the employee name is written differently.
             paymentAlias: name.toLowerCase() === f.bankName.toLowerCase() ? "" : f.bankName,
           });
@@ -904,7 +905,7 @@ export function PeopleCostsPage({
                       <tr className="border-b border-base-800 bg-base-800">
                         <td colSpan={5} className="px-3 py-3">
                           {payeeForm.mode === "add" ? (
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
                               <label className={labelClass}>
                                 Employee full name
                                 <input autoFocus value={payeeForm.fullName} onChange={(e) => setPayeeForm({ ...payeeForm, fullName: e.target.value })} className={`${inputClass} normal-case tracking-normal`} />
@@ -919,6 +920,13 @@ export function PeopleCostsPage({
                               <label className={labelClass}>
                                 Job title
                                 <input value={payeeForm.jobTitle} onChange={(e) => setPayeeForm({ ...payeeForm, jobTitle: e.target.value })} className={`${inputClass} normal-case tracking-normal`} />
+                              </label>
+                              <label className={labelClass}>
+                                Status
+                                <select value={payeeForm.active ? "active" : "inactive"} onChange={(e) => setPayeeForm({ ...payeeForm, active: e.target.value === "active" })} className={`${inputClass} normal-case tracking-normal`}>
+                                  <option value="active">Active (still working)</option>
+                                  <option value="inactive">Inactive (has left)</option>
+                                </select>
                               </label>
                             </div>
                           ) : (
@@ -1118,6 +1126,13 @@ export function PeopleCostsPage({
                       Payment alias (name on bank payments)
                       <input value={editPerson.paymentAlias} onChange={(e) => setEditPerson({ ...editPerson, paymentAlias: e.target.value })} className={inputClass} />
                     </label>
+                    <label className={labelClass}>
+                      Status
+                      <select value={editPerson.active ? "active" : "inactive"} onChange={(e) => setEditPerson({ ...editPerson, active: e.target.value === "active" })} className={inputClass}>
+                        <option value="active">Active (still working)</option>
+                        <option value="inactive">Inactive (has left)</option>
+                      </select>
+                    </label>
                   </div>
                   {personError && <p className="mt-2 text-status-alert">{personError}</p>}
                   <div className="mt-3 flex justify-end gap-2">
@@ -1131,7 +1146,7 @@ export function PeopleCostsPage({
               <div key={p.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-base-800">
                 <span className="min-w-0 text-ink-300">
                   <span className="font-medium text-ink-50">{p.fullName}</span> · {p.department ?? "—"} · {p.jobTitle || <span className="text-status-alert">Job title missing</span>}
-                  {!p.active && <span className="ml-1.5 rounded-full bg-status-inactive/15 px-1.5 py-0.5 text-[10px] text-status-inactive">Archived</span>}
+                  {!p.active && <span className="ml-1.5 rounded-full bg-status-inactive/15 px-1.5 py-0.5 text-[10px] text-status-inactive">Inactive</span>}
                 </span>
                 <span className="flex shrink-0 gap-1.5">
                   <button onClick={() => startEditPerson(p)} className={smallBtn}>Edit</button>

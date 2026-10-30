@@ -453,8 +453,10 @@ function suggestionType(t: { originalCentre: string | null; originalHead: string
 
 /**
  * v41 people_costs.suggestions(): an unallocated, positive salary/commission/bonus payment whose
- * description contains exactly ONE active employee's full name or payment alias (5+ characters,
- * whole words). Ambiguous matches are skipped; nothing is applied until Finance links them.
+ * description contains exactly ONE employee's full name or payment alias (5+ characters, whole
+ * words). Ambiguous matches are skipped; nothing is applied until Finance links them.
+ * Sphaera change: inactive employees (who have left) are matched too, so their past salary
+ * payments can still be attributed.
  */
 export async function paymentSuggestions(
   people: { id: string; fullName: string; paymentAlias: string; jobTitle: string; department: string | null; active: boolean }[],
@@ -464,7 +466,6 @@ export async function paymentSuggestions(
   onlyIds?: string[],
 ): Promise<PaymentSuggestion[]> {
   const active = people
-    .filter((p) => p.active)
     .map((p) => {
       // Partial rule needs a real first AND last name (e.g. "Minhal Zaidi" ↔ "Minhal Haider Zaidi"),
       // skipping titles like "Syed" / "Muhammad" so "Syed Aqib Ali" never matches "Syed Moheeb Ali".
