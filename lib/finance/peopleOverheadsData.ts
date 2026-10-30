@@ -398,9 +398,31 @@ export type PaymentSuggestion = {
   costType: string;
   amountUsd: number;
   reason: string;
+  /** "exact" = full name or alias found as written; "partial" = spelling variant or first + last name only. */
+  confidence: "exact" | "partial";
 };
 
+// Common spellings of the same name on bank descriptions vs the HR list (Mohammad / Muhammed …).
+const NAME_VARIANTS: Record<string, string> = {
+  mohammad: "muhammad",
+  mohammed: "muhammad",
+  muhammed: "muhammad",
+  mohamed: "muhammad",
+  muhammad: "muhammad",
+  syed: "syed",
+  sayed: "syed",
+  sheikh: "sheikh",
+  shaikh: "sheikh",
+};
 const matchNorm = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, " ").trim();
+// Spelling-tolerant form, used only for "Check" (partial) suggestions, never for exact ones.
+const variantNorm = (s: string | null | undefined) =>
+  matchNorm(s)
+    .split(" ")
+    .map((w) => NAME_VARIANTS[w] ?? w)
+    .join(" ");
+// Titles and very common first words that don't identify anyone on their own ("Syed … Ali").
+const NAME_PREFIXES = new Set(["syed", "muhammad", "mr", "mrs", "ms", "miss", "dr", "hafiz", "sheikh", "al", "k", "m", "s"]);
 
 function suggestionType(t: { originalCentre: string | null; originalHead: string | null; description: string }) {
   const s = `${t.originalCentre ?? ""} ${t.originalHead ?? ""} ${t.description}`.toLowerCase();
@@ -421,7 +443,19 @@ export async function paymentSuggestions(
 ): Promise<PaymentSuggestion[]> {
   const active = people
     .filter((p) => p.active)
-    .map((p) => ({ p, phrases: [p.fullName, p.paymentAlias].map(matchNorm).filter((x) => x.length >= 5) }));
+    .map((p) => {
+      // Partial rule needs a real first AND last name (e.g. "Minhal Zaidi" ↔ "Minhal Haider Zaidi"),
+      // skipping titles like "Syed" / "Muhammad" so "Syed Aqib Ali" never matches "Syed Moheeb Ali".
+      const words = variantNorm(p.fullName).split(" ").filter((w) => w && !NAME_PREFIXES.has(w));
+      const first = words[0];
+      const last = words[words.length - 1];
+      return {
+        p,
+        phrases: [p.fullName, p.paymentAlias].map(matchNorm).filter((x) => x.length >= 5),
+        variantPhrases: [p.fullName, p.paymentAlias].map(variantNorm).filter((x) => x.length >= 5),
+        firstLast: words.length >= 2 && first.length >= 3 && last.length >= 3 ? [first, last] : null,
+      };
+    });
   if (!active.length) return [];
   // Reuses the cached ledger (getFinanceState) instead of re-reading every payment from SQL.
   const { getFinanceState } = await import("./ledgerData");
@@ -444,7 +478,22 @@ export async function paymentSuggestions(
     const costType = suggestionType(t);
     if (!costType) continue;
     const desc = ` ${matchNorm(t.description)} `;
-    const matched = active.filter(({ phrases }) => phrases.some((ph) => desc.includes(` ${ph} `)));
+    const exact = active.filter(({ phrases }) => phrases.some((ph) => desc.includes(` ${ph} `)));
+    let confidence: PaymentSuggestion["confidence"] = "exact";
+    let matched = exact;
+    if (exact.length === 0) {
+      // Spelling variant of the full name (Mohammad ↔ Muhammad), or the first name followed later by
+      // the last name as whole words. Still only when exactly ONE employee fits; always "Check".
+      const vdesc = ` ${variantNorm(t.description)} `;
+      const words = vdesc.trim().split(" ");
+      matched = active.filter(({ variantPhrases, firstLast }) => {
+        if (variantPhrases.some((ph) => vdesc.includes(` ${ph} `))) return true;
+        if (!firstLast) return false;
+        const i = words.indexOf(firstLast[0]);
+        return i >= 0 && words.indexOf(firstLast[1], i + 1) > i;
+      });
+      confidence = "partial";
+    }
     if (matched.length !== 1) continue;
     const { p } = matched[0];
     out.push({
@@ -458,9 +507,13 @@ export async function paymentSuggestions(
       paymentDate: t.paymentDate,
       costType,
       amountUsd: Math.round(t.amountUsd * 100) / 100,
-      reason: "Unique name or payment alias found in payroll/commission description",
+      reason:
+        confidence === "exact"
+          ? "Unique name or payment alias found in payroll/commission description"
+          : "Name found with a different spelling or middle name; check before linking",
+      confidence,
     });
-    if (out.length >= 300) break;
+    if (out.length >= 1000) break;
   }
   return out;
 }

@@ -55,6 +55,7 @@ type Suggestion = {
   month: string;
   costType: string;
   amountUsd: number;
+  confidence?: "exact" | "partial";
 };
 
 type PersonCostState = {
@@ -108,6 +109,23 @@ function guessType(t: FinanceLedgerRow): string {
   if (/employer tax|payroll tax/.test(s)) return "Employer taxes";
   if (/benefit|pension/.test(s)) return "Benefits";
   return "Salary";
+}
+// Same keywords the server uses for suggestions (salary / commission / bonus payments).
+const isStaffPayment = (t: FinanceLedgerRow) => /commission|salary|payroll|bonus|incentive/.test(`${t.costCentre ?? ""} ${t.head ?? ""} ${t.description}`.toLowerCase());
+// Payments to companies or for payroll fees, not to one person.
+const NOT_A_PERSON = /\b(ltd|limited|llc|inc|group|charges?|processing|adp|nest|zelle|fees?|hmrc|pension|payroll|office|stripe|balances?|refund)\b/i;
+const NAME_NOISE = new Set(["salary", "salaries", "commission", "commissions", "payment", "to", "on", "a", "c", "ac", "of", "bonus", "for", "the", "month", "ref", "call", "centre", "center", "staff", "external", "agent", "and", "advance", "paid", "pay", "transfer", "monthly"]);
+/** Best-effort person name from a bank description, e.g. "Jebby Jose salary (50%)" -> "Jebby Jose". */
+function nameFromDescription(description: string): string {
+  const words = description
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^\p{L}\s'-]+/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w && !NAME_NOISE.has(w.toLowerCase()));
+  return words
+    .slice(0, 4)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 const isPersonnel = (t: FinanceLedgerRow) =>
   /salary|salaries|payroll|wages|commission|bonus|incentive|pension|benefit|personnel|staff|employer tax|reimburse/.test(
@@ -206,8 +224,29 @@ export function PeopleCostsPage({
       e.total += a.amountUsd;
       map.set(a.personId, e);
     }
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [filteredAllocations]);
+    const linked = Array.from(map.values()).sort((a, b) => b.total - a.total);
+    // Everyone in the chosen department appears, even with nothing linked yet ($0), so the gaps are visible.
+    if (filterPerson !== "all") return linked;
+    const dept = filterDept !== "all" ? filterDept : filters.department !== "all" ? filters.department : null;
+    const zero = people
+      .filter((p) => p.active && !map.has(p.id) && (!dept || p.department === dept))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName))
+      .map((p) => ({ personId: p.id, name: p.fullName, department: p.department, jobTitle: p.jobTitle, salary: 0, commission: 0, other: 0, total: 0 }));
+    return [...linked, ...zero];
+  }, [filteredAllocations, filterPerson, filterDept, filters.department, people]);
+  const costTotals = useMemo(
+    () =>
+      costPerPerson.reduce(
+        (s, r) => ({ salary: s.salary + r.salary, commission: s.commission + r.commission, other: s.other + r.other, total: s.total + r.total, unlinked: s.unlinked + (r.total === 0 ? 1 : 0) }),
+        { salary: 0, commission: 0, other: 0, total: 0, unlinked: 0 }
+      ),
+    [costPerPerson]
+  );
+  const historyRef = useRef<HTMLDivElement | null>(null);
+  const showPersonPayments = (personId: string) => {
+    setFilterPerson(personId);
+    setTimeout(() => historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
 
   // --- Excel roster import ----------------------------------------------------------------------
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -303,6 +342,49 @@ export function PeopleCostsPage({
   // --- Suggested matches ------------------------------------------------------------------------
   const [selectedMatches, setSelectedMatches] = useState<Set<string>>(new Set());
   const suggestions = data.suggestions ?? [];
+  const partialCount = suggestions.filter((s) => s.confidence === "partial").length;
+  // The server links at most 300 payments per click.
+  const LINK_LIMIT = 300;
+  const selectSuggestions = (includePartial: boolean) =>
+    setSelectedMatches(
+      new Set(
+        suggestions
+          .filter((s) => includePartial || s.confidence !== "partial")
+          .slice(0, LINK_LIMIT)
+          .map((s) => s.transactionId)
+      )
+    );
+  // Staff payments nobody is linked to and no suggestion covers, grouped by the name on the payment.
+  const unknownPayees = useMemo(() => {
+    const suggested = new Set(suggestions.map((s) => s.transactionId));
+    const groups = new Map<string, { name: string; count: number; total: number; latest: string }>();
+    let companyCount = 0;
+    let companyTotal = 0;
+    for (const t of transactions) {
+      if (!(Number(t.amount) > 0) || !isStaffPayment(t) || suggested.has(t.id) || balance(t) <= 0.009) continue;
+      if (NOT_A_PERSON.test(t.description)) {
+        companyCount += 1;
+        companyTotal += balance(t);
+        continue;
+      }
+      const name = nameFromDescription(t.description);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const g = groups.get(key) ?? { name, count: 0, total: 0, latest: "" };
+      g.count += 1;
+      g.total += balance(t);
+      if (t.month > g.latest) g.latest = t.month;
+      groups.set(key, g);
+    }
+    return { rows: Array.from(groups.values()).sort((a, b) => b.total - a.total), companyCount, companyTotal };
+  }, [transactions, suggestions, balance]);
+  const [showAllUnknown, setShowAllUnknown] = useState(false);
+  const searchPayments = (text: string) => {
+    setQueryInput(text);
+    setQuery(text);
+    setTimeout(() => findRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+
   const linkMatches = () =>
     run("link", async () => {
       const ids = [...selectedMatches];
@@ -355,8 +437,10 @@ export function PeopleCostsPage({
     });
   }
   // Ticks are kept when the employee is chosen (or changed) after selecting payments.
-  function chooseEmployee(id: string) {
+  const findRef = useRef<HTMLDivElement | null>(null);
+  function chooseEmployee(id: string, scroll = false) {
     setSelectedEmployee(id);
+    if (scroll) setTimeout(() => findRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
   const saveBatch = () =>
@@ -574,9 +658,14 @@ export function PeopleCostsPage({
           {suggestions.length ? (
             <>
               <div className="mb-2 flex flex-wrap gap-2">
-                <button onClick={() => setSelectedMatches(new Set(suggestions.map((s) => s.transactionId)))} className={smallBtn}>
-                  Select all candidates
+                <button onClick={() => selectSuggestions(false)} className={smallBtn}>
+                  Select exact matches ({Math.min(suggestions.length - partialCount, LINK_LIMIT)})
                 </button>
+                {partialCount > 0 && (
+                  <button onClick={() => selectSuggestions(true)} className={smallBtn}>
+                    Select all incl. “Check” ({Math.min(suggestions.length, LINK_LIMIT)})
+                  </button>
+                )}
                 <button onClick={() => setSelectedMatches(new Set())} className={smallBtn}>
                   Clear
                 </button>
@@ -610,7 +699,17 @@ export function PeopleCostsPage({
                           <p className="truncate font-medium text-ink-50" title={s.description}>{s.description}</p>
                           <p className="text-[10px] text-ink-500">{s.month} · {s.transactionId}</p>
                         </td>
-                        <td className="px-3 py-1.5">{s.personName}</td>
+                        <td className="px-3 py-1.5">
+                          {s.personName}
+                          {s.confidence === "partial" && (
+                            <span
+                              title="Name found with a different spelling or middle name (e.g. Mohammad / Muhammad). Check it is the same person before linking."
+                              className="ml-1.5 rounded-full bg-status-alert/15 px-1.5 py-0.5 text-[10px] text-status-alert"
+                            >
+                              Check
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-1.5">{s.jobTitle}</td>
                         <td className="px-3 py-1.5">{s.department ?? "—"}</td>
                         <td className="px-3 py-1.5">{s.costType}</td>
@@ -626,6 +725,63 @@ export function PeopleCostsPage({
           )}
         </WidgetCard>
       </div>
+
+      {unknownPayees.rows.length > 0 && (
+        <div className="mt-4">
+          <WidgetCard
+            title="Paid but not in the employee list"
+            action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{unknownPayees.rows.length} names</span>}
+          >
+            <p className="mb-3 text-xs text-ink-500">
+              These names received salary or commission but don&apos;t match anyone in the employee list (they may have left, or their name is
+              written differently on the bank). To link them: add them to the employee Excel, or put the bank name in the{" "}
+              <b className="text-ink-300">Payment alias</b> column of the right employee, then upload. Their payments will then appear in the
+              suggestions above. You can also assign them by hand with <b className="text-ink-300">Find payments</b>.
+            </p>
+            <div className="max-h-[320px] overflow-auto rounded-xl border border-base-700">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 border-b border-base-700 bg-base-900 text-ink-500">
+                  <tr>
+                    <th className="px-3 py-2">Name on the payment</th>
+                    <th className="px-3 py-2 text-right">Payments</th>
+                    <th className="px-3 py-2">Latest month</th>
+                    <th className="px-3 py-2 text-right">Not linked (USD)</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {(showAllUnknown ? unknownPayees.rows : unknownPayees.rows.slice(0, 25)).map((g) => (
+                    <tr key={g.name} className="border-b border-base-800 text-ink-300 last:border-0">
+                      <td className="px-3 py-1.5 font-medium text-ink-50">{g.name}</td>
+                      <td className="px-3 py-1.5 text-right">{g.count}</td>
+                      <td className="px-3 py-1.5">{g.latest}</td>
+                      <td className="px-3 py-1.5 text-right">{usd(g.total)}</td>
+                      <td className="px-3 py-1.5 text-right">
+                        <button onClick={() => searchPayments(g.name)} className={smallBtn}>
+                          Find payments
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-500">
+              {unknownPayees.rows.length > 25 && (
+                <button onClick={() => setShowAllUnknown((v) => !v)} className={smallBtn}>
+                  {showAllUnknown ? "Show top 25" : `Show all ${unknownPayees.rows.length}`}
+                </button>
+              )}
+              {unknownPayees.companyCount > 0 && (
+                <span>
+                  {unknownPayees.companyCount} more payments ({usd(unknownPayees.companyTotal)}) are company, office-wide payroll or fee payments (e.g.
+                  Ltd, ADP, &quot;Payroll Aug&quot;) and are not one person&apos;s cost; split those by hand with Split / edit if needed.
+                </span>
+              )}
+            </div>
+          </WidgetCard>
+        </div>
+      )}
 
       <div className="mt-4">
         <WidgetCard title="Cost per person">
@@ -647,6 +803,12 @@ export function PeopleCostsPage({
                 {people.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
               </select>
             </label>
+            {filterPerson !== "all" && (
+              <button onClick={() => setFilterPerson("all")} className={smallBtn}>
+                Show everyone
+              </button>
+            )}
+            <span className="text-[11px] text-ink-500">Click a person to see their linked payments.</span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-base-700">
             <table className="w-full text-left text-xs">
@@ -663,8 +825,22 @@ export function PeopleCostsPage({
               </thead>
               <tbody>
                 {costPerPerson.map((row) => (
-                  <tr key={row.personId} className="border-b border-base-800 text-ink-300 last:border-0">
-                    <td className="px-3 py-2 font-medium text-ink-50">{row.name}</td>
+                  <tr
+                    key={row.personId}
+                    onClick={() => {
+                      if (row.total) return showPersonPayments(row.personId);
+                      // Nothing linked yet: pick them as the receiving employee and search their name.
+                      setQueryInput(row.name);
+                      setQuery(row.name);
+                      chooseEmployee(row.personId, true);
+                    }}
+                    title={row.total ? "Show this person's linked payments" : "Nothing linked yet: choose this person in “Find payroll and commission payments”"}
+                    className={`cursor-pointer border-b border-base-800 last:border-0 hover:bg-base-800 ${row.total ? "text-ink-300" : "text-ink-500"}`}
+                  >
+                    <td className="px-3 py-2 font-medium text-ink-50">
+                      {row.name}
+                      {!row.total && <span className="ml-1.5 rounded-full bg-base-800 px-1.5 py-0.5 text-[10px] font-normal text-ink-500">nothing linked</span>}
+                    </td>
                     <td className="px-3 py-2">{row.department ?? "—"}</td>
                     <td className="px-3 py-2">{row.jobTitle || "—"}</td>
                     <td className="px-3 py-2 text-right">{usd(row.salary)}</td>
@@ -676,6 +852,18 @@ export function PeopleCostsPage({
                 {costPerPerson.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-3 py-6 text-center text-ink-500">No staff payment allocations recorded for the selected period.</td>
+                  </tr>
+                )}
+                {costPerPerson.length > 1 && (
+                  <tr className="border-t border-base-700 bg-base-900 font-semibold text-ink-50">
+                    <td className="px-3 py-2" colSpan={3}>
+                      Total · {costPerPerson.length} people
+                      {costTotals.unlinked > 0 && <span className="ml-1 font-normal text-ink-500">({costTotals.unlinked} with nothing linked)</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right">{usd(costTotals.salary)}</td>
+                    <td className="px-3 py-2 text-right">{usd(costTotals.commission)}</td>
+                    <td className="px-3 py-2 text-right">{usd(costTotals.other)}</td>
+                    <td className="px-3 py-2 text-right">{usd(costTotals.total)}</td>
                   </tr>
                 )}
               </tbody>
@@ -705,6 +893,7 @@ export function PeopleCostsPage({
           </div>
         </WidgetCard>
 
+        <div ref={findRef} className="scroll-mt-4">
         <WidgetCard title="Find payroll and commission payments">
           <p className="mb-3 text-xs text-ink-500">
             Choose an employee, then search payment descriptions, references, suppliers or IDs. This search works across all financial years,
@@ -781,6 +970,7 @@ export function PeopleCostsPage({
             Showing {displayed.length} of {choices.length} matches. Tick multiple rows to add them below. Search matches payment descriptions across all years.
           </p>
         </WidgetCard>
+        </div>
       </div>
 
       <div className="mt-4">
@@ -894,9 +1084,9 @@ export function PeopleCostsPage({
         </div>
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 scroll-mt-4" ref={historyRef}>
         <WidgetCard
-          title="Commission and payroll history"
+          title={filterPerson !== "all" ? `Payments linked to ${people.find((p) => p.id === filterPerson)?.fullName ?? "this person"}` : "Commission and payroll history"}
           action={<Link href="/finance/history" className="text-[11px] text-ink-300 hover:text-ink-50">Change History ↗</Link>}
         >
           <div className="overflow-x-auto rounded-xl border border-base-700">

@@ -232,12 +232,14 @@ function SidebarEditor({
 
 function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }) {
   const Icon = item.icon;
+  const router = useRouter();
   return (
-    // prefetch={true}: each screen's (now small) server payload is fetched in the background
-    // and kept by the router, so a click switches screens without waiting on the server.
+    // Prefetch on hover only: prefetching all ~22 screens on every page load made 22 server
+    // renders (and their DB queries) compete with the page the user actually opened.
     <Link
       href={item.href}
-      prefetch={true}
+      prefetch={false}
+      onMouseEnter={() => router.prefetch(item.href)}
       className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
         isActive ? "bg-[#efede8] font-semibold text-[#111111]" : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
       }`}
