@@ -311,6 +311,27 @@ export function PeopleCostsPage({
     }
   }
 
+  // Linked payments whose ledger department doesn't match their employee yet (re-checked after every change).
+  const [ledgerSync, setLedgerSync] = useState<{ count: number; byDepartment: Record<string, number> } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/finance/people/ledger-sync")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => !cancelled && setLedgerSync(body))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
+  const syncLedger = () =>
+    run("ledger", async () => {
+      if (!ledgerSync?.count) return;
+      if (!window.confirm(`Move ${ledgerSync.count} linked payments to their employee's department in Spending Explorer? This is one change you can undo in Change History.`)) return;
+      const body = await postJson("/api/finance/people/ledger-sync", {});
+      await reload();
+      return `Moved ${body.moved} payments to their employee's department. Spending Explorer now shows them there.`;
+    });
+
   const previewExcel = (file: File) =>
     run("preview", async () => {
       const fd = new FormData();
@@ -797,6 +818,22 @@ export function PeopleCostsPage({
           })()}
         </WidgetCard>
       </div>
+
+      {ledgerSync && ledgerSync.count > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-alert/40 bg-status-alert/10 px-4 py-3 text-xs text-ink-300">
+          <span>
+            <b className="text-ink-50">{ledgerSync.count} linked payments</b> are still under another department in Spending Explorer (
+            {Object.entries(ledgerSync.byDepartment)
+              .sort((a, b) => b[1] - a[1])
+              .map(([d, n]) => `${d} ${n}`)
+              .join(", ")}
+            ). Move them to their employee&apos;s department? New links are moved automatically.
+          </span>
+          <button onClick={syncLedger} disabled={!!busy} className={primaryBtn}>
+            {busy === "ledger" ? "Moving…" : `Move ${ledgerSync.count} payments`}
+          </button>
+        </div>
+      )}
 
       <div className="mt-4">
         <WidgetCard title="Suggested salary and commission matches" action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{suggestions.length} candidates</span>}>

@@ -691,6 +691,233 @@ async function buildPaymentLines(
   return { ok: true, lines: built, totalCents, sourceCents };
 }
 
+// --- Ledger department follows the linked employee (Sphaera decision, 2026-10-30) ---------------
+// One Homes asked that a payment linked to an employee in People Costs also sits under that
+// employee's department in the ledger (Spending Explorer), instead of the bank's original centre.
+// The department comes from the line's point-in-time departmentSnapshot (never the person's current
+// department), the cost head from the cost category. A cost head someone set by hand that is not a
+// personnel head (e.g. "Loans") is kept; only the department moves.
+
+const PERSONNEL_COST_HEADS = new Set([
+  "Salaries",
+  "Commissions",
+  "Commissions Agent",
+  "Bonuses & Incentives",
+  "Employer Payroll Taxes",
+  "Staff Benefits & Pensions",
+]);
+
+function costHeadForType(costType: string): string {
+  switch (costType) {
+    case "Salary":
+      return "Salaries";
+    case "Commission":
+      return "Commissions";
+    case "Bonus":
+      return "Bonuses & Incentives";
+    case "Employer taxes":
+      return "Employer Payroll Taxes";
+    case "Benefits":
+      return "Staff Benefits & Pensions";
+    default:
+      // Custom categories: "Performance bonus" -> bonuses, anything with "commission" -> commissions.
+      if (/bonus|incentive/i.test(costType)) return "Bonuses & Incentives";
+      if (/commission/i.test(costType)) return "Commissions";
+      return "Salaries";
+  }
+}
+
+export type LedgerDepartmentChange = {
+  transactionId: string;
+  department: string;
+  costHead: string;
+  fromDepartment: string | null;
+  fromCostHead: string | null;
+  exists: boolean;
+};
+
+/**
+ * Works out which of the given payments (all linked payments when `transactionIds` is omitted)
+ * need their ledger department / cost head changed to match their People Costs lines.
+ * Payments with a shared-cost split are skipped (a split payment can't be reclassified whole).
+ */
+export async function planLedgerDepartments(transactionIds?: string[]): Promise<LedgerDepartmentChange[]> {
+  const lines = await prisma.financePersonCostAllocation.findMany({
+    where: transactionIds ? { transactionId: { in: transactionIds } } : {},
+    select: { transactionId: true, costType: true, amountUsd: true, departmentSnapshot: true },
+  });
+  if (!lines.length) return [];
+  const ids = Array.from(new Set(lines.map((l) => l.transactionId)));
+  const [departments, costHeads, splits, txs, mappings] = await Promise.all([
+    prisma.financeManagementDepartment.findMany({ select: { name: true } }),
+    prisma.financeManagementCostHead.findMany({ select: { name: true } }),
+    prisma.financePaymentCostSplit.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true } }),
+    prisma.financeTransaction.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, originalHead: true, originalCentre: true, allocation: { select: { head: true, centre: true, department: true, costHead: true } } },
+    }),
+    prisma.financeLegacyMapping.findMany({ select: { legacyHead: true, legacyCentre: true, department: true, costHead: true } }),
+  ]);
+  const validDept = new Set(departments.map((d) => d.name));
+  const validHead = new Set(costHeads.map((h) => h.name));
+  const split = new Set(splits.map((s) => s.transactionId));
+  // Where Spending Explorer shows each payment today: its own allocation, else the legacy
+  // mapping of its (head, centre) — the same rule as loadFinanceState() in ledgerData.ts.
+  const mappingByKey = new Map(mappings.map((m) => [`${m.legacyHead}\u0000${m.legacyCentre}`, m]));
+  const current = new Map(
+    txs.map((t) => {
+      const a = t.allocation;
+      const mapping =
+        mappingByKey.get(`${a?.head || t.originalHead || ""}\u0000${a?.centre || t.originalCentre || ""}`) ??
+        mappingByKey.get(`${t.originalHead ?? ""}\u0000${t.originalCentre ?? ""}`);
+      return [
+        t.id,
+        {
+          exists: !!a,
+          ownCostHead: a?.costHead ?? null,
+          department: a?.department ?? mapping?.department ?? null,
+          costHead: a?.costHead ?? mapping?.costHead ?? null,
+        },
+      ] as const;
+    })
+  );
+
+  // Per payment: the department with the largest amount, then its largest cost category.
+  const byTx = new Map<string, Map<string, Map<string, number>>>();
+  for (const l of lines) {
+    if (!l.departmentSnapshot) continue;
+    const depts = byTx.get(l.transactionId) ?? new Map<string, Map<string, number>>();
+    const types = depts.get(l.departmentSnapshot) ?? new Map<string, number>();
+    types.set(l.costType, (types.get(l.costType) ?? 0) + l.amountUsd);
+    depts.set(l.departmentSnapshot, types);
+    byTx.set(l.transactionId, depts);
+  }
+  const largest = <T,>(m: Map<T, number>) => Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0][0];
+  const changes: LedgerDepartmentChange[] = [];
+  for (const [transactionId, depts] of byTx) {
+    if (split.has(transactionId)) continue;
+    const totals = new Map(Array.from(depts.entries()).map(([d, types]) => [d, Array.from(types.values()).reduce((s, n) => s + n, 0)]));
+    const department = largest(totals);
+    if (!validDept.has(department)) continue;
+    const now = current.get(transactionId);
+    if (!now) continue;
+    let costHead = costHeadForType(largest(depts.get(department)!));
+    // A non-personnel cost head set by hand on this payment (e.g. "Loans") is kept.
+    if (now.ownCostHead && !PERSONNEL_COST_HEADS.has(now.ownCostHead)) costHead = now.ownCostHead;
+    if (!validHead.has(costHead)) {
+      if (validHead.has("Salaries")) costHead = "Salaries";
+      else continue;
+    }
+    if (now.department === department && now.costHead === costHead) continue;
+    changes.push({
+      transactionId,
+      department,
+      costHead,
+      fromDepartment: now.department,
+      fromCostHead: now.costHead,
+      exists: now.exists,
+    });
+  }
+  return changes;
+}
+
+/** Writes planned ledger changes in a few batched statements (grouped by department + cost head). */
+async function applyLedgerDepartments(changes: LedgerDepartmentChange[]) {
+  const groups = new Map<string, LedgerDepartmentChange[]>();
+  for (const c of changes.filter((c) => c.exists)) {
+    const key = `${c.department}\u0000${c.costHead}`;
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  const missing = changes.filter((c) => !c.exists);
+  await prisma.$transaction([
+    ...Array.from(groups.values()).flatMap((group) =>
+      Array.from({ length: Math.ceil(group.length / 500) }, (_, i) =>
+        prisma.financeAllocation.updateMany({
+          where: { transactionId: { in: group.slice(i * 500, i * 500 + 500).map((c) => c.transactionId) } },
+          data: { department: group[0].department, costHead: group[0].costHead },
+        })
+      )
+    ),
+    ...Array.from({ length: Math.ceil(missing.length / 200) }, (_, i) =>
+      prisma.financeAllocation.createMany({
+        data: missing.slice(i * 200, i * 200 + 200).map((c) => ({
+          transactionId: c.transactionId,
+          department: c.department,
+          costHead: c.costHead,
+          debtPeriod: "current",
+          reviewed: false,
+        })),
+      })
+    ),
+  ]);
+}
+
+/**
+ * Runs `mutate` (a People Costs write) and then moves the affected payments' ledger department to
+ * match, logging both as ONE undoable change, so Undo reverts the link and the department together.
+ */
+async function withLedgerSync(params: {
+  organizationId: string | null;
+  transactionIds: string[];
+  personLineIds: () => Promise<string[]>;
+  mutate: () => Promise<string[]>;
+  action: string;
+  description: string;
+  actorId: string;
+  actorEmail: string;
+}): Promise<{ changeId: string; movedPayments: number }> {
+  const beforeIds = await params.personLineIds();
+  const personBefore = await revisionItems("FinancePersonCostAllocation", beforeIds);
+  const afterIds = await params.mutate();
+  const touched = Array.from(new Set([...beforeIds, ...afterIds]));
+  // Keep the "before" list aligned with the final touched list (new rows were absent before).
+  const beforeById = new Map(personBefore.map((r) => [r.id, r]));
+  const personBeforeAll = touched.map((id) => beforeById.get(id) ?? { table: "FinancePersonCostAllocation" as const, id, row: null });
+
+  const plan = await planLedgerDepartments(params.transactionIds);
+  const ledgerIds = plan.map((c) => c.transactionId);
+  const ledgerBefore = ledgerIds.length ? await revisionItems("FinanceAllocation", ledgerIds) : [];
+  if (plan.length) await applyLedgerDepartments(plan);
+  const [personAfter, ledgerAfter] = await Promise.all([
+    revisionItems("FinancePersonCostAllocation", touched),
+    ledgerIds.length ? revisionItems("FinanceAllocation", ledgerIds) : Promise.resolve([]),
+  ]);
+  const changeId = await logReversible({
+    organizationId: params.organizationId,
+    action: params.action,
+    description: plan.length ? `${params.description} · ${plan.length} payments moved to the employee's department` : params.description,
+    actorId: params.actorId,
+    actorEmail: params.actorEmail,
+    before: [...personBeforeAll, ...ledgerBefore],
+    after: [...personAfter, ...ledgerAfter],
+  });
+  return { changeId, movedPayments: plan.length };
+}
+
+/**
+ * One-off catch-up (button on People Costs): moves every already-linked payment to its employee's
+ * department in the ledger, as one undoable change.
+ */
+export async function syncAllLedgerDepartments(params: { actorId: string; actorEmail: string; organizationId: string | null }) {
+  const plan = await planLedgerDepartments();
+  if (!plan.length) return { moved: 0, changeId: "" };
+  if (plan.length > 4000) throw new Error("Too many payments to move in one step.");
+  const ids = plan.map((c) => c.transactionId);
+  const before = await revisionItems("FinanceAllocation", ids);
+  await applyLedgerDepartments(plan);
+  const after = await revisionItems("FinanceAllocation", ids);
+  const changeId = await logReversible({
+    organizationId: params.organizationId,
+    action: "people_cost_ledger_sync",
+    description: `People costs · ${plan.length} linked payments moved to their employee's department`,
+    actorId: params.actorId,
+    actorEmail: params.actorEmail,
+    before,
+    after,
+  });
+  return { moved: plan.length, changeId };
+}
+
 /** Replaces all allocation lines of the given payments with `built`, as one undoable change. */
 async function writePaymentLines(params: {
   organizationId: string | null;
@@ -701,29 +928,32 @@ async function writePaymentLines(params: {
   actorId: string;
   actorEmail: string;
 }): Promise<string> {
-  const existing = await prisma.financePersonCostAllocation.findMany({
-    where: { transactionId: { in: params.transactionIds } },
-    select: { id: true },
-  });
-  const touched = [...existing.map((e) => e.id), ...params.built.map((l) => l.id)];
-  const before = await revisionItems("FinancePersonCostAllocation", touched);
-  await prisma.$transaction([
-    prisma.financePersonCostAllocation.deleteMany({ where: { transactionId: { in: params.transactionIds } } }),
-    // Batched inserts: SQL Server allows ~2100 parameters, so 150 rows of 11 columns per chunk.
-    ...Array.from({ length: Math.ceil(params.built.length / 150) }, (_, i) =>
-      prisma.financePersonCostAllocation.createMany({ data: params.built.slice(i * 150, i * 150 + 150) })
-    ),
-  ]);
-  const after = await revisionItems("FinancePersonCostAllocation", touched);
-  return logReversible({
+  const { changeId } = await withLedgerSync({
     organizationId: params.organizationId,
+    transactionIds: params.transactionIds,
+    personLineIds: async () =>
+      (
+        await prisma.financePersonCostAllocation.findMany({
+          where: { transactionId: { in: params.transactionIds } },
+          select: { id: true },
+        })
+      ).map((e) => e.id),
+    mutate: async () => {
+      await prisma.$transaction([
+        prisma.financePersonCostAllocation.deleteMany({ where: { transactionId: { in: params.transactionIds } } }),
+        // Batched inserts: SQL Server allows ~2100 parameters, so 150 rows of 11 columns per chunk.
+        ...Array.from({ length: Math.ceil(params.built.length / 150) }, (_, i) =>
+          prisma.financePersonCostAllocation.createMany({ data: params.built.slice(i * 150, i * 150 + 150) })
+        ),
+      ]);
+      return params.built.map((l) => l.id);
+    },
     action: params.action,
     description: params.description,
     actorId: params.actorId,
     actorEmail: params.actorEmail,
-    before,
-    after,
   });
+  return changeId;
 }
 
 /**
@@ -741,22 +971,24 @@ export async function changeAllocationCategory(params: {
   if (!costType) return { ok: false, status: 400, error: "Choose a cost category (custom names must be 2 to 60 characters)." };
   const line = await prisma.financePersonCostAllocation.findFirst({
     where: { id: String(params.allocationId ?? "") },
-    select: { id: true, organizationId: true, costType: true, person: { select: { fullName: true } } },
+    select: { id: true, organizationId: true, transactionId: true, costType: true, person: { select: { fullName: true } } },
   });
   if (!line) return { ok: false, status: 404, error: "Allocation not found. Refresh the page." };
   if (line.costType === costType) return { ok: true, costType, previous: line.costType, changeId: "" };
 
-  const before = await revisionItems("FinancePersonCostAllocation", [line.id]);
-  await prisma.financePersonCostAllocation.update({ where: { id: line.id }, data: { costType } });
-  const after = await revisionItems("FinancePersonCostAllocation", [line.id]);
-  const changeId = await logReversible({
+  // The ledger cost head follows the category (e.g. Salary -> Commission moves it to Commissions).
+  const { changeId } = await withLedgerSync({
     organizationId: line.organizationId,
+    transactionIds: [line.transactionId],
+    personLineIds: async () => [line.id],
+    mutate: async () => {
+      await prisma.financePersonCostAllocation.update({ where: { id: line.id }, data: { costType } });
+      return [line.id];
+    },
     action: "person_cost_category",
     description: `People costs · ${line.person.fullName}: ${line.costType} → ${costType}`,
     actorId: params.actorId,
     actorEmail: params.actorEmail,
-    before,
-    after,
   });
   return { ok: true, costType, previous: line.costType, changeId };
 }
