@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, UserPlus, X } from "lucide-react";
+import { ShieldCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 
 type FinanceUser = {
@@ -117,6 +117,29 @@ export function DepartmentAccessPage() {
     }
   }
 
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  async function handleRemoveUser(user: FinanceUser) {
+    if (!window.confirm(`Remove Finance access for ${user.name} (${user.email})?\n\nThey will no longer see Finance or Payroll. Their Sphaera account is kept, and you can add them again later.`)) return;
+    setSavingUserId(user.id);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/finance/admin/users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to remove user");
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, canAccessFinance: false, canAccessFinancePayroll: false } : u)));
+      setScopeByUser((prev) => ({ ...prev, [user.id]: [] }));
+      setNotice({ kind: "ok", text: `${user.name} no longer has Finance access.` });
+    } catch (err) {
+      setNotice({ kind: "error", text: err instanceof Error ? err.message : "Failed to remove user" });
+    } finally {
+      setSavingUserId(null);
+    }
+  }
+
   async function handlePayrollToggle(userId: string, canAccessFinancePayroll: boolean) {
     setSavingUserId(userId);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, canAccessFinancePayroll } : u)));
@@ -174,6 +197,18 @@ export function DepartmentAccessPage() {
         additionally unlocks People Costs and full backup/restore.
       </p>
 
+      {notice && (
+        <div
+          className={`mb-4 rounded-lg border px-3 py-2 text-xs ${
+            notice.kind === "ok"
+              ? "border-status-active/40 bg-status-active/10 text-status-active"
+              : "border-status-inactive/40 bg-status-inactive/10 text-status-inactive"
+          }`}
+        >
+          {notice.text}
+        </div>
+      )}
+
       <WidgetCard
         title="Finance-enabled users"
         className="mb-6"
@@ -199,6 +234,7 @@ export function DepartmentAccessPage() {
                 <th className="pb-2 pr-3 font-normal text-center">Finance</th>
                 <th className="pb-2 pr-3 font-normal text-center">Payroll</th>
                 <th className="pb-2 font-normal">Departments (none = all)</th>
+                <th className="pb-2 font-normal" />
               </tr>
             </thead>
             <tbody>
@@ -247,6 +283,17 @@ export function DepartmentAccessPage() {
                       {scope.length === 0 && (
                         <p className="mt-1 text-[10px] text-ink-500">Unrestricted — sees all departments.</p>
                       )}
+                    </td>
+                    <td className="py-2.5 pl-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveUser(user)}
+                        disabled={saving}
+                        className="flex items-center gap-1 rounded-lg border border-status-inactive/40 px-2.5 py-1 text-[11px] font-medium text-status-inactive hover:bg-status-inactive/10 disabled:opacity-50"
+                      >
+                        <UserMinus className="h-3.5 w-3.5" />
+                        Remove
+                      </button>
                     </td>
                   </tr>
                 );

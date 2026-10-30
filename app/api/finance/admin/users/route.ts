@@ -71,3 +71,43 @@ export async function POST(request: Request) {
     throw err;
   }
 }
+
+// Admin-only: remove a person from Finance. Clears Finance + Payroll access and their department
+// scope; their Sphaera account (role, sign-in, CRM data) is kept. Admins can't remove themselves.
+export async function DELETE(request: Request) {
+  try {
+    return await withTenant(async (authUser, session) => {
+      if (authUser.role !== "ADMIN") {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const body = await request.json().catch(() => ({}));
+      const userId = String(body.userId ?? "").trim();
+      if (!userId) return NextResponse.json({ error: "Choose a user" }, { status: 400 });
+      if (userId === authUser.id) {
+        return NextResponse.json({ error: "You can't remove your own Finance access." }, { status: 400 });
+      }
+      // Tenant-scoped lookup: only users of this organization can be changed.
+      const target = await prisma.user.findFirst({ where: { id: userId }, select: { id: true, email: true } });
+      if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+      await prisma.$transaction([
+        prisma.user.update({ where: { id: target.id }, data: { canAccessFinance: false, canAccessFinancePayroll: false } }),
+        prisma.financeDepartmentAccess.deleteMany({ where: { userId: target.id } }),
+      ]);
+
+      await logAudit({
+        actorId: authUser.id,
+        actorEmail: session.user?.email ?? "unknown",
+        action: "finance_user_removed",
+        targetId: target.id,
+        details: `Removed Finance access for ${target.email}`,
+      });
+      return NextResponse.json({ ok: true });
+    });
+  } catch (err) {
+    if (err instanceof UnauthenticatedError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    throw err;
+  }
+}
