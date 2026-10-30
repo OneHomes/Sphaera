@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { getFinanceState, countFinanceImports } from "@/lib/finance/ledgerData";
-import { DataBackupsPage } from "@/components/finance/DataBackupsPage";
+import { BackupsView } from "@/components/finance/FinanceViews";
 import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
@@ -33,7 +33,7 @@ export default async function FinanceBackupsRoute() {
       );
     }
 
-    const [state, importedFilesCount] = await Promise.all([getFinanceState(), countFinanceImports()]);
-    return <DataBackupsPage state={state} importedFilesCount={importedFilesCount} />;
+    const importedFilesCount = await countFinanceImports();
+    return <BackupsView importedFilesCount={importedFilesCount} />;
   });
 }

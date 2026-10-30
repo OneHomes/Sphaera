@@ -8,6 +8,7 @@ import { FinanceFilterProvider, FinanceLookupProvider, useFinanceFilters } from 
 import { FinanceFilterBar } from "./FinanceFilterBar";
 import type { FinanceFilterOptions } from "@/lib/finance/ledgerData";
 import { DEPARTMENT_SCOPED_PATHS } from "@/lib/finance/scopedPaths";
+import { FinanceDataProvider, useFinanceData } from "./FinanceDataContext";
 import {
   LayoutDashboard,
   PieChart,
@@ -232,8 +233,11 @@ function SidebarEditor({
 function NavLink({ item, isActive }: { item: FinanceNavItem; isActive: boolean }) {
   const Icon = item.icon;
   return (
+    // prefetch={true}: each screen's (now small) server payload is fetched in the background
+    // and kept by the router, so a click switches screens without waiting on the server.
     <Link
       href={item.href}
+      prefetch={true}
       className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
         isActive ? "bg-[#efede8] font-semibold text-[#111111]" : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
       }`}
@@ -285,12 +289,22 @@ function FinanceActionBar({ departmentLimited }: { departmentLimited: boolean })
   const pathname = usePathname();
   const router = useRouter();
   const { filters } = useFinanceFilters();
+  const { refresh: refreshData, loading: dataLoading, lastUpdated } = useFinanceData();
   const [refreshing, setRefreshing] = useState(false);
+  const refreshBusy = refreshing || dataLoading;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const mins = lastUpdated ? Math.floor((Date.now() - lastUpdated) / 60_000) : null;
 
-  function handleRefresh() {
+  // Reloads the shared ledger and this screen's own server data.
+  async function handleRefresh() {
     setRefreshing(true);
     router.refresh();
-    setTimeout(() => setRefreshing(false), 600);
+    await refreshData();
+    setRefreshing(false);
   }
 
   return (
@@ -301,13 +315,17 @@ function FinanceActionBar({ departmentLimited }: { departmentLimited: boolean })
         <p className="mt-1 text-xs text-ink-500">{getPageSubtitle(pathname, filters.fy)}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {mins !== null && !refreshBusy && (
+          <span className="text-[11px] text-ink-500">{mins < 1 ? "Updated just now" : `Updated ${mins} min ago`}</span>
+        )}
         <button
           onClick={handleRefresh}
-          disabled={refreshing}
+          disabled={refreshBusy}
+          title="Reload the latest finance data"
           className="flex items-center gap-1.5 rounded-lg border border-base-700 px-3 py-1.5 text-xs text-ink-300 hover:border-base-600 hover:text-ink-50 disabled:opacity-50"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} strokeWidth={1.75} />
-          Refresh
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshBusy ? "animate-spin" : ""}`} strokeWidth={1.75} />
+          {refreshBusy ? "Updating…" : "Refresh"}
         </button>
         {!departmentLimited && (
           <Link
@@ -439,6 +457,7 @@ export function FinanceShell({
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <Suspense fallback={null}>
+          <FinanceDataProvider>
           <FinanceFilterProvider>
             <FinanceActionBar departmentLimited={!!departmentScope} />
             <FinanceFilterBar options={filterOptions} />
@@ -446,6 +465,7 @@ export function FinanceShell({
               {children}
             </FinanceLookupProvider>
           </FinanceFilterProvider>
+          </FinanceDataProvider>
         </Suspense>
       </div>
     </div>

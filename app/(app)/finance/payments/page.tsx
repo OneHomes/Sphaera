@@ -2,9 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
-import { getFinanceState } from "@/lib/finance/ledgerData";
-import { getUserDepartmentScope } from "@/lib/finance/departmentAccess";
-import { AllPaymentsPage } from "@/components/finance/AllPaymentsPage";
+import { PaymentsView } from "@/components/finance/FinanceViews";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +16,9 @@ export default async function FinancePaymentsRoute({
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async (authUser) => {
-    const scope = await getUserDepartmentScope(authUser.id);
-    const state = await getFinanceState(scope);
+  return withTenantPage(session, async () => {
     return (
-      <AllPaymentsPage
-        transactions={state.transactions}
-        departments={state.departments}
-        managementCostHeads={state.managementCostHeads}
-        costHeads={state.costHeads}
+      <PaymentsView
         initialDepartmentFilter={searchParams.department ?? null}
         initialMonthFilter={searchParams.month ?? null}
         initialMode={searchParams.mode ?? null}

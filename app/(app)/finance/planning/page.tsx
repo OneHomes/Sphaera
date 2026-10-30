@@ -3,8 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { financePlanData } from "@/lib/finance/financialPlanningData";
-import { getFinanceState } from "@/lib/finance/ledgerData";
-import { FinancialPlanningPage } from "@/components/finance/FinancialPlanningPage";
+import { PlanningView } from "@/components/finance/FinanceViews";
 import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
@@ -18,20 +17,10 @@ export default async function FinancePlanningRoute() {
 
   return withTenantPage(session, async (authUser) => {
     if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
-    const [{ plans, lines, targets }, financeState] = await Promise.all([
-      financePlanData(),
-      getFinanceState(),
-    ]);
+    const { plans, lines, targets } = await financePlanData();
 
     return (
-      <FinancialPlanningPage
-        plans={plans}
-        lines={lines}
-        targets={targets}
-        departments={financeState.departments}
-        costHeads={financeState.managementCostHeads}
-        transactions={financeState.transactions}
-      />
+      <PlanningView plans={plans} lines={lines} targets={targets} />
     );
   });
 }

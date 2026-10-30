@@ -3,8 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { getTraceState } from "@/lib/finance/paymentTraceData";
-import { getFinanceState } from "@/lib/finance/ledgerData";
-import { PaymentTraceabilityPage } from "@/components/finance/PaymentTraceabilityPage";
+import { TraceabilityView } from "@/components/finance/FinanceViews";
 import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
@@ -18,14 +17,9 @@ export default async function FinanceTraceabilityRoute() {
 
   return withTenantPage(session, async (authUser) => {
     if (await isDepartmentScoped(authUser.id)) return <DepartmentLimitedNotice />;
-    const [state, finance] = await Promise.all([getTraceState(), getFinanceState()]);
+    const state = await getTraceState();
     return (
-      <PaymentTraceabilityPage
-        state={state}
-        transactions={finance.transactions}
-        departments={finance.departments}
-        costHeads={finance.managementCostHeads}
-      />
+      <TraceabilityView state={state} />
     );
   });
 }

@@ -2,9 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
-import { getFinanceState } from "@/lib/finance/ledgerData";
-import { getUserDepartmentScope } from "@/lib/finance/departmentAccess";
-import { HistoricalDebtPage } from "@/components/finance/HistoricalDebtPage";
+import { HistoricalDebtView } from "@/components/finance/FinanceViews";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +12,7 @@ export default async function FinanceHistoricalDebtRoute() {
     redirect("/sign-in");
   }
 
-  return withTenantPage(session, async (authUser) => {
-    const scope = await getUserDepartmentScope(authUser.id);
-    const state = await getFinanceState(scope);
-    return <HistoricalDebtPage state={state} />;
+  return withTenantPage(session, async () => {
+    return <HistoricalDebtView />;
   });
 }

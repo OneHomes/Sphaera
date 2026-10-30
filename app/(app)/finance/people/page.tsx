@@ -3,8 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantPage } from "@/lib/withTenant";
 import { getPersonCostState } from "@/lib/finance/peopleOverheadsData";
-import { getFinanceState } from "@/lib/finance/ledgerData";
-import { PeopleCostsPage } from "@/components/finance/PeopleCostsPage";
+import { PeopleView } from "@/components/finance/FinanceViews";
 import { isDepartmentScoped } from "@/lib/finance/departmentAccess";
 import { DepartmentLimitedNotice } from "@/components/finance/DepartmentLimitedNotice";
 
@@ -31,7 +30,7 @@ export default async function FinancePeopleRoute() {
       );
     }
 
-    const [state, finance] = await Promise.all([getPersonCostState(), getFinanceState()]);
-    return <PeopleCostsPage state={state} departments={finance.departments} transactions={finance.transactions} />;
+    const state = await getPersonCostState();
+    return <PeopleView state={state} />;
   });
 }
