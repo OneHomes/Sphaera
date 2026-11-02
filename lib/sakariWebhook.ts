@@ -38,18 +38,45 @@ function asObject(v: unknown): Record<string, unknown> | null {
 }
 
 function findMessage(body: Record<string, unknown>): SakariMessage | null {
+  // Live deliveries (seen 2026-11-02) are { accountId, eventType, payload }.
+  const payload = asObject(body.payload);
   const data = asObject(body.data);
-  const candidates = [asObject(data?.message), data, asObject(body.message), body];
+  const candidates = [
+    asObject(payload?.message),
+    asObject(payload?.data),
+    payload,
+    asObject(data?.message),
+    data,
+    asObject(body.message),
+    body,
+  ];
   for (const c of candidates) {
     if (c && (typeof c.message === "string" || asObject(c.contact))) return c as SakariMessage;
   }
   return null;
 }
 
-function contactPhone(m: SakariMessage): string | null {
-  const mobile = m.contact?.mobile;
-  const raw = typeof mobile === "string" ? mobile : mobile?.number;
-  return raw && raw.replace(/\D/g, "").length >= 7 ? raw : null;
+/**
+ * The contact's number — Sakari's Message has it as contact.mobile.number,
+ * but it's searched for as any "mobile" field in the envelope so a contact
+ * placed beside the message (or under conversation.contact) still matches.
+ * Never "phoneNumber": that's Sakari's own sending number.
+ */
+function findMobile(v: unknown, depth = 0): string | null {
+  const obj = asObject(v);
+  if (!obj || depth > 5) return null;
+  const mobile = obj.mobile;
+  const raw = typeof mobile === "string" ? mobile : (asObject(mobile)?.number as string | undefined);
+  if (typeof raw === "string" && raw.replace(/\D/g, "").length >= 7) return raw;
+  for (const value of Object.values(obj)) {
+    const hit = findMobile(value, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function contactPhone(m: SakariMessage, envelope: Record<string, unknown>): string | null {
+  return findMobile(m) ?? findMobile(envelope);
 }
 
 export async function syncSakariWebhook(body: unknown): Promise<SakariWebhookOutcome> {
@@ -62,15 +89,16 @@ export async function syncSakariWebhook(body: unknown): Promise<SakariWebhookOut
   }
 
   const message = findMessage(envelope);
-  const phone = message ? contactPhone(message) : null;
+  const phone = message ? contactPhone(message, envelope) : null;
   if (!message || !phone) {
     await logAudit({
       actorId: "system",
       actorEmail: "sakari-webhook",
       action: "sakari_webhook_unrecognised",
-      details: `Unrecognised Sakari payload (${eventType || "no event type"}); fields: ${Object.keys(envelope).join(", ")}${
-        asObject(envelope.data) ? `; data fields: ${Object.keys(asObject(envelope.data)!).join(", ")}` : ""
-      }`,
+      details: `Unrecognised Sakari payload (${eventType || "no event type"}); fields: ${Object.keys(envelope).join(", ")}${["payload", "data"]
+        .map((k) => asObject(envelope[k]))
+        .map((o, i) => (o ? `; ${i === 0 ? "payload" : "data"} fields: ${Object.keys(o).join(", ")}` : ""))
+        .join("")}${message ? `; message fields: ${Object.keys(message).join(", ")}` : ""}`,
     });
     return { status: "ignored", reason: "no message/phone in payload" };
   }
