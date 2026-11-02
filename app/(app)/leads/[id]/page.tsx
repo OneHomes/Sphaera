@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { toUiLead, toUiNote, toUiTimelineEvent } from "@/lib/leadTransform";
+import { formatRelativeTime, toUiLead, toUiNote, toUiTimelineEvent } from "@/lib/leadTransform";
 import { canAccessRecord } from "@/lib/authz";
 import { withTenantPage } from "@/lib/withTenant";
 import { getNextBestAction } from "@/lib/nextBestAction";
@@ -65,7 +65,20 @@ export default async function LeadProfilePage({
 
     const lead = toUiLead(row);
     const notes = row.notes.map(toUiNote);
-    const timeline = row.timelineEvents.map(toUiTimelineEvent);
+    // HubSpot shows a "Created" entry at the bottom of every contact's
+    // timeline; there's no stored event for it here, so it's added from
+    // Lead.createdAt (already HubSpot's createdate for imported leads).
+    // Appended last because the list is newest-first.
+    const timeline = [
+      ...row.timelineEvents.map(toUiTimelineEvent),
+      {
+        id: `created-${row.id}`,
+        type: "created" as const,
+        timestamp: formatRelativeTime(row.createdAt),
+        occurredAt: row.createdAt.toISOString(),
+        summary: `This lead was created${row.hubspotId ? " in HubSpot" : " in Sphaera"} · Source: ${row.source}`,
+      },
+    ];
     const nextBestAction = getNextBestAction(row, row.timelineEvents);
 
     return (

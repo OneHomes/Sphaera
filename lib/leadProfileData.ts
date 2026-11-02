@@ -19,7 +19,8 @@ export type TimelineEventType =
   | "communication" // fallback for a HubSpot communication channel type we don't have a specific icon/filter for yet
   | "page_view"
   | "form_submission"
-  | "marketing_email";
+  | "marketing_email"
+  | "created"; // not stored — added at read time from Lead.createdAt (see app/(app)/leads/[id]/page.tsx)
 
 export type TimelineEvent = {
   id: string;

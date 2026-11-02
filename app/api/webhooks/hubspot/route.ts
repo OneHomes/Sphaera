@@ -21,35 +21,71 @@ import { syncHubSpotEngagementFromWebhook } from "@/lib/hubspotEngagementWebhook
 
 const MAX_REQUEST_AGE_MS = 5 * 60 * 1000;
 
-function verifySignature(method: string, url: string, body: string, timestamp: string, signature: string): boolean {
+// HubSpot signs the URL it called (https://apex.sphaera.tech/...). Behind
+// Azure Static Web Apps, request.url can carry the internal host instead,
+// which would fail every signature — so the public URL is rebuilt from the
+// forwarded host headers and both are accepted.
+function candidateUrls(request: Request): string[] {
+  const urls = new Set<string>([request.url]);
+  const parsed = new URL(request.url);
+  const pathAndQuery = `${parsed.pathname}${parsed.search}`;
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (host) urls.add(`https://${host.split(",")[0].trim()}${pathAndQuery}`);
+  if (process.env.NEXTAUTH_URL) urls.add(`${new URL(process.env.NEXTAUTH_URL).origin}${pathAndQuery}`);
+  return [...urls];
+}
+
+function verifySignature(method: string, urls: string[], body: string, timestamp: string, signature: string): boolean {
   const secret = process.env.HUBSPOT_WEBHOOK_SECRET;
   if (!secret) return false;
 
   const age = Date.now() - Number(timestamp);
   if (!Number.isFinite(age) || age < 0 || age > MAX_REQUEST_AGE_MS) return false;
 
-  const sourceString = `${method}${url}${body}${timestamp}`;
-  const expected = createHmac("sha256", secret).update(sourceString).digest("base64");
-
-  const expectedBuf = Buffer.from(expected);
   const actualBuf = Buffer.from(signature);
-  if (expectedBuf.length !== actualBuf.length) return false;
-  return timingSafeEqual(expectedBuf, actualBuf);
+  return urls.some((url) => {
+    const expected = createHmac("sha256", secret).update(`${method}${url}${body}${timestamp}`).digest("base64");
+    const expectedBuf = Buffer.from(expected);
+    return expectedBuf.length === actualBuf.length && timingSafeEqual(expectedBuf, actualBuf);
+  });
 }
+
+// Generic ("object.creation" / "object.propertyChange") subscriptions —
+// what HubSpot's current private-app Webhooks screen creates — name the
+// object only through objectTypeId. Mapped back to the legacy names
+// ("call", "note", …) the rest of the sync is keyed on.
+const OBJECT_NAME_BY_TYPE_ID: Record<string, string> = {
+  "0-1": "contact",
+  "0-18": "communication",
+  "0-27": "task",
+  "0-46": "note",
+  "0-47": "meeting",
+  "0-48": "call",
+  "0-49": "email",
+};
 
 type HubSpotWebhookEvent = {
   eventId: number;
-  subscriptionType: string; // e.g. "contact.creation"
+  subscriptionType: string; // "contact.creation" (legacy) or "object.creation" (generic)
+  objectTypeId?: string; // generic subscriptions only, e.g. "0-48" for calls
   objectId: number;
   occurredAt: number;
 };
+
+/** Lets an Admin confirm the endpoint is deployed and its secret is set (never reveals the secret). */
+export async function GET() {
+  return NextResponse.json({ ok: true, secretConfigured: Boolean(process.env.HUBSPOT_WEBHOOK_SECRET) });
+}
 
 export async function POST(request: Request) {
   const body = await request.text();
   const signature = request.headers.get("X-HubSpot-Signature-v3");
   const timestamp = request.headers.get("X-HubSpot-Request-Timestamp");
 
-  if (!signature || !timestamp || !verifySignature("POST", request.url, body, timestamp, signature)) {
+  if (!signature || !timestamp || !verifySignature("POST", candidateUrls(request), body, timestamp, signature)) {
+    console.warn(
+      `HubSpot webhook rejected: ${!process.env.HUBSPOT_WEBHOOK_SECRET ? "HUBSPOT_WEBHOOK_SECRET not set" : !signature || !timestamp ? "missing signature headers" : "signature mismatch or stale timestamp"}`
+    );
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -65,7 +101,13 @@ export async function POST(request: Request) {
   // background-task primitive this deployment target doesn't reliably
   // have) stays well within HubSpot's response-time expectations.
   for (const event of events) {
-    const [objectName, action] = event.subscriptionType.split(".");
+    const [rawObjectName, action] = event.subscriptionType.split(".");
+    const objectName =
+      rawObjectName === "object" ? OBJECT_NAME_BY_TYPE_ID[event.objectTypeId ?? ""] : rawObjectName;
+    if (!objectName) {
+      console.warn(`HubSpot webhook: ignored ${event.subscriptionType} for unsupported object type ${event.objectTypeId}`);
+      continue;
+    }
     try {
       if (objectName === "contact" && (action === "creation" || action === "propertyChange")) {
         // propertyChange matters here too, not just creation: a contact
@@ -87,6 +129,8 @@ export async function POST(request: Request) {
         const outcome = await syncHubSpotEngagementFromWebhook(objectName, String(event.objectId));
         if (outcome.status === "synced") {
           console.log(`HubSpot webhook: synced ${objectName} ${event.objectId} to lead(s) ${outcome.leadIds.join(", ")}`);
+        } else {
+          console.log(`HubSpot webhook: ${objectName} ${event.objectId} not synced (${outcome.status})`);
         }
       }
     } catch (err) {

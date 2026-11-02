@@ -17,6 +17,7 @@ import {
   Eye,
   ClipboardList,
   Megaphone,
+  UserPlus,
 } from "lucide-react";
 import type { TimelineEvent, TimelineEventType } from "@/lib/leadProfileData";
 
@@ -44,6 +45,7 @@ const iconMap: Record<TimelineEventType, typeof Phone> = {
   page_view: Eye,
   form_submission: ClipboardList,
   marketing_email: Megaphone,
+  created: UserPlus,
 };
 
 const colorMap: Record<TimelineEventType, string> = {
@@ -61,6 +63,7 @@ const colorMap: Record<TimelineEventType, string> = {
   page_view: "text-ink-300 bg-base-700",
   form_submission: "text-violet-400 bg-violet-500/15",
   marketing_email: "text-pink-400 bg-pink-500/15",
+  created: "text-ink-300 bg-base-700",
 };
 
 const typeLabels: Record<TimelineEventType, string> = {
@@ -78,6 +81,7 @@ const typeLabels: Record<TimelineEventType, string> = {
   page_view: "Page views",
   form_submission: "Form submissions",
   marketing_email: "Marketing emails",
+  created: "Created",
 };
 
 // Grouped the same way as HubSpot's own filter panel (Communication /
@@ -86,7 +90,7 @@ const typeLabels: Record<TimelineEventType, string> = {
 // types that HubSpot has no equivalent for.
 const FILTER_GROUPS: { label: string; types: TimelineEventType[] }[] = [
   { label: "Communication", types: ["call", "email", "whatsapp", "linkedin", "sms", "communication"] },
-  { label: "Contact activity", types: ["page_view", "form_submission", "marketing_email"] },
+  { label: "Contact activity", types: ["page_view", "form_submission", "marketing_email", "created"] },
   { label: "Team activity", types: ["meeting", "note", "task"] },
   { label: "Sphaera", types: ["stage_change", "handover"] },
 ];
