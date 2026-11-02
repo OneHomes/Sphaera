@@ -1,5 +1,5 @@
-import { prisma } from "./prisma";
 import { logAudit } from "./auditLog";
+import { leadsForPhone, upsertExternalTimelineEvent } from "./leadPhoneMatch";
 
 // Sakari SMS -> lead timeline. Sakari's HubSpot integration only draws its
 // SMS onto HubSpot's own timeline (an app timeline event, not a CRM
@@ -52,31 +52,6 @@ function contactPhone(m: SakariMessage): string | null {
   return raw && raw.replace(/\D/g, "").length >= 7 ? raw : null;
 }
 
-const digitsOf = (s: string) => s.replace(/\D/g, "");
-
-/**
- * Leads whose phone matches, compared on the last 10 digits so "+1 (571)
- * 839-6111", "15718396111" and "+15718396111" all agree. A plain
- * `contains` on the digit tail catches the common case cheaply; formatted
- * numbers (spaces/dashes) fall back to a short-tail scan checked in code.
- */
-async function leadsForPhone(phone: string): Promise<{ id: string; name: string }[]> {
-  const tail = digitsOf(phone).slice(-10);
-  const direct = await prisma.lead.findMany({
-    where: { contact: { contains: tail } },
-    select: { id: true, name: true },
-    take: 5,
-  });
-  if (direct.length > 0) return direct;
-
-  const loose = await prisma.lead.findMany({
-    where: { contact: { contains: tail.slice(-4) } },
-    select: { id: true, name: true, contact: true },
-    take: 200,
-  });
-  return loose.filter((l) => digitsOf(l.contact).endsWith(tail)).map(({ id, name }) => ({ id, name }));
-}
-
 export async function syncSakariWebhook(body: unknown): Promise<SakariWebhookOutcome> {
   const envelope = asObject(body);
   if (!envelope) return { status: "ignored", reason: "body is not a JSON object" };
@@ -106,24 +81,12 @@ export async function syncSakariWebhook(body: unknown): Promise<SakariWebhookOut
   const outgoing = message.outgoing ?? eventType !== "message-received";
   const contactName = [message.contact?.firstName, message.contact?.lastName].filter(Boolean).join(" ");
   const occurredAt = message.created?.at && !Number.isNaN(Date.parse(message.created.at)) ? new Date(message.created.at) : new Date();
-  // Stored in hubspotEngagementId with a "sakari:" prefix — the column is
-  // the timeline's only external-id slot, and the prefix keeps Sakari ids
-  // from ever colliding with HubSpot's numeric engagement ids.
   const externalId = message.id ? `sakari:${message.id}` : null;
 
   for (const lead of leads) {
     const who = `${contactName || lead.name} (${phone})`;
     const summary = `SMS ${outgoing ? "sent to" : "received from"} ${who} via Sakari${message.message ? `\n${message.message}` : ""}`;
-    const existing = externalId
-      ? await prisma.leadTimelineEvent.findFirst({ where: { hubspotEngagementId: externalId, leadId: lead.id }, select: { id: true } })
-      : null;
-    if (existing) {
-      await prisma.leadTimelineEvent.update({ where: { id: existing.id }, data: { summary, occurredAt } });
-    } else {
-      await prisma.leadTimelineEvent.create({
-        data: { leadId: lead.id, type: "sms", summary, occurredAt, hubspotEngagementId: externalId },
-      });
-    }
+    await upsertExternalTimelineEvent({ leadId: lead.id, type: "sms", summary, occurredAt, externalId });
   }
 
   return { status: "synced", leadIds: leads.map((l) => l.id) };
