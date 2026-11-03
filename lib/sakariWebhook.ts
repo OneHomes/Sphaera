@@ -26,6 +26,7 @@ type SakariMessage = {
     mobile?: { number?: string; country?: string } | string;
   };
   created?: { at?: string };
+  updated?: { at?: string };
 };
 
 export type SakariWebhookOutcome =
@@ -106,16 +107,39 @@ export async function syncSakariWebhook(body: unknown): Promise<SakariWebhookOut
   const leads = await leadsForPhone(phone);
   if (leads.length === 0) return { status: "no_matching_lead", phone };
 
-  const outgoing = message.outgoing ?? eventType !== "message-received";
-  const contactName = [message.contact?.firstName, message.contact?.lastName].filter(Boolean).join(" ");
-  const occurredAt = message.created?.at && !Number.isNaN(Date.parse(message.created.at)) ? new Date(message.created.at) : new Date();
-  const externalId = message.id ? `sakari:${message.id}` : null;
-
   for (const lead of leads) {
-    const who = `${contactName || lead.name} (${phone})`;
-    const summary = `SMS ${outgoing ? "sent to" : "received from"} ${who} via Sakari${message.message ? `\n${message.message}` : ""}`;
-    await upsertExternalTimelineEvent({ leadId: lead.id, type: "sms", summary, occurredAt, externalId });
+    await upsertExternalTimelineEvent({
+      leadId: lead.id,
+      ...sakariTimelineRow(message, phone, lead.name, eventType !== "message-received"),
+    });
   }
 
   return { status: "synced", leadIds: leads.map((l) => l.id) };
 }
+
+/**
+ * One timeline row for a Sakari message — shared by the webhook and the
+ * history import (lib/sakariHistory.ts) so both read identically.
+ * occurredAt is Sakari's own time for the SMS, never the time we received
+ * it, so SMS sit in true chronological order among the HubSpot
+ * emails/calls on the same timeline. For outgoing SMS that's updated.at:
+ * campaign messages are created when queued and go out (and appear on
+ * HubSpot's timeline) up to an hour later — checked 2026-11-03, a
+ * created 20:03Z / updated 21:05Z message shows on HubSpot at 21:06Z.
+ * Incoming SMS use created.at (updated.at moves when it's read).
+ */
+export function sakariTimelineRow(message: SakariMessage, phone: string, leadName: string, outgoingDefault = true) {
+  const outgoing = message.outgoing ?? outgoingDefault;
+  const contactName = [message.contact?.firstName, message.contact?.lastName].filter(Boolean).join(" ");
+  const valid = (s?: string) => (s && !Number.isNaN(Date.parse(s)) ? s : undefined);
+  const when = (outgoing ? valid(message.updated?.at) : undefined) ?? valid(message.created?.at);
+  return {
+    type: "sms",
+    summary: `SMS ${outgoing ? "sent to" : "received from"} ${contactName || leadName} (${phone}) via Sakari${message.message ? `\n${message.message}` : ""}`,
+    occurredAt: when ? new Date(when) : new Date(),
+    externalId: message.id ? `sakari:${message.id}` : null,
+  };
+}
+
+export { findMobile as sakariMessagePhone };
+export type { SakariMessage };
