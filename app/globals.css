@@ -117,3 +117,11 @@ body {
   background: var(--scroll-thumb);
   border-radius: 999px;
 }
+
+/* scrolls, but without a visible bar (the left icon rail) */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

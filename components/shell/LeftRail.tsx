@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navItems } from "@/lib/nav";
@@ -14,6 +15,12 @@ export function LeftRail({
   canAccessFinance?: boolean;
 }) {
   const pathname = usePathname();
+  // The icon list is taller than short windows (~25 items), so it scrolls
+  // inside the rail instead of stretching the page (which gave the page a
+  // second scrollbar and spilled icons past the rail). A scrolling box
+  // clips anything positioned outside it, so the hover label is drawn
+  // position:fixed beside the hovered icon instead of absolute.
+  const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
 
   // Finance is a self-contained workspace with its own sidebar and a "Back to main menu" link.
   if (pathname === "/finance" || pathname?.startsWith("/finance/")) return null;
@@ -28,9 +35,12 @@ export function LeftRail({
   return (
     <nav
       aria-label="Primary"
-      className="theme-dark flex h-full w-14 flex-col items-center justify-between border-r border-base-700 bg-base-950 py-4"
+      className="theme-dark flex h-full w-14 shrink-0 flex-col items-center border-r border-base-700 bg-base-950 py-4"
     >
-      <div className="flex flex-col items-center gap-1">
+      <div
+        className="no-scrollbar flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto"
+        onScroll={() => setTip(null)}
+      >
         {visibleItems.map((item) => {
           const isActive = pathname?.startsWith(item.href);
           const Icon = item.icon;
@@ -40,24 +50,35 @@ export function LeftRail({
               href={item.href}
               aria-label={item.label}
               aria-current={isActive ? "page" : undefined}
-              className={`group relative flex h-9 w-9 items-center justify-center rounded-lg transition ${
+              onMouseEnter={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setTip({ label: item.label, top: r.top + r.height / 2 });
+              }}
+              onMouseLeave={() => setTip(null)}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
                 isActive
                   ? "bg-base-800 text-ink-50"
                   : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
               }`}
             >
               <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
-              <span className="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-md bg-base-800 px-2 py-1 text-xs text-ink-50 opacity-0 shadow-lg transition group-hover:opacity-100 z-20">
-                {item.label}
-              </span>
             </Link>
           );
         })}
       </div>
 
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-500">
+      <div className="mt-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-500">
         <SphaeraGlyph className="h-5 w-5" />
       </div>
+
+      {tip && (
+        <span
+          className="pointer-events-none fixed left-[3.75rem] z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-base-800 px-2 py-1 text-xs text-ink-50 shadow-lg"
+          style={{ top: tip.top }}
+        >
+          {tip.label}
+        </span>
+      )}
     </nav>
   );
 }
