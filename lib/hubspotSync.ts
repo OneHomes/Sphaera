@@ -11,6 +11,7 @@ import {
   realDealValue,
   realDealCloseDate,
 } from "./hubspotContactFilter";
+import { originalSourceFields } from "./leadOriginalSource";
 
 // Real HubSpot -> Sphaera Lead sync. Replaces the earlier Salesforce sync
 // (lib/salesforceSync.ts, removed) — this HubSpot portal turned out to be
@@ -82,6 +83,8 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
         contact: true,
         email: true,
         source: true,
+        originalSource: true,
+        originalSourceDetail: true,
         projectInterest: true,
         hubspotId: true,
         estimatedValue: true,
@@ -102,6 +105,11 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
       if (freshContact) data.contact = freshContact;
       if (truthy(p.email)) data.email = p.email;
       if (truthy(p.leadsource)) data.source = p.leadsource;
+      const original = originalSourceFields(p);
+      if (original.originalSource) {
+        data.originalSource = original.originalSource;
+        data.originalSourceDetail = original.originalSourceDetail;
+      }
       if (truthy(p.project__c)) data.projectInterest = p.project__c;
       if (freshValue !== null) data.estimatedValue = freshValue;
       if (freshCloseAt) data.estimatedCloseAt = freshCloseAt;
@@ -111,6 +119,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
         (data.contact && data.contact !== existing.contact) ||
         (data.email && data.email !== existing.email) ||
         (data.source && data.source !== existing.source) ||
+        (data.originalSource && (data.originalSource !== existing.originalSource || data.originalSourceDetail !== existing.originalSourceDetail)) ||
         (data.projectInterest && data.projectInterest !== existing.projectInterest) ||
         (data.estimatedValue !== undefined && data.estimatedValue !== existing.estimatedValue) ||
         !existing.hubspotId;
@@ -137,6 +146,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
         contact: freshContact || "—",
         email: truthy(p.email) ? p.email : null,
         source: p.leadsource || "Other",
+        ...originalSourceFields(p),
         market: "Unknown", // HubSpot has no per-contact market/currency field to pull from
         projectInterest: p.project__c || "Unspecified",
         stage: p.leadstatus || "New Lead / Not Contacted Yet",

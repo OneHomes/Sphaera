@@ -6,9 +6,23 @@ import { formatRelativeTime, toUiLead, toUiNote, toUiTimelineEvent } from "@/lib
 import { canAccessRecord } from "@/lib/authz";
 import { withTenantPage } from "@/lib/withTenant";
 import { getNextBestAction } from "@/lib/nextBestAction";
+import { originalSourceLabel } from "@/lib/leadOriginalSource";
 import { LeadProfile } from "@/components/leads/profile/LeadProfile";
 
 export const dynamic = "force-dynamic";
+
+// First line matches HubSpot's own "Created" entry (its Original Source);
+// the team-entered Lead Source follows, since that's what filters use.
+function createdSummary(row: {
+  hubspotId: string | null;
+  source: string;
+  originalSource: string | null;
+  originalSourceDetail: string | null;
+}): string {
+  const origin = originalSourceLabel(row.originalSource, row.originalSourceDetail);
+  if (origin) return `This contact was created from ${origin}\nLead Source: ${row.source}`;
+  return `This lead was created${row.hubspotId ? " in HubSpot" : " in Sphaera"}\nLead Source: ${row.source}`;
+}
 
 export default async function LeadProfilePage({
   params,
@@ -76,7 +90,7 @@ export default async function LeadProfilePage({
         type: "created" as const,
         timestamp: formatRelativeTime(row.createdAt),
         occurredAt: row.createdAt.toISOString(),
-        summary: `This lead was created${row.hubspotId ? " in HubSpot" : " in Sphaera"} · Source: ${row.source}`,
+        summary: createdSummary(row),
       },
     ];
     const nextBestAction = getNextBestAction(row, row.timelineEvents);

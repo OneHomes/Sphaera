@@ -9,6 +9,7 @@ import {
   realDealCloseDate,
 } from "./hubspotContactFilter";
 import { generateUniqueLeadUid } from "./leadUid";
+import { originalSourceFields } from "./leadOriginalSource";
 import { flagDuplicatesForLead } from "./duplicateDetection";
 import { maybeCreateOpportunityFromLead } from "./leadToOpportunity";
 import { createNotification } from "./notifications";
@@ -66,6 +67,7 @@ export async function syncHubSpotContactFromWebhook(hubspotContactId: string): P
       contact: freshContact,
       email: truthy(p.email) ? p.email : null,
       source: p.leadsource || "Other",
+      ...originalSourceFields(p),
       market: "Unknown",
       projectInterest: p.project__c || "Unspecified",
       stage: p.leadstatus || "New Lead / Not Contacted Yet",

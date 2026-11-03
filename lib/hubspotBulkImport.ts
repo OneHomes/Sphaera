@@ -12,6 +12,7 @@ import {
   realDealValue,
   realDealCloseDate,
 } from "./hubspotContactFilter";
+import { originalSourceFields } from "./leadOriginalSource";
 
 // One-time bulk catch-up: the regular syncHubSpotLeads (lib/hubspotSync.ts)
 // only ever pulled the first ~2000 contacts, but the real HubSpot account
@@ -95,6 +96,8 @@ export async function bulkImportHubSpotLeads(
       contact: string;
       email: string | null;
       source: string;
+      originalSource: string | null;
+      originalSourceDetail: string | null;
       market: string;
       projectInterest: string;
       stage: string;
@@ -160,6 +163,7 @@ export async function bulkImportHubSpotLeads(
         contact: leadContact,
         email: truthy(p.email) ? p.email : null,
         source: p.leadsource || "Other",
+        ...originalSourceFields(p),
         market: "Unknown",
         projectInterest: p.project__c || "Unspecified",
         stage,

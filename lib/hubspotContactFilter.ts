@@ -32,6 +32,9 @@ export const CONTACT_PROPERTIES = [
   "closing_date__c",
   "closed_date_all_project",
   "hs_object_source_label",
+  // HubSpot's Original Source + drill-down — see lib/leadOriginalSource.ts
+  "hs_analytics_source",
+  "hs_analytics_source_data_1",
 ];
 
 export function truthy(v: string | null | undefined): v is string {

@@ -138,6 +138,15 @@ model Lead {
   // scripts/backfill-lead-emails.ts.
   email                String?
   source               String
+  // HubSpot's own "Original Source" (hs_analytics_source, e.g. OFFLINE)
+  // and its first drill-down (hs_analytics_source_data_1, e.g. EXTENSION)
+  // — HOW the record was created, which HubSpot shows as "This contact was
+  // created from Offline Sources from Sales Extension". Distinct from
+  // `source` above (the team-entered "Lead Source" property, e.g.
+  // "Facebook Lead Form"), which filters/reports run on. Null for leads
+  // created in Sphaera. See lib/leadOriginalSource.ts.
+  originalSource       String?
+  originalSourceDetail String?
   market               String
   projectInterest      String
   stage                String    @default("New")
