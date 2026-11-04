@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { runScheduledActivitySync, runScheduledBehavioralSync } from "@/lib/scheduledHubSpotSync";
 import { prisma } from "@/lib/prisma";
-import { listHubSpotOwners } from "@/lib/hubspot";
+import { fetchContactBehavioralEvents, fetchMarketingEmailEvents, listHubSpotOwners } from "@/lib/hubspot";
 
 // Called every 15 minutes by .github/workflows/scheduled-sync.yml (Azure
 // Static Web Apps has no built-in scheduler). Protected by a shared secret:
@@ -63,6 +63,19 @@ export async function POST(request: Request) {
         dbRaw: await probe(() => prisma.$queryRawUnsafe("SELECT 1 AS ok")),
         dbLeadCount: await probe(() => prisma.lead.count({ where: { hubspotId: { not: null } } })),
       };
+      // The per-lead behavioral calls, for the newest lead.
+      const lead = await prisma.lead.findFirst({
+        where: { hubspotId: { not: null }, email: { not: null } },
+        orderBy: { createdAt: "desc" },
+        select: { hubspotId: true, email: true },
+      });
+      if (lead) {
+        Object.assign(result, {
+          pageViews: await probe(async () => (await fetchContactBehavioralEvents(lead.hubspotId!, "e_visited_page")).length),
+          forms: await probe(async () => (await fetchContactBehavioralEvents(lead.hubspotId!, "e_submitted_form")).length),
+          marketingEmails: await probe(async () => (await fetchMarketingEmailEvents(lead.email!)).length),
+        });
+      }
     } else if (step === "activity") {
       result = await runScheduledActivitySync();
     } else if (step === "behavioral") {
