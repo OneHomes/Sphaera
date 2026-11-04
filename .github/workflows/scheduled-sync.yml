@@ -1,8 +1,10 @@
 name: Scheduled HubSpot sync
 
 # Pulls what HubSpot webhooks don't deliver (marketing emails, page views,
-# form submissions, missed activity) — see lib/scheduledHubSpotSync.ts.
-# Needs the repo secret CRON_SECRET, matching CRON_SECRET in Azure.
+# form submissions, missed/edited/deleted activity) — see
+# lib/scheduledHubSpotSync.ts. Needs the repo secret CRON_SECRET, matching
+# CRON_SECRET in Azure. Split into short requests because Azure Static Web
+# Apps ends any API request after ~45 seconds.
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -11,11 +13,20 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      URL: https://apex.sphaera.tech/api/cron/hubspot-sync
     steps:
-      - name: Trigger sync
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Activity (new, edited, deleted)
         run: |
-          curl -fsS --max-time 280 -X POST \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            https://apex.sphaera.tech/api/cron/hubspot-sync
+          curl -fsS --max-time 60 --retry 2 -X POST -H "Authorization: Bearer $CRON_SECRET" "$URL?step=activity"
+          echo
+      - name: Marketing emails, page views, forms
+        run: |
+          offset=0
+          while [ -n "$offset" ]; do
+            out=$(curl -fsS --max-time 60 --retry 2 -X POST -H "Authorization: Bearer $CRON_SECRET" "$URL?step=behavioral&offset=$offset")
+            echo "$out"
+            offset=$(echo "$out" | jq -r '.nextOffset // empty')
+          done

@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { fetchExistingEngagementIds, syncHubSpotActivityForLeads } from "./hubspotActivitySync";
+import { syncHubSpotActivityForLeads } from "./hubspotActivitySync";
 import { syncBehavioralEventsForLeads } from "./hubspotBehavioralSync";
 import { logAudit } from "./auditLog";
 
@@ -12,66 +12,82 @@ import { logAudit } from "./auditLog";
 // Both underlying syncs are idempotent, so a run that finds nothing new
 // writes nothing.
 //
-// Behavioral events cost 3 HubSpot calls per lead (no batch API — see
-// lib/hubspotBehavioralSync.ts) and has to finish inside one HTTP request,
-// so this is capped to the newest leads. Fine for the pilot's lead count;
-// past the cap it needs a rotating cursor instead.
+// Azure Static Web Apps cuts an API request off at ~45 seconds, and all of
+// this together takes longer than that from Azure. So a run is split into
+// steps the workflow calls one after another: "activity" (batched, a few
+// seconds) and then "behavioral" in slices of BEHAVIORAL_SLICE leads —
+// behavioral events cost 3 HubSpot calls per lead with no batch API (see
+// lib/hubspotBehavioralSync.ts).
 const MAX_LEADS = 50;
+export const BEHAVIORAL_SLICE = 5;
 
-export type ScheduledSyncResult = {
-  leads: number;
-  activityImported: number;
-  activityUpdated: number;
-  activityRemoved: number;
-  behavioralImported: number;
-  failedTypes: string[];
-};
-
-export async function runScheduledHubSpotSync(): Promise<ScheduledSyncResult> {
-  const leads = await prisma.lead.findMany({
+function syncedLeads() {
+  return prisma.lead.findMany({
     where: { hubspotId: { not: null } },
     select: { id: true, name: true, email: true, hubspotId: true },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
     take: MAX_LEADS,
   });
-  if (leads.length === 0) {
-    return { leads: 0, activityImported: 0, activityUpdated: 0, activityRemoved: 0, behavioralImported: 0, failedTypes: [] };
-  }
+}
 
-  const existing = await fetchExistingEngagementIds();
+async function existingIdsFor(leadIds: string[]): Promise<Set<string>> {
+  const rows = await prisma.leadTimelineEvent.findMany({
+    where: { leadId: { in: leadIds }, hubspotEngagementId: { not: null } },
+    select: { hubspotEngagementId: true },
+  });
+  return new Set(rows.map((r) => r.hubspotEngagementId!));
+}
+
+// Only audit runs that changed something or hit an error — a row every
+// 15 minutes saying "nothing new" would bury the useful entries.
+async function auditIfChanged(changed: number, details: string, failed: string[] = []) {
+  if (changed === 0 && failed.length === 0) return;
+  await logAudit({
+    actorId: "system",
+    actorEmail: "scheduled-sync",
+    action: "hubspot_scheduled_sync",
+    details: `${details}${failed.length ? `; failed: ${failed.join(", ")}` : ""}`,
+  });
+}
+
+export type ActivityStepResult = { leads: number; imported: number; updated: number; removed: number; failedTypes: string[] };
+
+export async function runScheduledActivitySync(): Promise<ActivityStepResult> {
+  const leads = await syncedLeads();
+  if (leads.length === 0) return { leads: 0, imported: 0, updated: 0, removed: 0, failedTypes: [] };
   const activity = await syncHubSpotActivityForLeads(
     leads.map((l) => ({ id: l.id, hubspotId: l.hubspotId! })),
-    existing,
+    await existingIdsFor(leads.map((l) => l.id)),
     { refreshExisting: true, removeDeleted: true }
   );
-  const behavioral = await syncBehavioralEventsForLeads(
-    leads.map((l) => ({ id: l.id, name: l.name, hubspotId: l.hubspotId!, email: l.email })),
-    existing
-  );
-
-  const result: ScheduledSyncResult = {
+  const result: ActivityStepResult = {
     leads: leads.length,
-    activityImported: activity.totalImported,
-    activityUpdated: activity.totalUpdated,
-    activityRemoved: activity.totalRemoved,
-    behavioralImported: behavioral.imported,
+    imported: activity.totalImported,
+    updated: activity.totalUpdated,
+    removed: activity.totalRemoved,
     failedTypes: Object.entries(activity.perType)
       .filter(([, v]) => v.failed)
       .map(([k]) => k),
   };
-
-  // Only audit runs that changed something or hit an error — a row every
-  // 15 minutes saying "nothing new" would bury the useful entries.
-  const changed = result.activityImported + result.activityUpdated + result.activityRemoved + result.behavioralImported;
-  if (changed > 0 || result.failedTypes.length > 0) {
-    await logAudit({
-      actorId: "system",
-      actorEmail: "scheduled-sync",
-      action: "hubspot_scheduled_sync",
-      details: `${result.leads} leads: activity ${result.activityImported} new, ${result.activityUpdated} edited, ${result.activityRemoved} removed (deleted in HubSpot); ${result.behavioralImported} marketing/behavioral events${
-        result.failedTypes.length ? `; failed: ${result.failedTypes.join(", ")}` : ""
-      }`,
-    });
-  }
+  await auditIfChanged(
+    result.imported + result.updated + result.removed,
+    `${result.leads} leads: activity ${result.imported} new, ${result.updated} edited, ${result.removed} removed (deleted in HubSpot)`,
+    result.failedTypes
+  );
   return result;
+}
+
+export type BehavioralStepResult = { leads: number; imported: number; nextOffset: number | null };
+
+export async function runScheduledBehavioralSync(offset: number): Promise<BehavioralStepResult> {
+  const all = await syncedLeads();
+  const slice = all.slice(offset, offset + BEHAVIORAL_SLICE);
+  if (slice.length === 0) return { leads: 0, imported: 0, nextOffset: null };
+  const { imported } = await syncBehavioralEventsForLeads(
+    slice.map((l) => ({ id: l.id, name: l.name, hubspotId: l.hubspotId!, email: l.email })),
+    await existingIdsFor(slice.map((l) => l.id))
+  );
+  await auditIfChanged(imported, `leads ${offset + 1}-${offset + slice.length}: ${imported} marketing email/page view/form events`);
+  const next = offset + BEHAVIORAL_SLICE;
+  return { leads: slice.length, imported, nextOffset: next < all.length ? next : null };
 }
