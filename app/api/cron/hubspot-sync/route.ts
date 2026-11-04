@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { runScheduledActivitySync, runScheduledBehavioralSync } from "@/lib/scheduledHubSpotSync";
+import { prisma } from "@/lib/prisma";
+import { listHubSpotOwners } from "@/lib/hubspot";
 
 // Called every 15 minutes by .github/workflows/scheduled-sync.yml (Azure
 // Static Web Apps has no built-in scheduler). Protected by a shared secret:
@@ -36,14 +38,24 @@ export async function POST(request: Request) {
   const step = params.get("step");
   try {
     let result;
-    if (step === "activity") {
+    if (step === "diag") {
+      // Times the two dependencies separately, to see which one is slow from Azure.
+      const timings: Record<string, number | string> = {};
+      let t = Date.now();
+      timings.leads = await prisma.lead.count({ where: { hubspotId: { not: null } } });
+      timings.dbMs = Date.now() - t;
+      t = Date.now();
+      timings.owners = (await listHubSpotOwners()).length;
+      timings.hubspotMs = Date.now() - t;
+      result = timings;
+    } else if (step === "activity") {
       result = await runScheduledActivitySync();
     } else if (step === "behavioral") {
       const offset = Number(params.get("offset") ?? "0");
       if (!Number.isInteger(offset) || offset < 0) return NextResponse.json({ error: "Bad offset" }, { status: 400 });
       result = await runScheduledBehavioralSync(offset);
     } else {
-      return NextResponse.json({ error: "step must be activity or behavioral" }, { status: 400 });
+      return NextResponse.json({ error: "step must be activity, behavioral or diag" }, { status: 400 });
     }
     console.log(`Scheduled HubSpot sync (${step}):`, JSON.stringify(result));
     return NextResponse.json(result);
