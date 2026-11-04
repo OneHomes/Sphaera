@@ -35,8 +35,14 @@ const STATUS_LABELS: Record<string, string> = {
   REPLY: "Replied",
 };
 
+// Fixed locale + timezone, not the server's: Azure runs in UTC while local
+// runs are in Pakistan time, so a server-dependent format made every card's
+// text "change" on each run and get rewritten (hundreds of DB updates —
+// enough to blow Azure's 45s request limit). Pakistan time is what the team
+// reads and what the existing cards were written in.
 function formatTimestamp(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, {
+  return new Date(ms).toLocaleString("en-US", {
+    timeZone: "Asia/Karachi",
     day: "numeric",
     month: "short",
     year: "numeric",
