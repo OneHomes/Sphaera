@@ -10,6 +10,7 @@ import {
 } from "./hubspotContactFilter";
 import { generateUniqueLeadUid } from "./leadUid";
 import { originalSourceFields } from "./leadOriginalSource";
+import { REFRESH_SELECT, refreshLeadFromHubSpot } from "./hubspotSync";
 import { flagDuplicatesForLead } from "./duplicateDetection";
 import { maybeCreateOpportunityFromLead } from "./leadToOpportunity";
 import { createNotification } from "./notifications";
@@ -27,6 +28,7 @@ export type WebhookSyncOutcome =
   | { status: "created"; leadId: string; leadName: string }
   | { status: "excluded" }
   | { status: "already_exists"; leadId: string }
+  | { status: "updated"; leadId: string }
   | { status: "not_found" };
 
 export async function syncHubSpotContactFromWebhook(hubspotContactId: string): Promise<WebhookSyncOutcome> {
@@ -45,9 +47,15 @@ export async function syncHubSpotContactFromWebhook(hubspotContactId: string): P
     where: {
       OR: [{ hubspotId: hubspotContactId }, ...(salesforceLeadId ? [{ salesforceId: salesforceLeadId }] : [])],
     },
-    select: { id: true },
+    select: REFRESH_SELECT,
   });
-  if (existing) return { status: "already_exists", leadId: existing.id };
+  if (existing) {
+    // Contact edited in HubSpot (new phone number, name fix, project…) —
+    // same update rules as "Sync now". Keeping the phone current matters
+    // beyond display: Sakari/Superchat messages are matched to leads by it.
+    const changed = await refreshLeadFromHubSpot(existing, hubspotContactId, p);
+    return changed ? { status: "updated", leadId: existing.id } : { status: "already_exists", leadId: existing.id };
+  }
 
   const ownerEmailById = new Map(owners.map((o) => [o.id, o.email]));
   const sphaeraUsers = await prisma.user.findMany({ select: { id: true, email: true } });

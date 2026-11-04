@@ -37,6 +37,82 @@ import { originalSourceFields } from "./leadOriginalSource";
 // has no write-back path to HubSpot, so overwriting them risks silently
 // reverting real in-app work.
 
+/** The Lead fields refreshLeadFromHubSpot compares against. */
+export const REFRESH_SELECT = {
+  id: true,
+  name: true,
+  contact: true,
+  email: true,
+  source: true,
+  originalSource: true,
+  originalSourceDetail: true,
+  projectInterest: true,
+  hubspotId: true,
+  estimatedValue: true,
+  estimatedCloseAt: true,
+} as const;
+
+type RefreshableLead = {
+  id: string;
+  name: string;
+  contact: string;
+  email: string | null;
+  source: string;
+  originalSource: string | null;
+  originalSourceDetail: string | null;
+  projectInterest: string;
+  hubspotId: string | null;
+  estimatedValue: number | null;
+  estimatedCloseAt: Date | null;
+};
+
+/**
+ * Updates an existing lead from its HubSpot contact under the rules above
+ * (only non-empty HubSpot values overwrite; stage/priority/assignment/score
+ * never touched). Shared by "Sync now" and the real-time contact webhook.
+ * Returns whether anything meaningful changed (and was written).
+ */
+export async function refreshLeadFromHubSpot(
+  existing: RefreshableLead,
+  hubspotContactId: string,
+  p: Record<string, string | null>
+): Promise<boolean> {
+  const freshContact = p.phone || p.mobilephone || p.email || null;
+  const freshValue = realDealValue(p);
+  const freshCloseAt = realDealCloseDate(p);
+
+  const data: Record<string, unknown> = {
+    lastSyncedAt: new Date(),
+  };
+  if (!existing.hubspotId) data.hubspotId = hubspotContactId; // backfill legacy Salesforce-only leads
+  if (truthy(p.email) || truthy(fullName(p))) data.name = fullName(p);
+  if (freshContact) data.contact = freshContact;
+  if (truthy(p.email)) data.email = p.email;
+  if (truthy(p.leadsource)) data.source = p.leadsource;
+  const original = originalSourceFields(p);
+  if (original.originalSource) {
+    data.originalSource = original.originalSource;
+    data.originalSourceDetail = original.originalSourceDetail;
+  }
+  if (truthy(p.project__c)) data.projectInterest = p.project__c;
+  if (freshValue !== null) data.estimatedValue = freshValue;
+  if (freshCloseAt) data.estimatedCloseAt = freshCloseAt;
+
+  const meaningfulChange =
+    (data.name && data.name !== existing.name) ||
+    (data.contact && data.contact !== existing.contact) ||
+    (data.email && data.email !== existing.email) ||
+    (data.source && data.source !== existing.source) ||
+    (data.originalSource && (data.originalSource !== existing.originalSource || data.originalSourceDetail !== existing.originalSourceDetail)) ||
+    (data.projectInterest && data.projectInterest !== existing.projectInterest) ||
+    (data.estimatedValue !== undefined && data.estimatedValue !== existing.estimatedValue) ||
+    !existing.hubspotId;
+
+  if (!meaningfulChange) return false;
+  await prisma.lead.update({ where: { id: existing.id }, data });
+  return true;
+}
+
 export type HubSpotSyncResult = {
   fetched: number;
   created: number;
@@ -77,19 +153,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
           ...(salesforceLeadId ? [{ salesforceId: salesforceLeadId }] : []),
         ],
       },
-      select: {
-        id: true,
-        name: true,
-        contact: true,
-        email: true,
-        source: true,
-        originalSource: true,
-        originalSourceDetail: true,
-        projectInterest: true,
-        hubspotId: true,
-        estimatedValue: true,
-        estimatedCloseAt: true,
-      },
+      select: REFRESH_SELECT,
     });
 
     const freshContact = p.phone || p.mobilephone || p.email || null;
@@ -97,35 +161,7 @@ export async function syncHubSpotLeads(limit = 200): Promise<HubSpotSyncResult> 
     const freshCloseAt = realDealCloseDate(p);
 
     if (existing) {
-      const data: Record<string, unknown> = {
-        lastSyncedAt: new Date(),
-      };
-      if (!existing.hubspotId) data.hubspotId = contact.id; // backfill legacy Salesforce-only leads
-      if (truthy(p.email) || truthy(fullName(p))) data.name = fullName(p);
-      if (freshContact) data.contact = freshContact;
-      if (truthy(p.email)) data.email = p.email;
-      if (truthy(p.leadsource)) data.source = p.leadsource;
-      const original = originalSourceFields(p);
-      if (original.originalSource) {
-        data.originalSource = original.originalSource;
-        data.originalSourceDetail = original.originalSourceDetail;
-      }
-      if (truthy(p.project__c)) data.projectInterest = p.project__c;
-      if (freshValue !== null) data.estimatedValue = freshValue;
-      if (freshCloseAt) data.estimatedCloseAt = freshCloseAt;
-
-      const meaningfulChange =
-        (data.name && data.name !== existing.name) ||
-        (data.contact && data.contact !== existing.contact) ||
-        (data.email && data.email !== existing.email) ||
-        (data.source && data.source !== existing.source) ||
-        (data.originalSource && (data.originalSource !== existing.originalSource || data.originalSourceDetail !== existing.originalSourceDetail)) ||
-        (data.projectInterest && data.projectInterest !== existing.projectInterest) ||
-        (data.estimatedValue !== undefined && data.estimatedValue !== existing.estimatedValue) ||
-        !existing.hubspotId;
-
-      if (meaningfulChange) {
-        await prisma.lead.update({ where: { id: existing.id }, data });
+      if (await refreshLeadFromHubSpot(existing, contact.id, p)) {
         updated++;
       } else {
         unchanged++;

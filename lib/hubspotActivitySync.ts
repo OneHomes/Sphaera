@@ -100,6 +100,8 @@ export const ENGAGEMENT_TYPE_BY_WEBHOOK_NAME: Record<string, EngagementConfig> =
 export type ActivitySyncResult = {
   perType: Record<string, { found: number; imported: number; failed: boolean }>;
   totalImported: number;
+  totalUpdated: number;
+  totalRemoved: number;
 };
 
 export async function fetchExistingEngagementIds(): Promise<Set<string>> {
@@ -115,20 +117,61 @@ export async function fetchExistingEngagementIds(): Promise<Set<string>> {
 // existing-engagement-id set by reference and adds to it as rows are
 // inserted, so a multi-batch caller never re-queries the whole
 // (ever-growing) LeadTimelineEvent table once per batch.
+// Every timeline type a given engagement config can produce — used to find
+// a lead's existing rows of that kind when checking for deletions.
+function timelineTypesOf(config: EngagementConfig): string[] {
+  return typeof config.timelineType === "string" ? [config.timelineType] : ["whatsapp", "linkedin", "sms", "communication"];
+}
+
+// Plain HubSpot engagement ids are numeric. Rows from other sources share
+// the column but carry a prefix ("sakari:", "superchat:", "campaign-"), so
+// this keeps the deletion check from ever touching them.
+const isHubSpotEngagementId = (id: string) => /^\d+$/.test(id);
+
 export async function syncHubSpotActivityForLeads(
   leads: { id: string; hubspotId: string }[],
-  existingEngagementIds: Set<string>
+  existingEngagementIds: Set<string>,
+  // The scheduled sync (lib/scheduledHubSpotSync.ts) also keeps already-
+  // imported rows current: refreshExisting rewrites a row whose engagement
+  // was edited in HubSpot, removeDeleted drops a row whose engagement no
+  // longer exists there. Off for the bulk sweeps, which only add.
+  opts: { refreshExisting?: boolean; removeDeleted?: boolean } = {}
 ): Promise<ActivitySyncResult> {
   const leadIdByHubspotId = new Map(leads.map((l) => [l.hubspotId, l.id]));
   const hubspotIds = leads.map((l) => l.hubspotId);
+  const leadIds = leads.map((l) => l.id);
 
-  const result: ActivitySyncResult = { perType: {}, totalImported: 0 };
+  const result: ActivitySyncResult = { perType: {}, totalImported: 0, totalUpdated: 0, totalRemoved: 0 };
 
   for (const config of ENGAGEMENT_TYPES) {
     try {
       const associations = await batchReadAssociations("contacts", config.hubspotType, hubspotIds);
 
       const allEngagementIds = [...new Set([...associations.values()].flat())];
+
+      if (opts.removeDeleted) {
+        // Only rows HubSpot confirms are gone: a row merely missing from the
+        // association list (which could be truncated) is re-read by id
+        // first, and batch read simply omits ids that were deleted.
+        const associated = new Set(allEngagementIds);
+        const candidates = (
+          await prisma.leadTimelineEvent.findMany({
+            where: { leadId: { in: leadIds }, type: { in: timelineTypesOf(config) }, hubspotEngagementId: { not: null } },
+            select: { id: true, hubspotEngagementId: true },
+          })
+        ).filter((r) => isHubSpotEngagementId(r.hubspotEngagementId!) && !associated.has(r.hubspotEngagementId!));
+        if (candidates.length > 0) {
+          const stillThere = new Set(
+            (await batchReadObjects(config.hubspotType, [...new Set(candidates.map((r) => r.hubspotEngagementId!))], ["hs_timestamp"])).map((o) => o.id)
+          );
+          const gone = candidates.filter((r) => !stillThere.has(r.hubspotEngagementId!));
+          if (gone.length > 0) {
+            await prisma.leadTimelineEvent.deleteMany({ where: { id: { in: gone.map((r) => r.id) } } });
+            result.totalRemoved += gone.length;
+          }
+        }
+      }
+
       if (allEngagementIds.length === 0) {
         result.perType[config.hubspotType] = { found: 0, imported: 0, failed: false };
         continue;
@@ -136,6 +179,25 @@ export async function syncHubSpotActivityForLeads(
 
       const engagements = await batchReadObjects(config.hubspotType, allEngagementIds, config.properties);
       const engagementById = new Map<string, HubSpotObject>(engagements.map((e) => [e.id, e]));
+
+      if (opts.refreshExisting) {
+        const existingRows = await prisma.leadTimelineEvent.findMany({
+          where: { leadId: { in: leadIds }, hubspotEngagementId: { in: allEngagementIds } },
+          select: { id: true, hubspotEngagementId: true, type: true, summary: true, occurredAt: true },
+        });
+        for (const row of existingRows) {
+          const engagement = engagementById.get(row.hubspotEngagementId!);
+          if (!engagement) continue;
+          const p = engagement.properties;
+          const summary = config.summarize(p);
+          const type = resolveTimelineType(config, p);
+          const occurredAt = truthy(p.hs_timestamp) ? new Date(p.hs_timestamp!) : row.occurredAt;
+          if (summary !== row.summary || type !== row.type || occurredAt.getTime() !== row.occurredAt.getTime()) {
+            await prisma.leadTimelineEvent.update({ where: { id: row.id }, data: { summary, type, occurredAt } });
+            result.totalUpdated++;
+          }
+        }
+      }
 
       const rows: { leadId: string; type: string; summary: string; occurredAt: Date; hubspotEngagementId: string }[] = [];
       for (const [hubspotContactId, engagementIds] of associations) {

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { syncHubSpotContactFromWebhook } from "@/lib/hubspotWebhook";
-import { syncHubSpotEngagementFromWebhook } from "@/lib/hubspotEngagementWebhook";
+import { removeHubSpotEngagementFromWebhook, syncHubSpotEngagementFromWebhook } from "@/lib/hubspotEngagementWebhook";
 
 // Real-time HubSpot -> Sphaera sync. HubSpot calls this the instant a
 // contact is created, OR a call/email/meeting/note/task/communication
 // (WhatsApp, LinkedIn message, SMS) is created or edited on a contact
 // that's already a lead here — subscribe to "Contact creation" plus, for
 // each engagement type including "Communication", both "creation" and
-// "propertyChange" on this Private App's Webhooks tab, target URL
+// "propertyChange" (and optionally "deletion") on this Private App's Webhooks tab, target URL
 // https://apex.sphaera.tech/api/webhooks/hubspot. No session/login here —
 // this is a public endpoint by necessity, so HubSpot's own request
 // signature is the auth mechanism instead.
@@ -117,10 +117,16 @@ export async function POST(request: Request) {
         // weeks later. syncHubSpotContactFromWebhook already no-ops if
         // the lead exists or the contact still doesn't qualify, so
         // calling it on every edit is safe, not just on creation.
+        // For a contact that's already a lead, an edit refreshes its details.
         const outcome = await syncHubSpotContactFromWebhook(String(event.objectId));
         if (outcome.status === "created") {
           console.log(`HubSpot webhook: created lead "${outcome.leadName}" from contact ${event.objectId}`);
+        } else if (outcome.status === "updated") {
+          console.log(`HubSpot webhook: updated lead ${outcome.leadId} from contact ${event.objectId}`);
         }
+      } else if (objectName !== "contact" && action === "deletion") {
+        const removed = await removeHubSpotEngagementFromWebhook(objectName, String(event.objectId));
+        console.log(`HubSpot webhook: ${objectName} ${event.objectId} deleted in HubSpot, removed ${removed} timeline row(s)`);
       } else if (action === "creation" || action === "propertyChange") {
         // Engagement types (call/email/meeting/note/task) — new activity
         // or an edit to activity already synced. Unrecognized object

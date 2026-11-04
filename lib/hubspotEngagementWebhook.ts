@@ -81,6 +81,18 @@ export async function syncHubSpotEngagementFromWebhook(
   return { status: "synced", leadIds: leads.map((l) => l.id) };
 }
 
+/**
+ * An engagement deleted in HubSpot ("call.deletion", or "object.deletion"
+ * with its objectTypeId) — drop the timeline rows imported from it. The
+ * scheduled sync catches these too; this just makes it immediate when the
+ * deletion subscription is enabled on the Private App.
+ */
+export async function removeHubSpotEngagementFromWebhook(webhookObjectName: string, engagementId: string): Promise<number> {
+  if (!ENGAGEMENT_TYPE_BY_WEBHOOK_NAME[webhookObjectName] || !/^\d+$/.test(engagementId)) return 0;
+  const { count } = await prisma.leadTimelineEvent.deleteMany({ where: { hubspotEngagementId: engagementId } });
+  return count;
+}
+
 async function notifyAssignedUserOfActivity(
   userId: string,
   leadId: string,
