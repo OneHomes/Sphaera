@@ -40,14 +40,21 @@ export async function POST(request: Request) {
     let result;
     if (step === "diag") {
       // Times the two dependencies separately, to see which one is slow from Azure.
-      const timings: Record<string, number | string> = {};
-      let t = Date.now();
-      timings.leads = await prisma.lead.count({ where: { hubspotId: { not: null } } });
-      timings.dbMs = Date.now() - t;
-      t = Date.now();
-      timings.owners = (await listHubSpotOwners()).length;
-      timings.hubspotMs = Date.now() - t;
-      result = timings;
+      // Each capped at 15s so a hang reports itself instead of hitting Azure's 45s cutoff.
+      const probe = async (f: () => Promise<unknown>) => {
+        const t = Date.now();
+        try {
+          const value = await Promise.race([f(), new Promise((_, reject) => setTimeout(() => reject(new Error("timed out after 15s")), 15000))]);
+          return { ms: Date.now() - t, value };
+        } catch (e) {
+          return { ms: Date.now() - t, error: String(e).slice(0, 300) };
+        }
+      };
+      result = {
+        hubspot: await probe(async () => (await listHubSpotOwners()).length),
+        dbRaw: await probe(() => prisma.$queryRawUnsafe("SELECT 1 AS ok")),
+        dbLeadCount: await probe(() => prisma.lead.count({ where: { hubspotId: { not: null } } })),
+      };
     } else if (step === "activity") {
       result = await runScheduledActivitySync();
     } else if (step === "behavioral") {
