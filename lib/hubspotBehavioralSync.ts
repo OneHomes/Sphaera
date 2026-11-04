@@ -123,6 +123,15 @@ export async function syncBehavioralEventsForLead(
         byCampaign.set(campaignId, list);
       }
 
+      // One query for all of this lead's existing campaign cards, not one
+      // per campaign — a lead can have dozens of campaigns, and this now
+      // runs every 15 minutes (lib/scheduledHubSpotSync.ts).
+      const existingCards = await prisma.leadTimelineEvent.findMany({
+        where: { leadId, hubspotEngagementId: { startsWith: "campaign-" } },
+        select: { id: true, summary: true, hubspotEngagementId: true },
+      });
+      const cardByKey = new Map(existingCards.map((c) => [c.hubspotEngagementId!, c]));
+
       for (const [campaignId, campaignEvents] of byCampaign) {
         const subject = campaignEvents.find((e) => truthy(e.subject))?.subject ?? "(no subject)";
         const opens = campaignEvents.filter((e) => e.type === "OPEN").length;
@@ -148,10 +157,7 @@ export async function syncBehavioralEventsForLead(
         const occurredAt = sentEvent ? new Date(sentEvent.created) : new Date(Math.min(...campaignEvents.map((e) => e.created)));
         const groupKey = `campaign-${campaignId}`;
 
-        const existing = await prisma.leadTimelineEvent.findFirst({
-          where: { leadId, hubspotEngagementId: groupKey },
-          select: { id: true, summary: true },
-        });
+        const existing = cardByKey.get(groupKey);
         if (existing) {
           if (existing.summary !== summary) {
             await prisma.leadTimelineEvent.update({ where: { id: existing.id }, data: { summary, occurredAt } });
@@ -169,7 +175,7 @@ export async function syncBehavioralEventsForLead(
   if (rows.length > 0) {
     await prisma.leadTimelineEvent.createMany({ data: rows });
     for (const r of rows) existingEngagementIds.add(r.hubspotEngagementId);
-    imported = rows.length;
+    imported += rows.length; // plus any campaign cards updated in place above
   }
 
   return { imported };
@@ -179,10 +185,16 @@ export async function syncBehavioralEventsForLeads(
   leads: { id: string; name: string; hubspotId: string; email: string | null }[],
   existingEngagementIds: Set<string>
 ): Promise<BehavioralSyncResult> {
+  // A few leads at a time: each lead is several sequential HubSpot calls,
+  // and 3 in flight stays well inside the private app's rate limit.
   let imported = 0;
-  for (const lead of leads) {
-    const result = await syncBehavioralEventsForLead(lead.id, lead.name, lead.hubspotId, lead.email, existingEngagementIds);
-    imported += result.imported;
+  for (let i = 0; i < leads.length; i += 3) {
+    const results = await Promise.all(
+      leads
+        .slice(i, i + 3)
+        .map((lead) => syncBehavioralEventsForLead(lead.id, lead.name, lead.hubspotId, lead.email, existingEngagementIds))
+    );
+    for (const r of results) imported += r.imported;
   }
   return { imported };
 }

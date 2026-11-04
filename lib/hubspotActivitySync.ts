@@ -102,7 +102,7 @@ export type ActivitySyncResult = {
   totalImported: number;
 };
 
-async function fetchExistingEngagementIds(): Promise<Set<string>> {
+export async function fetchExistingEngagementIds(): Promise<Set<string>> {
   const rows = await prisma.leadTimelineEvent.findMany({
     where: { hubspotEngagementId: { not: null } },
     select: { hubspotEngagementId: true },

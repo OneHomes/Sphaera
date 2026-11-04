@@ -1,0 +1,21 @@
+name: Scheduled HubSpot sync
+
+# Pulls what HubSpot webhooks don't deliver (marketing emails, page views,
+# form submissions, missed activity) — see lib/scheduledHubSpotSync.ts.
+# Needs the repo secret CRON_SECRET, matching CRON_SECRET in Azure.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sync
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 280 -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://apex.sphaera.tech/api/cron/hubspot-sync
