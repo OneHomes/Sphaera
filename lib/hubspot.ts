@@ -7,8 +7,14 @@ const HUBSPOT_API_BASE = "https://api.hubapi.com";
 
 function getAccessToken(): string {
   const token = process.env.HUBSPOT_ACCESS_TOKEN;
-  if (!token) throw new Error("HUBSPOT_ACCESS_TOKEN is not configured");
+  if (!token) throw new HubSpotPermanentError("HUBSPOT_ACCESS_TOKEN is not configured");
   return token;
+}
+
+function requestError(status: number, message: string): Error {
+  const text = `HubSpot request failed (${status}): ${message}`;
+  // 429 (rate limit) and 5xx are worth retrying; other 4xx are not.
+  return status >= 400 && status < 500 && status !== 429 ? new HubSpotPermanentError(text) : new Error(text);
 }
 
 // A long-running bulk import (~2000 pages for the real ~194,000-contact
@@ -16,12 +22,19 @@ function getAccessToken(): string {
 // a dropped TLS connection, etc.) — that's expected over a run lasting
 // this long, not a real failure, so it's retried with backoff here
 // rather than crashing the whole import over one bad request.
+// Errors that retrying can't fix (missing token, 401/403/404/400) are
+// thrown straight away — otherwise the ~90s of backoff below hides a
+// config problem behind what looks like a hang (and outlasts Azure's 45s
+// request limit, so the real error never surfaces).
+class HubSpotPermanentError extends Error {}
+
 async function withRetry<T>(fn: () => Promise<T>, attempts = 8): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn();
     } catch (err) {
+      if (err instanceof HubSpotPermanentError) throw err;
       lastErr = err;
       // Caps at 30s/attempt — a real DNS/network interruption during an
       // hours-long bulk import needs more runway than a quick backoff.
@@ -36,10 +49,8 @@ async function hubspotFetch<T>(path: string): Promise<T> {
     const res = await fetch(`${HUBSPOT_API_BASE}${path}`, {
       headers: { Authorization: `Bearer ${getAccessToken()}` },
     });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(`HubSpot request failed (${res.status}): ${data.message ?? res.statusText}`);
-    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw requestError(res.status, data.message ?? res.statusText);
     return data as T;
   });
 }
@@ -51,10 +62,8 @@ async function hubspotPost<T>(path: string, body: unknown): Promise<T> {
       headers: { Authorization: `Bearer ${getAccessToken()}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(`HubSpot request failed (${res.status}): ${data.message ?? res.statusText}`);
-    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw requestError(res.status, data.message ?? res.statusText);
     return data as T;
   });
 }

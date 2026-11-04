@@ -51,6 +51,14 @@ export async function POST(request: Request) {
         }
       };
       result = {
+        hubspotTokenConfigured: Boolean(process.env.HUBSPOT_ACCESS_TOKEN),
+        // One raw call, no retries: shows HubSpot's actual answer.
+        hubspotRaw: await probe(async () => {
+          const res = await fetch("https://api.hubapi.com/crm/v3/owners?limit=1", {
+            headers: { Authorization: `Bearer ${process.env.HUBSPOT_ACCESS_TOKEN ?? ""}` },
+          });
+          return { status: res.status, body: (await res.text()).slice(0, 200) };
+        }),
         hubspot: await probe(async () => (await listHubSpotOwners()).length),
         dbRaw: await probe(() => prisma.$queryRawUnsafe("SELECT 1 AS ok")),
         dbLeadCount: await probe(() => prisma.lead.count({ where: { hubspotId: { not: null } } })),
