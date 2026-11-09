@@ -11,9 +11,10 @@ import { ThinkingOrb } from "thinking-orbs";
 //   solving   — analysing numbers (pipeline insight, finance questions)
 //   composing — writing something (drafts, proposals, notes, briefs)
 //   searching — looking through records (history, documents)
-//   listening — during a live call
+//   listening — during a live call, or while dictating to Janus
+//   breathing — idle, waiting to be asked (the Janus pill)
 // The package already pauses offscreen and respects prefers-reduced-motion.
-export type JanusOrbState = "working" | "solving" | "composing" | "searching" | "listening";
+export type JanusOrbState = "working" | "solving" | "composing" | "searching" | "listening" | "breathing";
 
 // The package's "auto" theme looks for a `dark`/`light` class and otherwise
 // falls back to the OS setting, but Sphaera's dark mode is the class-less

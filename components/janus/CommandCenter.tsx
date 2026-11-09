@@ -18,7 +18,6 @@ import {
 import { PromptCard } from "./PromptCard";
 import { DailyBriefing } from "./DailyBriefing";
 import { ConversationHistory } from "./ConversationHistory";
-import { JanusGlyph } from "./JanusGlyph";
 import { JanusOrb } from "./JanusOrb";
 import { JanusFeedback } from "./JanusFeedback";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
@@ -184,8 +183,7 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
 
   return (
     <div className="flex flex-col items-center gap-8 px-6 py-8">
-      <div className="flex w-full max-w-xl items-center justify-between">
-        <JanusGlyph className="h-10 w-10 text-white" />
+      <div className="flex w-full max-w-xl items-center justify-end">
         <div className="flex items-center gap-2">
           {hasThread && (
             <button

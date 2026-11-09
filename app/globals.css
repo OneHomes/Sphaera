@@ -287,6 +287,86 @@ html.glass .fixed.inset-0.bg-black\/60 {
   border-radius: 999px;
 }
 
+/* Left rail as a dock (components/shell/LeftRail.tsx). Icons share the
+   rail's height instead of scrolling: --dock-n is the item count, 4rem is
+   the rail's padding plus the logo at the bottom. */
+.dock {
+  --dock-h: min(36px, calc((100dvh - 4rem) / var(--dock-n, 25)));
+}
+.dock-item {
+  width: 36px;
+  height: var(--dock-h);
+  transform-origin: left center;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    scale 160ms var(--ease-out),
+    translate 160ms var(--ease-out);
+}
+.dock-icon {
+  width: min(18px, calc(var(--dock-h) * 0.58));
+  height: min(18px, calc(var(--dock-h) * 0.58));
+}
+/* macOS-style magnification: the hovered icon grows out of the rail and
+   its neighbours grow less and step aside so they don't overlap it.
+   `scale`/`translate` only (no layout), mouse devices only. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .dock-item:hover {
+    scale: 1.4;
+    translate: 10px 0;
+    z-index: 1;
+  }
+  .dock-item:has(+ .dock-item:hover) {
+    scale: 1.18;
+    translate: 5px calc(var(--dock-h) * -0.3);
+  }
+  .dock-item:hover + .dock-item {
+    scale: 1.18;
+    translate: 5px calc(var(--dock-h) * 0.3);
+  }
+  .dock-item:has(+ .dock-item + .dock-item:hover) {
+    scale: 1.06;
+    translate: 2px calc(var(--dock-h) * -0.12);
+  }
+  .dock-item:hover + .dock-item + .dock-item {
+    scale: 1.06;
+    translate: 2px calc(var(--dock-h) * 0.12);
+  }
+}
+
+/* Janus pill (components/janus/JanusPill.tsx): floats over page content,
+   so it stays near-solid and blurred like other floating surfaces. */
+html.glass .janus-float {
+  --tw-bg-opacity: 0.88;
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+/* Panel rises out of the pill: opacity always, scale/lift only when motion
+   is allowed. Skipped entirely when opened from the keyboard. */
+.janus-pill-animate {
+  transform-origin: bottom center;
+  transition: opacity 180ms var(--ease-out);
+}
+@starting-style {
+  .janus-pill-animate {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .janus-pill-animate {
+    transition:
+      opacity 180ms var(--ease-out),
+      scale 180ms var(--ease-out),
+      translate 180ms var(--ease-out);
+  }
+  @starting-style {
+    .janus-pill-animate {
+      scale: 0.96;
+      translate: 0 6px;
+    }
+  }
+}
+
 /* scrolls, but without a visible bar (the left icon rail) */
 .no-scrollbar {
   scrollbar-width: none;
