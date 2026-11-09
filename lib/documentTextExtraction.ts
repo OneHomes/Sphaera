@@ -32,22 +32,44 @@ function loadPdfParse() {
   return pdfParse;
 }
 
+// Scanned PDFs (no text layer) and images are transcribed by the model
+// instead (lib/janus.ts transcribeWithJanus). Large files are skipped so an
+// upload stays inside Azure's request time limit.
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const MAX_TRANSCRIBE_BYTES = 8 * 1024 * 1024;
+
+async function pdfText(buffer: Buffer): Promise<string | null> {
+  try {
+    const { PDFParse } = await loadPdfParse();
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    // pdf-parse appends "-- N of M --" page-separator markers — noise
+    // for Janus's grounding context, not real document content.
+    const cleaned = (result.text ?? "").replace(/--\s*\d+\s+of\s+\d+\s*--/g, "").trim();
+    return cleaned || null;
+  } catch (err) {
+    console.error("PDF text extraction failed:", err);
+    return null;
+  }
+}
+
 export async function extractDocumentText(
   buffer: Buffer,
-  contentType: string
+  contentType: string,
+  filename = "document"
 ): Promise<string | null> {
   try {
-    if (contentType === "application/pdf") {
-      const { PDFParse } = await loadPdfParse();
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      // pdf-parse appends "-- N of M --" page-separator markers — noise
-      // for Janus's grounding context, not real document content.
-      const cleaned = (result.text ?? "").replace(/--\s*\d+\s+of\s+\d+\s*--/g, "").trim();
-      return cleaned || null;
-    }
     if (TEXT_MIME_TYPES.has(contentType)) {
       return buffer.toString("utf-8").trim() || null;
+    }
+    const isPdf = contentType === "application/pdf";
+    if (isPdf) {
+      const text = await pdfText(buffer);
+      if (text) return text;
+    }
+    if ((isPdf || IMAGE_MIME_TYPES.has(contentType)) && buffer.byteLength <= MAX_TRANSCRIBE_BYTES) {
+      const { transcribeWithJanus } = await import("./janus");
+      return await transcribeWithJanus(buffer, contentType, filename);
     }
     return null;
   } catch (err) {

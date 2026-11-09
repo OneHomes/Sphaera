@@ -67,7 +67,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const extractedText = await extractDocumentText(buffer, file.type || "");
+      const extractedText = await extractDocumentText(buffer, file.type || "", file.name);
 
       const document = await prisma.document.create({
         data: {

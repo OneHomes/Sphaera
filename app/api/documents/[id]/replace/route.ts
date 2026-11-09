@@ -55,7 +55,7 @@ export async function POST(
         );
       }
 
-      const extractedText = await extractDocumentText(buffer, file.type || "");
+      const extractedText = await extractDocumentText(buffer, file.type || "", file.name);
 
       const [newVersion] = await prisma.$transaction([
         prisma.document.create({

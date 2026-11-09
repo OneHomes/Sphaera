@@ -96,16 +96,41 @@ const managementPrompts = [
 
 type ChatMessage = { role: "user" | "assistant"; content: string; escalated?: boolean; conflicts?: { docType: string; relatedTo: string }[] };
 
+// Attached files are read in the browser and sent with the question: text
+// files as text, PDFs and images as data: URLs that Janus (GPT) reads
+// directly, so scanned PDFs and screenshots work too.
 type Attachment = {
   id: string;
   name: string;
+  size: number;
   status: "reading" | "ready" | "error";
-  text?: string;
-  truncated?: boolean;
+  kind?: "text" | "pdf" | "image";
+  data?: string;
   error?: string;
 };
 const MAX_ATTACHMENTS = 3;
-const ACCEPTED_FILES = ".pdf,.txt,.csv,.md,.json";
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 15 * 1024 * 1024;
+const TEXT_EXTENSIONS = ["txt", "csv", "md", "json"];
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const ACCEPTED_FILES = ".pdf,.txt,.csv,.md,.json,.png,.jpg,.jpeg,.webp,.gif";
+
+function attachmentKind(file: File): Attachment["kind"] | null {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (file.type === "application/pdf" || ext === "pdf") return "pdf";
+  if (IMAGE_TYPES.includes(file.type)) return "image";
+  if (TEXT_EXTENSIONS.includes(ext) || file.type.startsWith("text/")) return "text";
+  return null;
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 export function CommandCenter({ isManagementView = false }: { isManagementView?: boolean }) {
   const suggestedPrompts = isManagementView ? managementPrompts : agentPrompts;
@@ -122,26 +147,36 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
   const dragDepth = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Each file is turned into text server-side (/api/janus/extract) as soon
-  // as it's attached, so sending the question doesn't wait on parsing.
   function addFiles(files: FileList | File[]) {
     const room = MAX_ATTACHMENTS - attachments.length;
     const picked = Array.from(files).slice(0, Math.max(0, room));
     if (Array.from(files).length > picked.length) {
       setError(`Up to ${MAX_ATTACHMENTS} files can be attached to one question.`);
     }
+    let total = attachments.reduce((sum, a) => sum + (a.status === "error" ? 0 : a.size), 0);
     for (const file of picked) {
       const id = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
-      setAttachments((prev) => [...prev, { id, name: file.name, status: "reading" }]);
-      const form = new FormData();
-      form.append("file", file);
-      fetch("/api/janus/extract", { method: "POST", body: form })
-        .then(async (res) => {
-          const data = await res.json().catch(() => null);
-          if (!res.ok) throw new Error(data?.error ?? "Couldn't read this file");
-          setAttachments((prev) =>
-            prev.map((a) => (a.id === id ? { ...a, status: "ready", text: data.text, truncated: data.truncated } : a))
-          );
+      const kind = attachmentKind(file);
+      const fail = (error: string) =>
+        setAttachments((prev) => [...prev, { id, name: file.name, size: file.size, status: "error", error }]);
+      if (!kind) {
+        fail("Janus can read PDFs, images (PNG, JPG, WEBP) and TXT, CSV, MD, JSON files");
+        continue;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        fail("Files up to 10 MB can be attached");
+        continue;
+      }
+      if (total + file.size > MAX_TOTAL_BYTES) {
+        fail("Attachments can total up to 15 MB per question");
+        continue;
+      }
+      total += file.size;
+      setAttachments((prev) => [...prev, { id, name: file.name, size: file.size, status: "reading", kind }]);
+      (kind === "text" ? file.text() : readAsDataUrl(file))
+        .then((data) => {
+          if (kind === "text" && !data.trim()) throw new Error("This file is empty");
+          setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "ready", data } : a)));
         })
         .catch((err) => {
           setAttachments((prev) =>
@@ -203,7 +238,7 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
       query.trim() || (readyAttachments.length ? `Summarise the attached file${readyAttachments.length > 1 ? "s" : ""}.` : "");
     if (!question || isAsking || isReadingFiles) return;
 
-    const sent = readyAttachments.map((a) => ({ name: a.name, text: a.text ?? "" }));
+    const sent = readyAttachments.map((a) => ({ name: a.name, kind: a.kind, data: a.data ?? "" }));
     setIsAsking(true);
     setError(null);
     setQuery("");
@@ -400,7 +435,7 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
             {attachments.map((a) => (
               <span
                 key={a.id}
-                title={a.error ?? (a.truncated ? `${a.name} (long file: Janus reads the first part)` : a.name)}
+                title={a.error ?? a.name}
                 className={`flex max-w-[220px] items-center gap-1.5 rounded-lg border px-2 py-1 text-xs ${
                   a.status === "error"
                     ? "border-status-inactive/40 bg-status-inactive/10 text-status-inactive"
@@ -437,7 +472,7 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
             onClick={() => fileInputRef.current?.click()}
             disabled={attachments.length >= MAX_ATTACHMENTS}
             aria-label="Attach a file"
-            title="Attach a file (PDF, TXT, CSV, MD, JSON) or drop it here"
+            title="Attach a PDF, image or text file, or drop it here"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-500 transition-colors hover:bg-base-800 hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Paperclip className="h-4 w-4" />
