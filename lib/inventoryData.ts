@@ -1,8 +1,8 @@
 import type { Unit as PrismaUnit, Project as PrismaProject, PaymentPlan as PrismaPaymentPlan } from "@prisma/client";
 import { prisma } from "./prisma";
 
-export const UNIT_STATUSES = ["available", "reserved", "sold", "blocked"] as const;
-export type UnitStatus = (typeof UNIT_STATUSES)[number];
+import { UNIT_STATUSES, type UnitStatus } from "./inventoryStatuses";
+export { UNIT_STATUSES, type UnitStatus };
 
 export type UiUnit = {
   id: string;

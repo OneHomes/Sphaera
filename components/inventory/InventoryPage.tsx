@@ -2,8 +2,8 @@
 
 import { useRef, useState } from "react";
 import { Plus, Building2, Upload, CheckCircle2 } from "lucide-react";
-import type { UiUnit, UnitStatus } from "@/lib/inventoryData";
-import { UNIT_STATUSES } from "@/lib/inventoryData";
+import type { UiUnit } from "@/lib/inventoryData";
+import { UNIT_STATUSES, type UnitStatus } from "@/lib/inventoryStatuses";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateUnitModal } from "./CreateUnitModal";
 import { plural } from "@/lib/plural";
