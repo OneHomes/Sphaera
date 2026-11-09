@@ -11,13 +11,13 @@ import {
   PhoneOff,
   Sparkles,
   UserCog,
-  Loader2,
   Send,
   ArrowRight,
   Info,
 } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
 import { JanusGlyph } from "@/components/janus/JanusGlyph";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -165,7 +165,7 @@ export function CallWorkspace({ lead }: { lead: Lead }) {
           <div className="mt-2 rounded-lg border border-base-700 bg-base-800 p-3 text-left">
             {isDrafting ? (
               <div className="flex items-center gap-2 py-4 text-xs text-ink-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <JanusOrb state="composing" />
                 Drafting a follow-up…
               </div>
             ) : draftError ? (
@@ -279,7 +279,7 @@ export function CallWorkspace({ lead }: { lead: Lead }) {
           </button>
           {isTipLoading && (
             <div className="mt-2 flex items-center gap-2 text-[11px] text-ink-500">
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <JanusOrb state="listening" />
               Thinking…
             </div>
           )}

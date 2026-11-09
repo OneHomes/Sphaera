@@ -1,6 +1,9 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  // Touch screens fire :hover on tap and leave it stuck; only apply hover
+  // styles where the device can actually hover.
+  future: { hoverOnlyWhenSupported: true },
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -40,14 +43,29 @@ const config: Config = {
       borderRadius: {
         xl2: "1rem",
       },
+      transitionProperty: {
+        // Tailwind's default list plus `scale`, so the global button press
+        // (app/globals.css) eases in on buttons that already use `transition`.
+        DEFAULT:
+          "color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, scale, filter, backdrop-filter",
+      },
+      transitionTimingFunction: {
+        // Strong curves (tokens in app/globals.css): `ease-out-strong` for UI
+        // entering/leaving, `drawer` for sheets.
+        "out-strong": "var(--ease-out)",
+        drawer: "var(--ease-drawer)",
+      },
       keyframes: {
         marquee: {
           "0%": { transform: "translateX(0%)" },
           "100%": { transform: "translateX(-50%)" },
         },
+        // transform, not `left`: animating `left` re-lays-out every frame.
+        // The bar is 35% wide, so 100% of its own width ≈ 35% of the track;
+        // -100% → 286% sweeps it from fully off the left to off the right.
         loadingSweep: {
-          "0%": { left: "-35%" },
-          "100%": { left: "100%" },
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(286%)" },
         },
       },
       animation: {

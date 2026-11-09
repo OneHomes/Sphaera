@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { JanusFeedback } from "@/components/janus/JanusFeedback";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 // PRD AV08 — when rendered with a `userId` + `userName` (Manager/Admin
 // looking at a specific team member, e.g. from Admin Users), this asks
@@ -85,7 +86,7 @@ export function JanusCoachingCard({
       >
         {isAsking ? (
           <>
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <JanusOrb state="working" className="-my-0.5" />
             Thinking…
           </>
         ) : insight ? (

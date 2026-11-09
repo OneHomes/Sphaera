@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Sparkles, Send } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -105,7 +106,8 @@ export function AskYourDataPage() {
               </div>
             ))}
             {loading && (
-              <div className="w-fit rounded-lg bg-base-800 px-3 py-2 text-xs text-ink-500">
+              <div className="flex w-fit items-center gap-2 rounded-lg bg-base-800 px-3 py-2 text-xs text-ink-500">
+                <JanusOrb state="solving" className="-my-0.5" />
                 Analysing the database...
               </div>
             )}

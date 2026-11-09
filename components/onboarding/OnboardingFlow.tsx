@@ -62,9 +62,10 @@ export function OnboardingFlow({
   return (
     <div className="h-screen w-full bg-base-950">
       <div className="h-1 w-full bg-base-800">
+        {/* scaleX, not width: animating width re-lays-out every frame. */}
         <div
-          className="h-1 bg-status-active transition-all"
-          style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }}
+          className="h-1 w-full origin-left bg-status-active transition-transform duration-300 ease-out-strong"
+          style={{ transform: `scaleX(${(stepIndex + 1) / steps.length})` }}
         />
       </div>
 

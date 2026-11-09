@@ -10,7 +10,6 @@ import {
   DollarSign,
   Target,
   Paperclip,
-  Loader2,
   ListPlus,
   History,
   Plus,
@@ -20,6 +19,7 @@ import { PromptCard } from "./PromptCard";
 import { DailyBriefing } from "./DailyBriefing";
 import { ConversationHistory } from "./ConversationHistory";
 import { JanusGlyph } from "./JanusGlyph";
+import { JanusOrb } from "./JanusOrb";
 import { JanusFeedback } from "./JanusFeedback";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
 
@@ -263,7 +263,7 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
 
       {isAsking && (
         <div className="flex items-center gap-2 text-sm text-ink-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <JanusOrb state="working" />
           Janus is thinking…
         </div>
       )}

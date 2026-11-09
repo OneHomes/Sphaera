@@ -3,6 +3,10 @@
 @tailwind utilities;
 
 :root {
+  /* Strong ease-out for UI entering/leaving; built-in `ease-out` is too weak. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  /* iOS-like curve for drawers and sheets. */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --font-display: -apple-system, "Segoe UI", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-body: -apple-system, "Segoe UI", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -77,6 +81,153 @@ body {
   color: rgb(var(--ink-50));
 }
 
+/* Mobile platform baseline: no grey tap flash, no font inflation in
+   landscape, no pull-to-refresh/rubber-band on the app shell (it scrolls
+   inside <main>, not the page), no 300ms tap delay on controls. */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+/* iOS zooms into any field under 16px and never zooms back out. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Press feedback on every button. Uses the individual `scale` property so
+   it composes with Tailwind's translate/rotate transforms instead of
+   replacing them; `scale` is in the default transition list
+   (tailwind.config.ts), so buttons with `transition` ease into it. */
+@media (prefers-reduced-motion: no-preference) {
+  button:not(:disabled):active {
+    scale: 0.97;
+  }
+}
+
+/* Hand-rolled modals (`fixed inset-0 … bg-black/60` overlay + panel) used
+   to appear in a single frame. Fade the overlay and settle the panel from
+   0.96 — entry only, since they unmount instantly on close (a fast exit is
+   what the motion rules want anyway). Browsers without @starting-style just
+   show them as before. */
+.fixed.inset-0.bg-black\/60 {
+  transition: opacity 200ms var(--ease-out);
+}
+/* Most modal panels had no height cap: on a phone with the keyboard open,
+   the top and the submit button sat off-screen with no way to scroll. */
+.fixed.inset-0.bg-black\/60 > * {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@starting-style {
+  .fixed.inset-0.bg-black\/60 {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fixed.inset-0.bg-black\/60 > * {
+    transition: scale 200ms var(--ease-out);
+  }
+  @starting-style {
+    .fixed.inset-0.bg-black\/60 > * {
+      scale: 0.96;
+    }
+  }
+}
+
+/* ---------- Glass theme (html.glass, set in app/layout.tsx) ----------
+   Translucent surfaces over a soft ambient gradient. Tailwind's base-*
+   colours are `rgb(var(--base-N) / var(--tw-bg-opacity))`, so lowering the
+   opacity variable makes every existing panel glass without touching
+   component code (hover colours stay translucent the same way).
+   Backdrop blur is deliberately limited to surfaces that float over other
+   content (dropdowns, sticky headers, popovers, modal overlays): in-flow
+   cards sit on a smooth gradient where blur changes nothing visible, and
+   hundreds of blurred cards would cost frames on every scroll. */
+html.glass {
+  --glass-chrome: 0.5;
+  --glass-panel: 0.62;
+  --glass-card: 0.5;
+  --glass-float: 0.82;
+  --glass-border: 0.55;
+  --glass-highlight: 255 255 255 / 0.06;
+  --glass-glow-a: 0.26;
+  --glass-glow-b: 0.22;
+  --glass-glow-c: 0.16;
+}
+html.glass.light {
+  --glass-chrome: 0.55;
+  --glass-panel: 0.68;
+  --glass-card: 0.6;
+  --glass-float: 0.88;
+  --glass-highlight: 255 255 255 / 0.7;
+  --glass-glow-a: 0.2;
+  --glass-glow-b: 0.16;
+  --glass-glow-c: 0.14;
+}
+
+html.glass body {
+  background-image:
+    radial-gradient(60rem 40rem at 8% -10%, rgb(var(--status-active) / var(--glass-glow-a)), transparent 60%),
+    radial-gradient(52rem 38rem at 100% 0%, rgb(139 92 246 / var(--glass-glow-b)), transparent 60%),
+    radial-gradient(56rem 42rem at 55% 115%, rgb(14 165 233 / var(--glass-glow-c)), transparent 60%);
+}
+
+html.glass .glass-root {
+  background-color: transparent;
+}
+html.glass .bg-base-950 {
+  --tw-bg-opacity: var(--glass-chrome);
+}
+/* Surfaces pinned dark (`.theme-dark`, the side rails) turn a muddy grey
+   when half-transparent over the light theme's paper; keep them near-solid. */
+html.glass .theme-dark:is(.bg-base-950, .bg-base-900) {
+  --tw-bg-opacity: 0.92;
+}
+html.glass .bg-base-900,
+html.glass [class*="hover:bg-base-9"]:hover {
+  --tw-bg-opacity: var(--glass-panel);
+}
+html.glass .bg-base-800,
+html.glass .bg-base-700,
+html.glass [class*="hover:bg-base-8"]:hover,
+html.glass [class*="hover:bg-base-7"]:hover {
+  --tw-bg-opacity: var(--glass-card);
+}
+html.glass .border-base-700,
+html.glass .border-base-600 {
+  --tw-border-opacity: var(--glass-border);
+}
+
+/* Cards and panels: a hairline top highlight and a soft drop shadow give
+   the "pane of glass" edge. */
+html.glass :is(.rounded-xl, .rounded-xl2, .rounded-2xl).bg-base-900 {
+  box-shadow:
+    inset 0 1px 0 rgb(var(--glass-highlight)),
+    0 12px 32px -16px rgb(0 0 0 / 0.45);
+}
+
+/* Anything floating over other content needs to stay readable: more
+   opaque, and blurred so the content behind it doesn't show through. */
+html.glass :is(.absolute, .fixed, .sticky):is(.bg-base-950, .bg-base-900, .bg-base-800) {
+  --tw-bg-opacity: var(--glass-float);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+html.glass .fixed.inset-0.bg-black\/60 {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -94,14 +245,28 @@ body {
   outline: none !important;
 }
 
+/* Reduced motion means gentler, not none: drop movement (the leaderboard
+   marquee, slide/zoom entrances, smooth scrolling) but keep fades, colour
+   changes and spinners. Zeroing every animation used to freeze each
+   `animate-spin` loader after one frame, so loading looked stuck. Press
+   scale and modal settle are already gated on no-preference above. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .animate-marquee {
+    animation: none !important;
+  }
+  .animate-in,
+  .animate-out {
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
   }
 }
 

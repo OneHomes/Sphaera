@@ -57,8 +57,8 @@ function StatusToggle({ source, discontinued }: { source: string; discontinued: 
       }`}
     >
       <span
-        className={`absolute top-0.5 h-3 w-3 rounded-full bg-ink-50 transition ${
-          on && !discontinued ? "left-4" : "left-0.5"
+        className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-ink-50 transition-transform duration-150 ease-out-strong ${
+          on && !discontinued ? "translate-x-3.5" : "translate-x-0"
         }`}
       />
     </button>

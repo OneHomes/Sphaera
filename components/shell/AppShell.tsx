@@ -17,7 +17,7 @@ export function AppShell({
   canAccessFinance?: boolean;
 }) {
   return (
-    <div className="flex h-screen w-full bg-base-950">
+    <div className="glass-root flex h-dvh w-full bg-base-950">
       <LeftRail role={session?.user?.role} canAccessFinance={canAccessFinance} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopLeaderboardBar session={session} leaderboard={leaderboard} />

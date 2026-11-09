@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { X, Loader2, Sparkles, Video, FileText } from "lucide-react";
+import { X, Sparkles, Video, FileText } from "lucide-react";
 import type { GraphCalendarEvent } from "@/lib/graph";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 export function MeetingPrepModal({
   event,
@@ -137,7 +138,7 @@ export function MeetingPrepModal({
           <>
             {isLoading && (
               <div className="flex items-center gap-2 py-6 text-sm text-ink-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <JanusOrb state="composing" />
                 Janus is preparing your brief…
               </div>
             )}
@@ -176,7 +177,7 @@ export function MeetingPrepModal({
 
             {isRecapLoading && (
               <div className="flex items-center gap-2 py-6 text-sm text-ink-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <JanusOrb state="composing" />
                 Fetching transcript and asking Janus to summarize…
               </div>
             )}

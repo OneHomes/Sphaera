@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, FileText, Loader2 } from "lucide-react";
+import { X, FileText } from "lucide-react";
 import { RichTextEditor } from "@/components/journal/RichTextEditor";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 export function ProposalModal({
   leadId,
@@ -82,8 +83,8 @@ export function ProposalModal({
         </div>
 
         {isGenerating ? (
-          <div className="flex items-center gap-2 py-10 text-sm text-ink-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="flex flex-col items-center gap-3 py-10 text-center text-sm text-ink-500">
+            <JanusOrb state="composing" size={64} />
             Janus is drafting a proposal from this lead's record and reference documents…
           </div>
         ) : (

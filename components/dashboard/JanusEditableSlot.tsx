@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Paperclip, Loader2 } from "lucide-react";
+import { Paperclip } from "lucide-react";
 import { JanusGlyph } from "@/components/janus/JanusGlyph";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 // NOTE: This does not literally reconfigure the dashboard's widget layout
 // (that would need a dynamic widget-config engine, a separate, larger
@@ -66,7 +67,7 @@ export function JanusEditableSlot() {
       <form onSubmit={handleSubmit} className="w-full max-w-xs">
         <div className="flex items-center gap-2 rounded-full border border-base-700 bg-base-800 px-3 py-2 transition focus-within:border-status-active">
           {isAsking ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-ink-500" />
+            <JanusOrb state="working" className="-my-0.5" />
           ) : (
             <Paperclip className="h-3.5 w-3.5 shrink-0 text-ink-500" />
           )}

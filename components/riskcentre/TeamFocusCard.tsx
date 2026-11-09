@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Target, Loader2, Sparkles } from "lucide-react";
+import { Target, Sparkles } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 type FocusRow = {
   id: string;
@@ -166,7 +167,7 @@ export function TeamFocusCard() {
             disabled={isProposing}
             className="flex items-center gap-1 rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-60"
           >
-            {isProposing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            {isProposing ? <JanusOrb state="composing" className="-my-1" /> : <Sparkles className="h-3 w-3" />}
             Propose
           </button>
         </div>

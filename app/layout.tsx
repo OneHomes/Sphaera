@@ -15,7 +15,8 @@ export default function RootLayout({
 }) {
   return (
     // suppressHydrationWarning: THEME_INIT_SCRIPT may add `light` to <html> before React hydrates.
-    <html lang="en" suppressHydrationWarning>
+    // `glass`: translucent-surface theme (app/globals.css); remove the class to go back to flat.
+    <html lang="en" className="glass" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
