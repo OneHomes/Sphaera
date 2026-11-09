@@ -18,11 +18,15 @@ export function TeamActivityTable({ rows }: { rows: TeamActivityRow[] }) {
         <tbody>
           {rows.map((row) => (
             <tr key={row.id} className="border-t border-base-700 text-ink-300">
-              <td className="max-w-[90px] truncate py-2 pr-3 text-ink-50">{row.name}</td>
-              <td className="max-w-[120px] truncate py-2 pr-3">{row.email}</td>
+              <td className="py-2 pr-3 text-ink-50">
+                <div className="max-w-[160px] truncate" title={row.name}>{row.name}</div>
+              </td>
+              <td className="py-2 pr-3">
+                <div className="max-w-[200px] truncate" title={row.email}>{row.email}</div>
+              </td>
               <td className="py-2 pr-3">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${
                     row.isActive
                       ? "bg-status-active/15 text-status-active"
                       : "bg-status-alert/15 text-status-alert"
@@ -31,7 +35,7 @@ export function TeamActivityTable({ rows }: { rows: TeamActivityRow[] }) {
                   {row.isActive ? "Active" : "Idle"}
                 </span>
               </td>
-              <td className="py-2 text-right text-ink-50">{row.productivityIndex}</td>
+              <td className="py-2 text-right tabular-nums text-ink-50">{row.productivityIndex}</td>
             </tr>
           ))}
           {rows.length === 0 && (

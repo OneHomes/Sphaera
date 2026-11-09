@@ -13,6 +13,8 @@ import {
 import { TrendingUp, DollarSign, Hash } from "lucide-react";
 import { WidgetCard } from "./WidgetCard";
 import type { MonthlySalesPoint } from "@/lib/dashboardMetrics";
+import { formatMoney, formatMoneyAxis } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 type ViewMode = "value" | "count";
 
@@ -52,7 +54,7 @@ export function MonthlySalesChart({ data }: { data: MonthlySalesPoint[] }) {
           <YAxis
             stroke="#71717a"
             fontSize={10}
-            tickFormatter={(v) => (mode === "value" ? `$${(v / 1000).toFixed(0)}K` : v)}
+            tickFormatter={(v) => (mode === "value" ? formatMoneyAxis(Number(v)) : v)}
           />
           <Tooltip
             contentStyle={{
@@ -61,7 +63,7 @@ export function MonthlySalesChart({ data }: { data: MonthlySalesPoint[] }) {
               fontSize: 11,
             }}
             formatter={(value) => [
-              mode === "value" ? `$${Number(value).toLocaleString()}` : `${value} deals`,
+              mode === "value" ? formatMoney(Number(value)) : plural(Number(value), "deal"),
               mode === "value" ? "Closed Value" : "Closed Deals",
             ]}
           />

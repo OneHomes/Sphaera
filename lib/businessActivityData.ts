@@ -9,6 +9,7 @@
 // Real campaign-level data (Salesforce/Meta Ads/Google Ads) is likewise
 // confirmed but deliberately not integrated until the data audit hands
 // off connection details.
+import { formatMoney as formatMoneyShared } from "./money";
 
 export type AgentStatus = "Active" | "Inactive";
 export type Tier = "Gold" | "Silver" | "Bronze";
@@ -17,7 +18,7 @@ export type TrendDirection = "up" | "down" | "flat";
 export type CampaignHealth = "Good" | "Satisfactory" | "Alert" | "Discontinued";
 
 export function formatMoney(value: number): string {
-  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoneyShared(value, { decimals: 2 });
 }
 
 // Deterministic string hash used to pick stable mock values per entity

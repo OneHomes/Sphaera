@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { getLeadScopeWhere, getOpportunityScopeWhere } from "./authz";
 import type { AuthUser } from "./authz";
+import { formatMoney } from "./money";
 
 // PRD 5.2 — the 18 named Pilot Success Metrics. Computed for real from
 // whatever real data exists today; metrics with no real data source yet
@@ -122,7 +123,7 @@ export async function getPilotMetrics(authUser: AuthUser): Promise<PilotMetric[]
   // ---- 18: AEX participation / challenge completion / tier progression ----
   const usersWithPoints = new Set(pointEvents.map((e) => e.userId)).size;
 
-  const fmt = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const fmt = (n: number) => formatMoney(n);
 
   return [
     {

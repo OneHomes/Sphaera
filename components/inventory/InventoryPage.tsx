@@ -6,6 +6,7 @@ import type { UiUnit, UnitStatus } from "@/lib/inventoryData";
 import { UNIT_STATUSES } from "@/lib/inventoryData";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateUnitModal } from "./CreateUnitModal";
+import { plural } from "@/lib/plural";
 
 type ProjectSummary = { id: string; name: string; unitCount: number };
 
@@ -124,7 +125,7 @@ export function InventoryPage({
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Inventory</h1>
           <p className="mt-1 text-sm text-ink-500">
-            {units.length} unit(s) across {projects.length} project(s)
+            {plural(units.length, "unit")} across {plural(projects.length, "project")}
           </p>
         </div>
         {isAdmin && (

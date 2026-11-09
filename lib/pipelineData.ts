@@ -7,6 +7,7 @@
 // and "expression of interest/reservation pending" folds into
 // "Negotiation". One Homes should confirm final stage naming before UAT
 // (this is explicitly flagged as an open decision in PRD Section 29).
+import { formatMoney as formatMoneyShared } from "./money";
 
 export type OpportunityStage =
   | "New"
@@ -67,6 +68,5 @@ export const lossReasons = [
 ];
 
 export function formatMoney(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  return `$${(value / 1_000).toFixed(0)}K`;
+  return formatMoneyShared(value, { compact: true });
 }

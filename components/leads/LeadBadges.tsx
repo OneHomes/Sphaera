@@ -15,7 +15,7 @@ const priorityStyles: Record<LeadPriority, string> = {
 export function PriorityBadge({ priority }: { priority: LeadPriority }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${priorityStyles[priority]}`}
+      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${priorityStyles[priority]}`}
     >
       {priority}
     </span>
@@ -39,7 +39,7 @@ function stageColorClass(stage: LeadStage): string {
 export function StageBadge({ stage }: { stage: LeadStage }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageColorClass(stage)}`}
+      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${stageColorClass(stage)}`}
     >
       {stage}
     </span>
@@ -95,7 +95,7 @@ const assignmentStyles: Record<AssignmentStatus, string> = {
 export function AssignmentBadge({ status }: { status: AssignmentStatus }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${assignmentStyles[status]}`}
+      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${assignmentStyles[status]}`}
     >
       {status}
     </span>

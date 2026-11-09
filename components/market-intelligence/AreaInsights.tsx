@@ -16,6 +16,7 @@ import CoverageMap from "./CoverageMap";
 import { data, observations, cities, segments, queryRows, money, dateLabel, periodLabel, coverage, parseFilters, type Currency, type Observation } from "@/lib/marketIntelligence/insights";
 
 import "@/app/market-intelligence/insights.css";
+import { plural } from "@/lib/plural";
 
 function Picker({ label, value, onChange, options }: { label: string; value: string; onChange: (s: string) => void; options: [string, string][] }) {
   return (
@@ -241,7 +242,7 @@ export default function AreaInsights({ initialTab = "dashboard" }: { initialTab?
               </TabsTrigger>
             </TabsList>
             <span>
-              {observations.length.toLocaleString()} observations · {cities.length} established cities
+              {plural(observations.length, "observation")} · {plural(cities.length, "established city", "established cities")}
             </span>
           </div>
           <TabsContent value="explore">
@@ -525,7 +526,7 @@ export default function AreaInsights({ initialTab = "dashboard" }: { initialTab?
                 <div className="history-coverage">
                   <h3>Historical index coverage</h3>
                   <p>
-                    {histories.length} histories, {histories.reduce((n, s) => n + s.points.length, 0).toLocaleString()} price observations across {new Set(histories.map((s) => s.city)).size} cities.
+                    {plural(histories.length, "history", "histories")}, {plural(histories.reduce((n, s) => n + s.points.length, 0), "price observation")} across {plural(new Set(histories.map((s) => s.city)).size, "city", "cities")}.
                     Monthly tables and sparse historical reference points are labelled separately.
                   </p>
                   <a className="text-link" href="/market-intelligence/index">

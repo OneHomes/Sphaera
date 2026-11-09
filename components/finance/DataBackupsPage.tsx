@@ -21,7 +21,7 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-ink-50">{value}</div>
       <p className="mt-1 text-[11px] text-ink-500">{detail}</p>
     </div>
   );
@@ -285,7 +285,7 @@ export function DataBackupsPage({
                       <input
                         value={draftBudget}
                         onChange={(e) => setDraftBudget(e.target.value)}
-                        type="number"
+                        type="number" inputMode="decimal"
                         placeholder="Operating budget"
                         className="w-28 rounded-lg border border-base-700 bg-base-800 px-2 py-1 text-xs text-ink-50 outline-none"
                       />

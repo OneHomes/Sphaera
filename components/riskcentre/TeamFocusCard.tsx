@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Target, Sparkles } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { JanusOrb } from "@/components/janus/JanusOrb";
+import { plural } from "@/lib/plural";
 
 type FocusRow = {
   id: string;
@@ -123,7 +124,7 @@ export function TeamFocusCard() {
             <>
               <p className="text-ink-50">
                 Shift focus to {dimensionLabel[proposal.dimension ?? ""] ?? proposal.dimension}:{" "}
-                <span className="font-medium">{proposal.value}</span> for {proposal.durationDays} day(s)
+                <span className="font-medium">{proposal.value}</span> for {plural(proposal.durationDays, "day")}
               </p>
               <p className="mt-1 text-ink-300">{proposal.reason}</p>
               <div className="mt-2 flex gap-2">

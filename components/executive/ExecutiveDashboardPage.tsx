@@ -10,11 +10,10 @@ import {
 } from "lucide-react";
 import type { ExecutiveSummary } from "@/lib/executiveDashboard";
 import type { PilotMetric } from "@/lib/pilotMetrics";
+import { formatMoney } from "@/lib/money";
 
 function formatCurrency(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value}`;
+  return formatMoney(value, { compact: true });
 }
 
 function StatBox({

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Swords } from "lucide-react";
+import { ChevronLeft, ChevronRight, Swords, User } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { initials } from "@/lib/initials";
 import type { AexLeaderboardRow } from "./AexDashboard";
 
 export function ChallengePicker({
@@ -78,14 +79,14 @@ export function ChallengePicker({
                       Challenged
                     </span>
                   )}
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-base-700 text-sm font-semibold text-ink-50">
-                    {row.name.charAt(0)}
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-base-700 text-sm font-semibold text-ink-50">
+                    {initials(row.name) || <User className="h-5 w-5" />}
                   </div>
-                  <p className="text-xs font-medium text-ink-50">
+                  <p className="line-clamp-2 w-full break-words text-xs font-medium text-ink-50" title={row.name}>
                     {row.name}
                   </p>
                   <p className="text-[10px] text-ink-500">
-                    {row.points.toLocaleString()} pts
+                    {row.points.toLocaleString("en-US")} pts
                   </p>
                   <span className="text-[9px] text-status-active">
                     #{row.rank}

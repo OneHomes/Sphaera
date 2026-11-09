@@ -15,6 +15,7 @@ import {
   type FundName,
 } from "@/components/finance/BanksPage";
 import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "@/components/finance/ShowMore";
+import { plural } from "@/lib/plural";
 
 type FundBankRow = { bankId: string; amount: number; currency: string | null; usdEquivalent: number | null };
 type FundRow = { fund: FundName; banks: FundBankRow[] };
@@ -187,7 +188,7 @@ export function TreasuryFundsPage({ state: initialState, initialForecast }: { st
                 {hasFX ? trMoney(filtered.reduce((v, x) => v + x.allocations[f] * (x.usdPerUnit ?? 0), 0), "USD") : "FX rates required"}
               </p>
               <p className="mt-1 text-xs text-ink-300">
-                {Array.from(native.entries()).map(([c, n]) => trMoney(n, c)).join(" · ") || "No allocated funds yet"} · {filtered.length} banks
+                {Array.from(native.entries()).map(([c, n]) => trMoney(n, c)).join(" · ") || "No allocated funds yet"} · {plural(filtered.length, "bank")}
               </p>
             </button>
           );

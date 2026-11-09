@@ -60,12 +60,17 @@ export function AddLeadModal({ onClose }: { onClose: () => void }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Full name"
+            autoComplete="name"
             className="w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500"
           />
           <input
             value={contact}
             onChange={(e) => setContact(e.target.value)}
             placeholder="Phone or email"
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             className="w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500"
           />
           <input

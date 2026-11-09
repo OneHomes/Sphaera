@@ -96,12 +96,16 @@ export function WhatsAppConnect() {
       {step === "form" && (
         <form onSubmit={handleRequestCode} className="flex gap-2">
           <input
+            type="tel"
+            inputMode="numeric"
             value={countryCode}
             onChange={(e) => setCountryCode(e.target.value)}
             placeholder="92"
             className="w-14 rounded-lg border border-base-700 bg-base-800 px-2 py-2 text-center text-xs text-ink-50 outline-none"
           />
           <input
+            type="tel"
+            autoComplete="tel-national"
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value)}
             placeholder="3001234567"

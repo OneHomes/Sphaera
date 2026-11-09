@@ -5,6 +5,7 @@ import { Megaphone } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { CampaignHealth } from "@/lib/businessActivityData";
 import { TrendIndicator } from "./TrendIndicator";
+import { plural } from "@/lib/plural";
 
 // Named "Campaign Activity" to match the reference UI, but we don't have
 // real campaign-level data yet — we DO have real Lead.source values.
@@ -105,7 +106,7 @@ export function CampaignActivityTable({
                     </div>
                   </td>
                   <td className="py-2 pr-3 text-ink-500">
-                    {row.qualifiedCount}/{row.leadCount} leads qualified (
+                    {row.qualifiedCount.toLocaleString("en-US")}/{plural(row.leadCount, "lead")} qualified (
                     {row.qualifiedPercent}%)
                   </td>
                   <td className="py-2 pr-3 text-right text-ink-50">

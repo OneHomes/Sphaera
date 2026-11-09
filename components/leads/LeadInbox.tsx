@@ -14,6 +14,7 @@ import {
   EngagementIndicator,
   AssignmentBadge,
 } from "./LeadBadges";
+import { plural } from "@/lib/plural";
 
 // Filtering, sorting, and pagination all happen server-side now (see
 // app/(app)/leads/page.tsx + lib/leadFilterQuery.ts) — `initialLeads` is
@@ -215,7 +216,7 @@ export function LeadInbox({
     const target = assignableUsers.find((u) => u.id === bulkTargetId);
     if (!target || selectedIds.size === 0 || isBulkReassigning) return;
     const handoverNote = window.prompt(
-      `Reassigning ${selectedIds.size} lead(s) to ${target.name}. Add a handover note (optional):`,
+      `Reassigning ${plural(selectedIds.size, "lead")} to ${target.name}. Add a handover note (optional):`,
       ""
     );
     setIsBulkReassigning(true);
@@ -236,7 +237,7 @@ export function LeadInbox({
       );
       const failed = results.filter((r) => r.status === "rejected").length;
       if (failed > 0) {
-        window.alert(`${failed} of ${selectedIds.size} leads couldn't be reassigned (capacity or already claimed).`);
+        window.alert(`${failed.toLocaleString("en-US")} of ${plural(selectedIds.size, "lead")} couldn't be reassigned (capacity or already claimed).`);
       }
       setSelectedIds(new Set());
       setBulkTargetId("");
@@ -287,7 +288,7 @@ export function LeadInbox({
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Lead Inbox</h1>
           <p className="mt-1 text-sm text-ink-500">
-            {totalCount.toLocaleString()} lead{totalCount === 1 ? "" : "s"} match these filters
+            {plural(totalCount, "lead")} match these filters
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -314,7 +315,7 @@ export function LeadInbox({
 
       {isManagementView && selectedIds.size > 0 && assignableUsers.length > 0 && (
         <div className="flex items-center gap-2 border-b border-base-700 bg-base-900 px-6 py-2.5">
-          <span className="text-xs text-ink-300">{selectedIds.size} selected</span>
+          <span className="text-xs text-ink-300">{selectedIds.size.toLocaleString("en-US")} selected</span>
           <select
             value={bulkTargetId}
             onChange={(e) => setBulkTargetId(e.target.value)}
@@ -396,18 +397,20 @@ export function LeadInbox({
                   </td>
                 )}
                 <td className="py-2.5 pr-3">
-                  <div className="font-medium text-ink-50">{lead.name}</div>
-                  <div className="text-ink-500">{lead.contact}</div>
+                  <div className="max-w-[240px] truncate font-medium text-ink-50" title={lead.name}>{lead.name}</div>
+                  <div className="max-w-[240px] truncate text-ink-500" title={lead.contact}>{lead.contact}</div>
                   {lead.email && lead.email !== lead.contact && (
-                    <div className="text-ink-500">{lead.email}</div>
+                    <div className="max-w-[240px] truncate text-ink-500" title={lead.email}>{lead.email}</div>
                   )}
                 </td>
                 <td className="py-2.5 pr-3">
                   <div>{lead.source}</div>
                   <div className="text-ink-500">{lead.market}</div>
                 </td>
-                <td className="py-2.5 pr-3 max-w-[160px] truncate" title={lead.projectInterest}>
-                  {lead.projectInterest}
+                <td className="py-2.5 pr-3">
+                  <div className="max-w-[160px] truncate" title={lead.projectInterest}>
+                    {lead.projectInterest}
+                  </div>
                 </td>
                 <td className="py-2.5 pr-3">
                   <StageBadge stage={lead.stage} />
@@ -448,10 +451,12 @@ export function LeadInbox({
                   {lead.assignedUserName ? (
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-ink-300">
+                        <span className="max-w-[140px] truncate text-[11px] text-ink-300" title={lead.assignedUserName}>
                           {lead.assignedUserName}
                         </span>
-                        <AssignmentBadge status={lead.assignment} />
+                        <span className="shrink-0 whitespace-nowrap">
+                          <AssignmentBadge status={lead.assignment} />
+                        </span>
                         {isManagementView && assignableUsers.length > 0 && (
                           <button
                             onClick={() =>

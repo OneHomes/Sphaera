@@ -13,6 +13,8 @@ import {
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { SupplierSuggestion } from "@/lib/finance/merchantReconcileData";
 import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Direct structural port of the source app's Merchant Reconciliation
 // screen: a shared filter/toolbar (merchant, cost head, financial year,
@@ -92,7 +94,7 @@ const FY_OPTIONS = [
 const SUGGESTION_PAGE_SIZE = 5;
 
 function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value);
 }
 
 function csvEscape(value: string): string {
@@ -1027,7 +1029,7 @@ export function MerchantReconciliationPage({
                     value={invoiceAmount}
                     onChange={(e) => setInvoiceAmount(e.target.value)}
                     placeholder="Amount"
-                    type="number"
+                    type="number" inputMode="decimal"
                     className={inputClass}
                   />
                   <input
@@ -1414,7 +1416,7 @@ function SuggestionCard({
           </p>
         </div>
         <p className="text-[11px] text-ink-500">
-          {group.count} payments · {usd(group.totalUsd)} · {group.aliases.length} names proposed
+          {plural(group.count, "payment")} · {usd(group.totalUsd)} · {plural(group.aliases.length, "name")} proposed
         </p>
       </div>
 

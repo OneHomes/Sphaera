@@ -12,6 +12,7 @@ import {
 import { Clock } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { HourlyPipelinePoint } from "@/lib/agentPerformanceMetrics";
+import { formatMoney, formatMoneyAxis } from "@/lib/money";
 
 export function PipelineByHourChart({ data }: { data: HourlyPipelinePoint[] }) {
   return (
@@ -23,7 +24,7 @@ export function PipelineByHourChart({ data }: { data: HourlyPipelinePoint[] }) {
           <YAxis
             stroke="#71717a"
             fontSize={10}
-            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`}
+            tickFormatter={(v) => formatMoneyAxis(Number(v))}
           />
           <Tooltip
             contentStyle={{
@@ -31,7 +32,7 @@ export function PipelineByHourChart({ data }: { data: HourlyPipelinePoint[] }) {
               border: "1px solid rgb(var(--base-700))",
               fontSize: 11,
             }}
-            formatter={(value) => [`$${Number(value).toLocaleString()}`, "Pipeline moved"]}
+            formatter={(value) => [formatMoney(Number(value)), "Pipeline moved"]}
           />
           <Bar dataKey="value" fill="#14b8a6" radius={[3, 3, 0, 0]} />
         </BarChart>

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
@@ -6,6 +6,13 @@ import { THEME_INIT_SCRIPT } from "@/lib/theme";
 export const metadata: Metadata = {
   title: "Sphaera",
   description: "The Intelligent Revenue Platform",
+};
+
+// resizes-content: the Android keyboard shrinks the layout viewport, as on iOS.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({

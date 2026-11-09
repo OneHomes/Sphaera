@@ -138,9 +138,9 @@ export function ProfileHeader({
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-ink-50">{lead.name}</h1>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="min-w-0 break-words text-xl font-semibold text-ink-50">{lead.name}</h1>
             <StageBadge stage={lead.stage} />
             <select
               value={lead.stage}
@@ -149,7 +149,7 @@ export function ProfileHeader({
                 const newStage = e.target.value as LeadStage;
                 if (newStage !== lead.stage) setPendingStage(newStage);
               }}
-              className="rounded-lg border border-base-700 bg-base-900 px-2 py-1 text-xs text-ink-300 outline-none disabled:opacity-50"
+              className="shrink-0 whitespace-nowrap rounded-lg border border-base-700 bg-base-900 px-2 py-1 text-xs text-ink-300 outline-none disabled:opacity-50"
             >
               {leadStages.map((stage) => (
                 <option key={stage} value={stage}>
@@ -160,14 +160,14 @@ export function ProfileHeader({
             <PriorityBadge priority={lead.priority} />
             {lead.uid && (
               <span
-                className="rounded-full border border-base-700 bg-base-900 px-2 py-0.5 font-mono text-[11px] text-ink-500"
+                className="shrink-0 whitespace-nowrap rounded-full border border-base-700 bg-base-900 px-2 py-0.5 font-mono text-[11px] text-ink-500"
                 title="Sphaera client UID — the reference used for payments and Onyx records"
               >
                 {lead.uid}
               </span>
             )}
           </div>
-          <p className="mt-1 text-sm text-ink-500">
+          <p className="mt-1 text-sm text-ink-500 [overflow-wrap:anywhere]">
             {lead.contact}
             {lead.email && lead.email !== lead.contact && <> · {lead.email}</>} · {lead.source} ·{" "}
             {lead.market}

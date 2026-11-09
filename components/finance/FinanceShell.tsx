@@ -320,8 +320,8 @@ function FinanceActionBar({ departmentLimited }: { departmentLimited: boolean })
   }
 
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-base-800 px-6 py-4">
-      <div>
+    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-base-800 px-4 py-4 md:flex-nowrap md:px-6">
+      <div className="min-w-0">
         <div className="text-[10px] font-medium uppercase tracking-wide text-ink-500">Sphaera / Financial Intelligence</div>
         <h1 className="mt-1 text-xl font-bold text-ink-50">{getPageTitle(pathname)}</h1>
         <p className="mt-1 text-xs text-ink-500">{getPageSubtitle(pathname, filters.fy)}</p>
@@ -367,6 +367,7 @@ export function FinanceShell({
   filterOptions: FinanceFilterOptions;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [banksOpen, setBanksOpen] = useState(
     pathname === "/finance/banks" || pathname === "/finance/banks/funds"
   );
@@ -401,12 +402,16 @@ export function FinanceShell({
   }
 
   const banksActive = pathname === "/finance/banks" || pathname === "/finance/banks/funds";
+  // Same screens, same order as the sidebar, flattened for the phone picker.
+  const mobileNav = order
+    .filter(isVisible)
+    .flatMap((id) => (id === BANKS_ID ? BANK_CHILDREN : FINANCE_NAV.filter((x) => x.href === id)));
 
   return (
     <div className="flex h-full min-h-0 w-full">
       <nav
         aria-label="Finance"
-        className="theme-dark flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-700 bg-base-900 p-3"
+        className="theme-dark hidden w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-700 bg-base-900 p-3 md:flex"
       >
         {/* The main Sphaera rail is hidden inside Finance (LeftRail), so this is the way back out. */}
         <Link
@@ -468,6 +473,29 @@ export function FinanceShell({
         <SidebarEditor order={order} visible={isVisible} onSave={saveOrder} onClose={() => setEditorOpen(false)} />
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        {/* Below md the 224px sidebar leaves no room for the screen, so it collapses to a picker. */}
+        <div className="flex items-center gap-2 border-b border-base-700 bg-base-900 px-4 py-2 md:hidden">
+          <Link
+            href="/dashboard"
+            aria-label="Back to Apex"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-base-700 text-ink-300 hover:bg-base-800 hover:text-ink-50"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <select
+            aria-label="Finance screen"
+            value={mobileNav.some((x) => x.href === pathname) ? pathname : ""}
+            onChange={(e) => e.target.value && router.push(e.target.value)}
+            className="h-10 min-w-0 flex-1 rounded-lg border border-base-700 bg-base-800 px-2 text-base text-ink-50 outline-none"
+          >
+            {!mobileNav.some((x) => x.href === pathname) && <option value="">Choose a screen…</option>}
+            {mobileNav.map((item) => (
+              <option key={item.href} value={item.href}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <Suspense fallback={null}>
           <FinanceDataProvider>
           <FinanceFilterProvider>

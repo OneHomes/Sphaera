@@ -170,7 +170,7 @@ export function ActivityTimeline({ events }: { events: TimelineEvent[] }) {
           Activity timeline
           {events.length > 0 && (
             <span className="text-xs font-normal text-ink-500">
-              ({filtered.length}/{events.length})
+              ({filtered.length.toLocaleString("en-US")}/{events.length.toLocaleString("en-US")})
             </span>
           )}
         </h2>
@@ -290,7 +290,7 @@ export function ActivityTimeline({ events }: { events: TimelineEvent[] }) {
                           >
                             <Icon className="h-3 w-3" />
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-xs text-ink-300">
+                          <span className="min-w-0 flex-1 truncate text-xs text-ink-300" title={firstLine(event.summary)}>
                             {firstLine(event.summary)}
                           </span>
                           <span className="shrink-0 text-[11px] text-ink-500">{event.timestamp}</span>

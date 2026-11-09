@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import type { TargetWithProgress } from "@/lib/targetTracker";
 import { CreateTargetModal } from "./CreateTargetModal";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 function formatValue(metric: string, value: number): string {
   if (metric === "revenue") {
-    return `$${value.toLocaleString()}`;
+    return formatMoney(value);
   }
   return value.toLocaleString();
 }
@@ -109,7 +111,7 @@ export function TargetsPage({
               />
             </div>
             <p className="mt-2 text-[11px] text-ink-500">
-              {target.percentComplete}% complete · {target.daysRemaining} days
+              {target.percentComplete}% complete · {plural(target.daysRemaining, "day")}
               left ·{" "}
               <span
                 className={

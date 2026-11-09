@@ -125,7 +125,7 @@ export function CreateTargetModal({
           </div>
 
           <input
-            type="number"
+            type="number" inputMode="decimal"
             value={targetValue}
             onChange={(e) => setTargetValue(e.target.value)}
             placeholder="Target value (e.g. 500000 or 50)"

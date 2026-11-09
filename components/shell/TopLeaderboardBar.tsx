@@ -6,6 +6,7 @@ import { SignOutButton } from "./SignOutButton";
 import { SphaeraGlyph } from "./LeftRail";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "@/components/providers/ThemeToggle";
+import { formatMoney } from "@/lib/money";
 export type RevenueLeaderboardEntry = {
   id: string;
   name: string;
@@ -33,9 +34,7 @@ const DEMO_FALLBACK_LEADERBOARD: RevenueLeaderboardEntry[] = [
 ];
 
 function formatCompactCurrency(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value}`;
+  return formatMoney(value, { compact: true });
 }
 
 export function TopLeaderboardBar({

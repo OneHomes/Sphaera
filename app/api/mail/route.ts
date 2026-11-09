@@ -6,6 +6,7 @@ import {
   type MailFolder,
 } from "@/lib/graph";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { sanitizeMailMessages } from "@/lib/sanitizeHtml";
 
 const VALID_FOLDERS = MAIL_FOLDERS.map((f) => f.key);
 
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
 
       try {
         const messages = await listMailMessages(session.accessToken, 25, folder);
-        return NextResponse.json(messages);
+        return NextResponse.json(sanitizeMailMessages(messages));
       } catch (err) {
         console.error(`Failed to fetch mail (folder=${folder}):`, err);
         return NextResponse.json(

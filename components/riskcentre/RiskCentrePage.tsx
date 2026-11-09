@@ -50,7 +50,7 @@ export function RiskCentrePage({ alerts }: { alerts: RiskAlert[] }) {
             >
               <Icon className="h-4 w-4 shrink-0 text-ink-300" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-ink-50">
+                <p className="truncate text-xs font-medium text-ink-50" title={alert.title}>
                   {alert.title}
                 </p>
                 <p className="text-[11px] text-ink-500">{alert.subtitle}</p>

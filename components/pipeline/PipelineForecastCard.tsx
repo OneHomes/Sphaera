@@ -2,6 +2,7 @@
 
 import { TrendingUp } from "lucide-react";
 import { pipelineStages, type Opportunity, type OpportunityStage } from "@/lib/pipelineData";
+import { formatMoney } from "@/lib/money";
 
 // PRD 5.2 #11 — "pipeline value and weighted forecast accuracy." Value ×
 // probability, aggregated by stage — derived client-side from the same
@@ -34,7 +35,7 @@ export function PipelineForecastCard({
     .filter((s) => s.count > 0);
 
   const fmt = (n: number) =>
-    n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : `$${Math.round(n).toLocaleString()}`;
+    Math.abs(n) >= 1_000_000 ? formatMoney(n, { compact: true }) : formatMoney(n);
 
   return (
     <div className="mb-4 rounded-xl border border-base-700 bg-base-900 p-4">

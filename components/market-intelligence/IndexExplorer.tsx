@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableHeader, TableHead, TableRow, TableBody, TableCell } from "@/components/ui/table";
 import { data, cities, segments, money, periodLabel, dateLabel, type Currency } from "@/lib/marketIntelligence/insights";
 import { histories, chartData, filterHistories, change, monthNumber, type Metric } from "@/lib/marketIntelligence/indexEngine";
+import { plural } from "@/lib/plural";
 
 const indexSegments: { [key: string]: string } = { houses: "Houses", flats: "Apartments", residential_plots: "Residential Plots", commercial_plots: "Commercial Plots" };
 
@@ -185,7 +186,7 @@ export default function IndexExplorer() {
             )}
             <article>
               <small>OBSERVED HISTORY</small>
-              <strong>{primary.points.length} points</strong>
+              <strong>{plural(primary.points.length, "point")}</strong>
               <span>
                 {periodLabel(primary.points[0].period)} to {periodLabel(latest!.period)}
               </span>

@@ -6,6 +6,8 @@ import { PaymentDetailModal } from "./PaymentDetailModal";
 import { PaymentsTable } from "./PaymentsTable";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
 import { useFilteredFinanceRows } from "./FinanceFilterContext";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Direct structural/content port of the source app's reviewPage()
 // (index.html line 1040) — same 4 KPI cards, same verbatim collections
@@ -14,9 +16,7 @@ import { useFilteredFinanceRows } from "./FinanceFilterContext";
 // table as paymentPage(). Only the visual implementation changes.
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 type RepeatGroup = { key: string; label: string; ids: string[]; amount: number; count: number };
@@ -96,7 +96,7 @@ function ReviewRepeatGroups({
                   {g.label}
                 </strong>
                 <small className="text-[11px] text-ink-500">
-                  {g.count} payments · {usd(g.amount)}
+                  {plural(g.count, "payment")} · {usd(g.amount)}
                 </small>
               </div>
               <button
@@ -121,7 +121,7 @@ function Kpi({ title, value, detail, color }: { title: string; value: string; de
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${color === "amber" ? "text-status-alert" : "text-ink-50"}`}>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${color === "amber" ? "text-status-alert" : "text-ink-50"}`}>
         {value}
       </div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>

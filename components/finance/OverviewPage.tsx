@@ -30,6 +30,8 @@ import {
   relevantMonths,
   reportingRows,
 } from "@/lib/finance/financeReporting";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 type OverheadRule = { costHead: string; costNature: string; costBehaviour: string };
 
@@ -43,9 +45,7 @@ function mo(month: string): string {
 const exactUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 // Port of the source's `.donut-plot .segment:hover` thicker-ring rule.
@@ -102,7 +102,7 @@ function Kpi({
     <div className="relative flex h-full min-h-[150px] flex-col rounded-xl border border-base-700 bg-base-900 p-5 transition hover:border-base-600">
       {href && <span className="absolute right-3 top-3 text-xs text-ink-500">↗</span>}
       <h4 className="pr-4 text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-2 text-xl font-semibold ${colorClass}`}>{value}</div>
+      <div className={`mt-2 text-xl font-semibold tabular-nums ${colorClass}`}>{value}</div>
       <div className="mt-2 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
@@ -264,7 +264,7 @@ export function OverviewPage({
         <Kpi
           title="Cash collections reported"
           value={usd(cash, true)}
-          detail={`${monthRows.filter((m) => m.hasCollections).length} months of collection figures available`}
+          detail={`${plural(monthRows.filter((m) => m.hasCollections).length, "month")} of collection figures available`}
           color="teal"
           href="/finance/budget"
         />
@@ -273,7 +273,7 @@ export function OverviewPage({
           value={budgetedMonths.length ? `${variance >= 0 ? "+" : ""}${usd(variance, true)}` : "Not available"}
           detail={
             budgetOk
-              ? `${budgetedMonths.length} months with actual budgets, ${variance > 0 ? "over" : "under"} budget`
+              ? `${plural(budgetedMonths.length, "month")} with actual budgets, ${variance > 0 ? "over" : "under"} budget`
               : "Clear head/country filters for a total budget comparison"
           }
           color={variance > 0 ? "red" : "teal"}
@@ -282,7 +282,7 @@ export function OverviewPage({
         <Kpi
           title="Historical debt cleared"
           value={usd(debt, true)}
-          detail={`${debtRows.length} payments tagged as prior-year obligations`}
+          detail={`${plural(debtRows.length, "payment")} tagged as prior-year obligations`}
           color="purple"
           href="/finance/historical-debt"
         />
@@ -387,10 +387,10 @@ export function OverviewPage({
                       className="cursor-pointer border-b border-base-800 text-ink-300 hover:bg-base-800 hover:text-ink-50"
                     >
                       <td className="py-1">{mo(m.month)}</td>
-                      <td className="py-1 text-right">{m.hasCollections ? usd(m.collections, true) : "—"}</td>
-                      <td className="py-1 text-right">{usd(m.opex, true)}</td>
-                      <td className="py-1 text-right">{m.budgetAvailable ? usd(m.budget, true) : "—"}</td>
-                      <td className={`py-1 text-right font-medium ${gap === null ? "" : gap < 0 ? "text-status-inactive" : "text-status-active"}`}>
+                      <td className="py-1 text-right tabular-nums">{m.hasCollections ? usd(m.collections, true) : "—"}</td>
+                      <td className="py-1 text-right tabular-nums">{usd(m.opex, true)}</td>
+                      <td className="py-1 text-right tabular-nums">{m.budgetAvailable ? usd(m.budget, true) : "—"}</td>
+                      <td className={`py-1 text-right tabular-nums font-medium ${gap === null ? "" : gap < 0 ? "text-status-inactive" : "text-status-active"}`}>
                         {gap === null ? "—" : `${gap < 0 ? "-" : "+"}${usd(Math.abs(gap), true)}`}
                       </td>
                     </tr>
@@ -398,10 +398,10 @@ export function OverviewPage({
                 })}
                 <tr className="font-semibold text-ink-50">
                   <td className="pt-1.5">Total</td>
-                  <td className="pt-1.5 text-right">{usd(cash, true)}</td>
-                  <td className="pt-1.5 text-right">{usd(monthRows.reduce((s, m) => s + m.opex, 0), true)}</td>
-                  <td className="pt-1.5 text-right">{budgetedMonths.length ? usd(monthRows.reduce((s, m) => s + (m.budgetAvailable ? m.budget : 0), 0), true) : "—"}</td>
-                  <td className={`pt-1.5 text-right ${cash - monthRows.reduce((s, m) => s + m.opex, 0) < 0 ? "text-status-inactive" : "text-status-active"}`}>
+                  <td className="pt-1.5 text-right tabular-nums">{usd(cash, true)}</td>
+                  <td className="pt-1.5 text-right tabular-nums">{usd(monthRows.reduce((s, m) => s + m.opex, 0), true)}</td>
+                  <td className="pt-1.5 text-right tabular-nums">{budgetedMonths.length ? usd(monthRows.reduce((s, m) => s + (m.budgetAvailable ? m.budget : 0), 0), true) : "—"}</td>
+                  <td className={`pt-1.5 text-right tabular-nums ${cash - monthRows.reduce((s, m) => s + m.opex, 0) < 0 ? "text-status-inactive" : "text-status-active"}`}>
                     {cash - monthRows.reduce((s, m) => s + m.opex, 0) < 0 ? "-" : "+"}
                     {usd(Math.abs(cash - monthRows.reduce((s, m) => s + m.opex, 0)), true)}
                   </td>
@@ -468,9 +468,9 @@ export function OverviewPage({
                     <>
                       <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium text-ink-50">{item.name}</span>
+                        <span className="block truncate text-xs font-medium text-ink-50" title={item.name}>{item.name}</span>
                         <span className="block text-[10px] text-ink-500">
-                          {item.count.toLocaleString()} {item.count === 1 ? "payment" : "payments"}
+                          {plural(item.count, "payment")}
                           {!item.other && " · Click to explore"}
                         </span>
                       </span>
@@ -616,12 +616,12 @@ export function OverviewPage({
         </div>
         <div className="rounded-xl border border-base-700 bg-base-900 p-4">
           <p className="text-[10px] uppercase tracking-wide text-ink-500">Priority 02 · Data quality</p>
-          <h4 className="mt-1 text-sm font-medium text-ink-50">{unidentified.length} payments need a cost head</h4>
+          <h4 className="mt-1 text-sm font-medium text-ink-50">{plural(unidentified.length, "payment")} {unidentified.length === 1 ? "needs" : "need"} a cost head</h4>
           <p className="mt-1 text-xs text-ink-500">
             {unidentified.length
               ? `${usd(unidentified.reduce((s, t) => s + t.amount, 0))} cannot be reliably interpreted as an operating expense until verified.`
               : "All current payments have a cost head, continue checking new imports."}
-            {missingBudgetMonths > 0 && ` There are ${missingBudgetMonths} months without operating budgets.`}
+            {missingBudgetMonths > 0 && ` There ${missingBudgetMonths === 1 ? "is" : "are"} ${plural(missingBudgetMonths, "month")} without operating budgets.`}
           </p>
           <Link href="/finance/needs-allocation" className="mt-3 inline-block rounded-lg border border-base-700 bg-base-800 px-2.5 py-1 text-[11px] text-ink-300 hover:border-base-600 hover:text-ink-50">
             Review payments →

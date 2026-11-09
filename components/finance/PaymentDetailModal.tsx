@@ -7,6 +7,7 @@ import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 import { mo } from "@/lib/finance/financeReporting";
 import { useFinanceLookups } from "./FinanceFilterContext";
 import { confirmDialog, promptDialog } from "./dialogs";
+import { formatMoney } from "@/lib/money";
 
 // Port of the source detailModal(): the full "Individual payment" form opened from any
 // payment list. Sections save through the same routes the dedicated screens use:
@@ -35,7 +36,7 @@ const DISPUTE_STATUSES: [string, string][] = [
 type Invoice = { id: string; supplier: string | null; documentId: string | null; documentName: string | null; amount: number | null; currency: string | null };
 
 function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value);
 }
 
 async function postJson(url: string, body: unknown) {
@@ -418,7 +419,7 @@ export function PaymentDetailModal({
             </label>
             <label className={labelClass}>
               Original payment amount
-              <input type="number" step="any" value={trace.sourceAmount} onChange={(e) => setTrace({ ...trace, sourceAmount: e.target.value })} placeholder="If known" className={inputClass} />
+              <input type="number" inputMode="decimal" step="any" value={trace.sourceAmount} onChange={(e) => setTrace({ ...trace, sourceAmount: e.target.value })} placeholder="If known" className={inputClass} />
             </label>
             <label className="flex items-center gap-2 text-xs text-ink-300 sm:col-span-2">
               <input type="checkbox" checked={trace.traceReviewed} onChange={(e) => setTrace({ ...trace, traceReviewed: e.target.checked })} className="h-4 w-4 accent-status-active" />
@@ -530,7 +531,7 @@ export function PaymentDetailModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-base-700 px-6 py-4">
-          <p className="min-w-0 truncate text-xs text-status-inactive">{error}</p>
+          <p className="min-w-0 truncate text-xs text-status-inactive" title={error || undefined}>{error}</p>
           <div className="flex shrink-0 gap-2">
             <button type="button" onClick={onClose} className={smallBtn}>Cancel</button>
             <button type="button" onClick={saveClassification} disabled={busy === "save"} className={primaryBtn}>

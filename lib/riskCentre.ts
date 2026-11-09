@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { calculateActual, type TargetMetric } from "./targetTracker";
 import { createNotification } from "./notifications";
 import type { AuthUser } from "./authz";
+import { formatMoney } from "./money";
 
 export type RiskAlert = {
   id: string;
@@ -118,7 +119,7 @@ export async function getRiskAlerts(authUser: AuthUser): Promise<RiskAlert[]> {
       category: "opportunity",
       severity: opp.probability < 20 ? "critical" : "warning",
       title: `${opp.leadName} — at risk (${opp.probability}% probability)`,
-      subtitle: `$${opp.value.toLocaleString()} · ${opp.assignedUser?.name ?? "Unassigned"} · ${opp.stage}`,
+      subtitle: `${formatMoney(opp.value)} · ${opp.assignedUser?.name ?? "Unassigned"} · ${opp.stage}`,
       href: "/pipeline",
     });
   }

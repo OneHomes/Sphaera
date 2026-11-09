@@ -8,6 +8,8 @@ import { ShowMoreBar, useShowMore } from "./ShowMore";
 import { confirmDialog } from "./dialogs";
 import { effectiveCentre, effectiveHead, mo, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Port of the source overheadPage().
 
@@ -67,9 +69,7 @@ const RECOMMENDATIONS: Record<string, [string, string]> = {
 };
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 /** Mirrors lib/finance/peopleOverheadsData.ts's overheadPair() for client-side UX. */
@@ -90,7 +90,7 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-ink-50">{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
@@ -352,7 +352,7 @@ export function OverheadAnalysisPage({
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? "Failed to apply suggestions");
       setRuleMap((prev) => ({ ...prev, ...Object.fromEntries(payload.map((r) => [r.costHead, { nature: r.nature, behaviour: r.behaviour }])) }));
-      setBulkMessage(`Applied to ${data.applied} cost head(s).`);
+      setBulkMessage(`Applied to ${plural(data.applied, "cost head")}.`);
     } catch (err) {
       setBulkMessage(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -565,7 +565,7 @@ export function OverheadAnalysisPage({
                   </td>
                   <td className="px-3 py-2">{effectiveHead(t)}</td>
                   <td className="px-3 py-2">{effectiveCentre(t)}</td>
-                  <td className="px-3 py-2 text-right">{usd(t.amount)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{usd(t.amount)}</td>
                   <td className="px-3 py-2">
                     <PaymentOverride
                       transactionId={t.id}

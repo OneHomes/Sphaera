@@ -3,6 +3,7 @@ import { getVisibleTargets, calculateActual, type TargetMetric } from "./targetT
 import { tierForPoints, nextTierInfo } from "./aexTransform";
 import { getAexConfig } from "./aexConfig";
 import type { Tier } from "./businessActivityData";
+import { formatMoney } from "./money";
 
 // PRD AE01 (Sign In and Welcome Sequence) + AE02 (Yesterday and Target
 // Review). Agent-only — Admins land straight in the Command Center.
@@ -166,7 +167,7 @@ export async function acknowledgeWelcome(
 
 function formatMetricValue(metric: TargetMetric, value: number): string {
   if (metric === "revenue") {
-    return value >= 1000 ? `$${(value / 1000).toFixed(1).replace(/\.0$/, "")}k` : `$${Math.round(value)}`;
+    return formatMoney(value, { compact: true });
   }
   return String(Math.round(value));
 }

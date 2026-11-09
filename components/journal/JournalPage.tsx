@@ -136,10 +136,10 @@ export function JournalPage({
               >
                 <FileText className="mt-0.5 h-3 w-3 shrink-0 text-ink-500" />
                 <span className="min-w-0">
-                  <span className="block truncate text-[11px] font-medium text-ink-50">
+                  <span className="block truncate text-[11px] font-medium text-ink-50" title={note.title}>
                     {note.title}
                   </span>
-                  <span className="block truncate text-[10px] text-ink-500">
+                  <span className="block truncate text-[10px] text-ink-500" title={`${note.date} · ${note.preview}`}>
                     {note.date} · {note.preview}
                   </span>
                 </span>
@@ -222,10 +222,10 @@ export function JournalPage({
             >
               <p className="flex items-center gap-1 text-xs font-medium text-ink-50">
                 {note.isFavorite && <Star className="h-2.5 w-2.5 shrink-0 fill-tier-gold text-tier-gold" />}
-                <span className="truncate">{note.title}</span>
+                <span className="truncate" title={note.title}>{note.title}</span>
               </p>
               <p className="mt-1 text-[11px] text-ink-500">{note.date}</p>
-              <p className="mt-1 truncate text-[11px] text-ink-500">
+              <p className="mt-1 truncate text-[11px] text-ink-500" title={note.preview}>
                 {note.preview}
               </p>
             </button>

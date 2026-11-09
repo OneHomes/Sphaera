@@ -186,8 +186,8 @@ export function GlobalSearch() {
             >
               <Icon className="h-4 w-4 shrink-0 text-ink-500" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-ink-50">{result.title}</p>
-                <p className="truncate text-xs text-ink-500">
+                <p className="truncate text-sm text-ink-50" title={result.title}>{result.title}</p>
+                <p className="truncate text-xs text-ink-500" title={result.subtitle}>
                   {result.subtitle}
                 </p>
               </div>

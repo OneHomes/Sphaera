@@ -139,7 +139,7 @@ export function MessagesPage({
                   })}
                 </span>
               </div>
-              <p className="mt-1 truncate text-[11px] text-ink-500">
+              <p className="mt-1 truncate text-[11px] text-ink-500" title={c.lastMessage}>
                 {c.lastMessage}
               </p>
               {c.leadId && (

@@ -7,6 +7,8 @@ import { promptDialog } from "./dialogs";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { FinanceState } from "@/lib/finance/ledgerData";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Direct structural/content port of the source app's organisePage()
 // (index.html line 1057) — the largest screen in the source. Same 4 KPI
@@ -75,16 +77,14 @@ const inputClass =
   "w-full rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-xs text-ink-50 outline-none placeholder:text-ink-500";
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 function Kpi({ title, value, detail, color, href }: { title: string; value: string; detail: string; color?: "amber"; href?: string }) {
   const content = (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${color === "amber" ? "text-status-alert" : "text-ink-50"}`}>{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${color === "amber" ? "text-status-alert" : "text-ink-50"}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
@@ -403,7 +403,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
         chosen.forEach((c) => next.set(c.key, { department: mapBulkDept, costHead: mapBulkHead }));
         return next;
       });
-      setMapResult(`${data.updated} payment(s) across ${chosen.length} source label(s) reassigned to ${mapBulkDept} / ${mapBulkHead}.`);
+      setMapResult(`${plural(data.updated, "payment")} across ${plural(chosen.length, "source label")} reassigned to ${mapBulkDept} / ${mapBulkHead}.`);
       setMapSelected(new Set());
       setMapBulkDept("");
       setMapBulkHead("");
@@ -455,7 +455,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
               invoice entries and newly exported Excel review files.
             </p>
           </div>
-          <Pill>{departments.length} departments</Pill>
+          <Pill>{plural(departments.length, "department")}</Pill>
         </div>
         <AddNameForm
           placeholder="New department name, e.g. IT or Human Resources"
@@ -561,7 +561,7 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
             {catalogueGroups.map(({ family, valid }) => (
               <div key={family}>
                 <h4 className="mb-1 text-xs font-medium text-ink-50">
-                  {family} <span className="text-[11px] text-ink-500">{valid.length} heads</span>
+                  {family} <span className="text-[11px] text-ink-500">{plural(valid.length, "head")}</span>
                 </h4>
                 <div className="flex flex-wrap gap-1.5">
                   {valid.map((h) => (
@@ -772,8 +772,8 @@ export function OrganiseCostsPage({ state }: { state: FinanceState }) {
                       {x.source === "confirmed" ? "Confirmed by you" : x.source === "suggested" ? "Suggested, please verify" : "Not mapped"}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-right">{usd(x.amount)}</td>
-                  <td className="px-3 py-2 text-right">{x.count}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{usd(x.amount)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{x.count.toLocaleString("en-US")}</td>
                 </tr>
               ))}
               {visibleRows.length === 0 && (
