@@ -26,6 +26,13 @@ const nextConfig = {
     if (!isServer) {
       config.resolve.fallback = { ...config.resolve.fallback, async_hooks: false };
     }
+    // pdf-parse/worker (lib/documentTextExtraction.ts) imports @napi-rs/canvas,
+    // a native .node binary webpack can't bundle. It's only used to render
+    // page images; text extraction never touches it, so resolve it to an
+    // empty module rather than shipping a native dependency to Azure.
+    if (isServer) {
+      config.resolve.alias = { ...config.resolve.alias, "@napi-rs/canvas": false };
+    }
     return config;
   },
 };

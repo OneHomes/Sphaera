@@ -1,4 +1,14 @@
 import { PDFParse } from "pdf-parse";
+import { getData } from "pdf-parse/worker";
+
+// pdf.js runs its parser in a worker that pdf-parse normally loads from a
+// file beside itself. Webpack bundles pdf-parse without that file, so every
+// PDF failed with "Setting up fake worker failed" and no text was ever
+// extracted. getData() is the worker embedded as a data: URL, so it needs
+// no file on disk (pdf-parse's documented setup for Next.js/serverless).
+// Making pdf-parse an external package instead broke every route importing
+// it on Azure, so don't go that way.
+PDFParse.setWorker(getData());
 
 // Phase 1 Sales Scope — "Janus company knowledge": Janus needs to
 // actually read a document's content (brochures, price lists, payment
