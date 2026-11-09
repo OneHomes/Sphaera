@@ -1,7 +1,5 @@
 import { Suspense } from "react";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { stagingLoginAvailable } from "@/lib/stagingLogin";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { SignInForm } from "@/components/auth/SignInForm";
@@ -23,7 +21,7 @@ export default async function SignInPage({ searchParams }: { searchParams: { cal
   return (
     <div className="flex min-h-screen w-full bg-base-950">
       <Suspense fallback={null}>
-        <SignInForm passwordLogin={stagingLoginAvailable(headers())} />
+        <SignInForm />
       </Suspense>
       <AmbientPanel />
     </div>

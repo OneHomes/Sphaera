@@ -19,37 +19,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   Default: "Sign-in failed for an unspecified reason.",
 };
 
-// Microsoft Entra ID is the sign-in method in production (PRD PF01).
-// `passwordLogin` is only true on previews/localhost with
-// STAGING_LOGIN_PASSWORD set (lib/stagingLogin.ts), so reviewers can get
-// in without each preview URL being an Entra redirect URI.
-export function SignInForm({ passwordLogin = false }: { passwordLogin?: boolean }) {
+// Microsoft Entra ID is the only sign-in method on this page (PRD PF01).
+export function SignInForm() {
   const [isMicrosoftLoading, setIsMicrosoftLoading] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isPasswordLoading, setIsPasswordLoading] = useState(false);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const errorCode = searchParams.get("error");
-
-  async function handlePasswordSignIn(e: React.FormEvent) {
-    e.preventDefault();
-    setIsPasswordLoading(true);
-    setPasswordError(null);
-    try {
-      // redirect: false, then navigate on this origin: on a preview,
-      // NEXTAUTH_URL may still point at production, and NextAuth's own
-      // redirect would send the browser there.
-      const res = await signIn("credentials", { email: email.trim(), password, redirect: false });
-      if (res?.ok && !res.error) {
-        window.location.href = "/onboarding";
-        return;
-      }
-      setPasswordError("That email and password didn't match.");
-    } finally {
-      setIsPasswordLoading(false);
-    }
-  }
 
   async function handleMicrosoftSignIn() {
     setIsMicrosoftLoading(true);
@@ -99,44 +73,6 @@ export function SignInForm({ passwordLogin = false }: { passwordLogin?: boolean 
         Sign in with Microsoft
       </button>
 
-      {passwordLogin && (
-        <form onSubmit={handlePasswordSignIn} className="mt-6 flex flex-col gap-3">
-          <div className="flex items-center gap-3 text-xs text-ink-500">
-            <span className="h-px flex-1 bg-base-700" />
-            Staging: sign in with email
-            <span className="h-px flex-1 bg-base-700" />
-          </div>
-          <input
-            type="email"
-            required
-            autoComplete="username"
-            autoCapitalize="none"
-            spellCheck={false}
-            placeholder="you@onehomes.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-base-600 bg-base-900 px-3 py-2.5 text-sm text-ink-50 placeholder:text-ink-500 focus:border-status-active focus:outline-none"
-          />
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            placeholder="Staging password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-base-600 bg-base-900 px-3 py-2.5 text-sm text-ink-50 placeholder:text-ink-500 focus:border-status-active focus:outline-none"
-          />
-          {passwordError && <p className="text-xs text-status-inactive">{passwordError}</p>}
-          <button
-            type="submit"
-            disabled={isPasswordLoading || !email.trim() || !password}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-status-active py-2.5 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isPasswordLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-            Sign in
-          </button>
-        </form>
-      )}
 
       <p className="mt-8 text-center text-sm text-ink-300">
         Need access? Contact your Sphaera administrator.
