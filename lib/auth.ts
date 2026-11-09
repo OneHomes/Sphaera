@@ -7,6 +7,7 @@ import { prisma } from "./prisma";
 import { logAudit, SYSTEM_ACTOR } from "./auditLog";
 import { setLastAuthError } from "./debugAuthState"; // TEMPORARY, see that file
 import { saveGraphToken, getValidGraphAccessToken } from "./graphTokenStore";
+import { matchesStagingPassword } from "./stagingLogin";
 
 // Reads the three values you get from the Entra ID App Registration:
 // tenant ID, client (application) ID, and client secret.
@@ -51,7 +52,7 @@ export const authOptions: NextAuthOptions = {
         // [organizationId, email] uniqueness.
         organizationId: { label: "Organization", type: "text" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials.password) return null;
 
         const matches = await prisma.user.findMany({
@@ -68,14 +69,25 @@ export const authOptions: NextAuthOptions = {
         if (candidates.length !== 1) return null;
 
         const user = candidates[0];
-        // Entra-provisioned accounts (One Homes) have no passwordHash —
-        // this path simply can't authenticate them, which is correct.
-        if (!user.passwordHash) return null;
+        // Entra-provisioned accounts (One Homes) have no passwordHash, so
+        // in production this path can't authenticate them, which is correct.
+        if (user.passwordHash && (await bcrypt.compare(credentials.password, user.passwordHash))) {
+          return { id: user.id, email: user.email, name: user.name };
+        }
 
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) return null;
+        // Previews/localhost only: the shared staging password (refused on
+        // the production domain inside lib/stagingLogin.ts).
+        if (matchesStagingPassword(credentials.password, req?.headers)) {
+          logAudit({
+            actorId: user.id,
+            actorEmail: user.email,
+            action: "staging_password_sign_in",
+            details: `${user.name ?? user.email} signed in with the staging password (non-production host)`,
+          }).catch((err) => console.error("Failed to audit staging sign-in:", err));
+          return { id: user.id, email: user.email, name: user.name };
+        }
 
-        return { id: user.id, email: user.email, name: user.name };
+        return null;
       },
     }),
   ],
@@ -161,7 +173,7 @@ export const authOptions: NextAuthOptions = {
             actorId: token.userId as string,
             actorEmail: token.email ?? "unknown",
             action: "user_signed_in",
-            details: `${token.name ?? token.email} signed in via Microsoft Entra ID`,
+            details: `${token.name ?? token.email} signed in via ${account.provider === "credentials" ? "email and password" : "Microsoft Entra ID"}`,
           }).catch((err) => console.error("Failed to audit sign-in:", err));
         }
 
