@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navItems } from "@/lib/nav";
+import { playTick } from "@/lib/uiSound";
 
 type Role = "AGENT" | "MANAGER" | "ADMIN";
 
@@ -50,6 +51,7 @@ export function LeftRail({
               aria-label={item.label}
               aria-current={isActive ? "page" : undefined}
               onMouseEnter={(e) => {
+                playTick();
                 const r = e.currentTarget.getBoundingClientRect();
                 setTip({ label: item.label, top: r.top + r.height / 2 });
               }}

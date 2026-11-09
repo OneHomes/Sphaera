@@ -6,6 +6,7 @@ import { SignOutButton } from "./SignOutButton";
 import { SphaeraWordmark } from "@/components/brand/SphaeraWordmark";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "@/components/providers/ThemeToggle";
+import { SoundToggle } from "@/components/providers/SoundToggle";
 import { formatMoney } from "@/lib/money";
 export type RevenueLeaderboardEntry = {
   id: string;
@@ -104,6 +105,7 @@ export function TopLeaderboardBar({
         {isDemoData && (
           <span className="text-[10px] text-ink-500">(demo)</span>
         )}
+        <SoundToggle />
         <ThemeToggle />
         <NotificationBell />
         <SignOutButton userName={userName} />
