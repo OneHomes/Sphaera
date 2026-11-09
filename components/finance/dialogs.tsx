@@ -77,7 +77,7 @@ function Dialog({
     <div
       // bg-black/[0.6], not /60: this dialog runs its own enter/exit, so it
       // opts out of the generic modal rules in globals.css.
-      className={`fixed inset-0 z-[1000] flex items-center justify-center bg-black/[0.6] p-4 backdrop-blur-[2px] transition-opacity ease-out-strong ${visible ? "opacity-100 duration-200" : "opacity-0 duration-[120ms]"}`}
+      className={`fixed inset-0 z-[1000] flex items-center justify-center bg-black/[0.6] p-4 backdrop-blur-[2px] transition-opacity ease-out-strong ${visible ? "opacity-100 duration-200" : "opacity-0 [transition-duration:120ms]"}`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && kind !== "alert") cancel();
       }}
@@ -86,7 +86,7 @@ function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="finance-dialog-title"
-        className={`w-full max-w-md rounded-2xl border border-base-700 bg-base-900 p-5 shadow-2xl motion-safe:transition-transform motion-safe:ease-out-strong ${visible ? "scale-100 duration-200" : "motion-safe:scale-[0.96] duration-[120ms]"}`}
+        className={`w-full max-w-md rounded-2xl border border-base-700 bg-base-900 p-5 shadow-2xl motion-safe:transition-transform motion-safe:ease-out-strong ${visible ? "scale-100 duration-200" : "motion-safe:scale-[0.96] [transition-duration:120ms]"}`}
       >
         <h2 id="finance-dialog-title" className="text-sm font-semibold text-ink-50">
           {title}

@@ -10,6 +10,16 @@ const nextConfig = {
   // screens (e.g. People Costs) would show the state from before a save until then.
   experimental: {
     staleTimes: { dynamic: 0 },
+    // pdf-parse loads pdf.js's worker (pdf.worker.mjs) from beside itself at
+    // runtime. Bundled by webpack, that file isn't copied, so every PDF
+    // failed with "Setting up fake worker failed" and no text was ever
+    // extracted (document uploads for Janus knowledge, Janus attachments).
+    // Load it from node_modules instead, and make sure the standalone
+    // output Azure deploys carries the worker files too.
+    serverComponentsExternalPackages: ["pdf-parse"],
+    outputFileTracingIncludes: {
+      "/api/**/*": ["./node_modules/pdf-parse/dist/**/*.mjs"],
+    },
   },
   webpack: (config, { isServer }) => {
     // lib/prisma.ts uses Node's `async_hooks` (for the multi-tenancy
