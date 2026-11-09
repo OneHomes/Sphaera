@@ -19,6 +19,7 @@ import { PromptCard } from "./PromptCard";
 import { DailyBriefing } from "./DailyBriefing";
 import { ConversationHistory } from "./ConversationHistory";
 import { JanusOrb } from "./JanusOrb";
+import { SphaeraWordmark } from "@/components/brand/SphaeraWordmark";
 import { JanusFeedback } from "./JanusFeedback";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
 
@@ -182,8 +183,20 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
   const hasThread = messages.length > 0;
 
   return (
-    <div className="flex flex-col items-center gap-8 px-6 py-8">
-      <div className="flex w-full max-w-xl items-center justify-end">
+    // Empty state sits in the middle of the screen under the Sphaera logo;
+    // once a conversation starts it flows from the top so answers read down.
+    <div
+      className={`relative flex min-h-full flex-col items-center gap-8 px-6 py-8 ${
+        hasThread || isAsking ? "" : "justify-center"
+      }`}
+    >
+      <div
+        className={
+          hasThread || isAsking
+            ? "flex w-full max-w-xl items-center justify-end"
+            : "absolute right-6 top-6 flex items-center justify-end"
+        }
+      >
         <div className="flex items-center gap-2">
           {hasThread && (
             <button
@@ -210,6 +223,8 @@ export function CommandCenter({ isManagementView = false }: { isManagementView?:
           )}
         </div>
       </div>
+
+      {!hasThread && !isAsking && <SphaeraWordmark className="h-12 text-ink-50" />}
 
       {!hasThread && !isAsking && !isManagementView && <DailyBriefing />}
 
