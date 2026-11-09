@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileText, Download, Plus, Trash2, RefreshCw, Archive } from "lucide-react";
 import type { SphaeraDocument, DocType } from "@/lib/documentsData";
 import { UploadDocumentModal } from "./UploadDocumentModal";
+import { plural } from "@/lib/plural";
 
 const typeStyles: Record<DocType, string> = {
   Brochure: "bg-status-active/15 text-status-active",
@@ -100,7 +101,7 @@ export function DocumentsPage({
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Documents</h1>
           <p className="text-sm text-ink-500">
-            {initialDocuments.length} documents
+            {plural(initialDocuments.length, "document")}
           </p>
         </div>
         <button
@@ -122,7 +123,7 @@ export function DocumentsPage({
             >
               <FileText className="h-5 w-5 shrink-0 text-ink-500" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-ink-50">
+                <p className="truncate text-sm text-ink-50" title={doc.name}>
                   {doc.name}
                   {doc.version > 1 && (
                     <span className="ml-1.5 text-[10px] text-ink-500">v{doc.version}</span>

@@ -42,7 +42,10 @@ export function MissionCentre({ items, topAction, aex }: MissionContext) {
         >
           <Compass className="h-4 w-4 shrink-0 text-status-active" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-status-active">
+            <p
+              className="truncate text-xs font-medium text-status-active"
+              title={`Top priority: ${topAction.nba.label} — ${topAction.leadName}`}
+            >
               Top priority: {topAction.nba.label} — {topAction.leadName}
             </p>
             <p className="text-[11px] text-ink-500">{topAction.nba.reason}</p>
@@ -68,7 +71,7 @@ export function MissionCentre({ items, topAction, aex }: MissionContext) {
                 >
                   <Icon className="h-4 w-4 shrink-0 text-ink-300" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-ink-50">
+                    <p className="truncate text-xs font-medium text-ink-50" title={item.title}>
                       {item.title}
                     </p>
                     <p className="text-[11px] text-ink-500">{item.subtitle}</p>

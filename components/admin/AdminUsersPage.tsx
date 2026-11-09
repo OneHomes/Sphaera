@@ -9,6 +9,7 @@ import { TagRemovalRequestsCard } from "./TagRemovalRequestsCard";
 import { AexConfigPanel } from "./AexConfigPanel";
 import { JanusCoachingCard } from "@/components/aex/JanusCoachingCard";
 import { downloadCsv } from "@/lib/csv";
+import { plural } from "@/lib/plural";
 type AdminUser = {
   id: string;
   name: string;
@@ -217,7 +218,7 @@ export function AdminUsersPage({ canExportData }: { canExportData: boolean }) {
               key={team.id}
               className="rounded-full border border-base-700 bg-base-800 px-3 py-1 text-xs text-ink-300"
             >
-              {team.name} ({team.memberCount} members
+              {team.name} ({plural(team.memberCount, "member")}
               {team.managerName ? `, managed by ${team.managerName}` : ""})
             </span>
           ))}
@@ -264,8 +265,8 @@ export function AdminUsersPage({ canExportData }: { canExportData: boolean }) {
         </div>
         <p className="mb-3 text-[11px] text-ink-500">
           Active lead/opportunity counts highlight in red if an agent is at
-          or above the fair-allocation cap ({maxActiveLeads}{" "}
-          leads / {maxActiveOpportunities} opportunities, configurable
+          or above the fair-allocation cap ({plural(maxActiveLeads, "lead")}{" "}
+          / {plural(maxActiveOpportunities, "opportunity", "opportunities")}, configurable
           below) — PRD R08.
         </p>
         <table className="w-full text-left text-xs">

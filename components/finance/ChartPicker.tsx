@@ -1,11 +1,11 @@
 "use client";
 
 import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 function usd(value: number): string {
-  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact: true });
 }
 
 export type PickerRow = { key: string; value: number; count: number };
@@ -50,7 +50,7 @@ export function ChartPicker({
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-status-active/15 px-2 py-0.5 text-[11px] font-medium text-status-active">
-            {n} of {rows.length} selected
+            {n.toLocaleString("en-US")} of {rows.length.toLocaleString("en-US")} selected
           </span>
           <button
             type="button"
@@ -85,9 +85,9 @@ export function ChartPicker({
             >
               <input type="checkbox" checked={on} onChange={() => toggle(r.key)} className="mt-0.5 accent-[#14b8a6]" />
               <span className="min-w-0">
-                <span className="block truncate font-medium text-ink-50">{r.key}</span>
+                <span className="block truncate font-medium text-ink-50" title={r.key}>{r.key}</span>
                 <span className="block text-[10px] text-ink-500">
-                  {usd(r.value)} net · {r.count.toLocaleString()} payments
+                  {usd(r.value)} net · {plural(r.count, "payment")}
                 </span>
               </span>
             </label>

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { LIST_PAGE, ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { confirmDialog } from "./dialogs";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // People Costs skill: payroll master CSV -> controlled review workbook -> reviewed import ->
 // Finance approval -> reconciliation against person allocations on real ledger payments.
@@ -60,7 +62,7 @@ const TABS = ["People Costs", "Department Summary", "Exceptions", "Source Totals
 
 const num = (n: number | null | undefined) =>
   n === null || n === undefined ? "" : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const money = (n: number, c: "USD" | "PKR") => (c === "USD" ? `$${num(n)}` : `Rs ${num(n)}`);
+const money = (n: number, c: "USD" | "PKR") => (c === "USD" ? formatMoney(n, { decimals: 2 }) : `Rs ${num(n)}`);
 
 async function download(url: string, init: RequestInit | undefined, fallbackName: string) {
   const res = await fetch(url, init);
@@ -78,7 +80,7 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail?: 
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-ink-50">{value}</div>
       {detail && <div className="mt-1 text-[11px] text-ink-500">{detail}</div>}
     </div>
   );
@@ -191,7 +193,7 @@ export function PayrollImportPage({ initialRuns, departments }: { initialRuns: R
         return;
       const body = await json(`/api/finance/payroll/runs/${run.id}/approve`, { method: "POST" });
       await Promise.all([loadRun(run.id), refreshRuns()]);
-      return `Approved. ${body.linked} employees linked to People records.`;
+      return `Approved. ${plural(body.linked, "employee")} linked to People records.`;
     });
 
   const remove = () =>

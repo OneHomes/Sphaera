@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, MessageSquare } from "lucide-react";
+import { MessageSquare } from "lucide-react";
+import { JanusOrb } from "./JanusOrb";
 
 type ConversationSummary = { id: string; updatedAt: string; preview: string };
 
@@ -23,7 +24,7 @@ export function ConversationHistory({
     <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-base-700 bg-base-900 p-2 shadow-lg">
       {conversations === null && (
         <div className="flex items-center gap-2 p-2 text-xs text-ink-500">
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <JanusOrb state="searching" />
           Loading…
         </div>
       )}

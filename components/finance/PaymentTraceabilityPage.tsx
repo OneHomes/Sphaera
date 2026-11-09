@@ -7,6 +7,8 @@ import { PaymentsTable } from "./PaymentsTable";
 import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { useFilteredFinanceRows } from "./FinanceFilterContext";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 type PaymentSource = {
   id: string;
@@ -88,14 +90,14 @@ const SOURCE_KINDS = ["Bank account", "Company card", "Other"] as const;
 const BILLING_CYCLES = ["Monthly", "Quarterly", "Annual", "One-off", ""];
 
 function formatUsd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value);
 }
 
 function Kpi({ title, value, detail, color }: { title: string; value: string; detail: string; color?: string }) {
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <p className="text-[11px] text-ink-500">{title}</p>
-      <p className={`mt-1 text-xl font-semibold ${color ?? "text-ink-50"}`}>{value}</p>
+      <p className={`mt-1 text-xl font-semibold tabular-nums ${color ?? "text-ink-50"}`}>{value}</p>
       <p className="mt-1 text-[11px] text-ink-500">{detail}</p>
     </div>
   );
@@ -375,7 +377,7 @@ export function PaymentTraceabilityPage({
       if (!res.ok) throw new Error(data?.error ?? "Failed to approve split");
       setPreview(data);
       setApproveMessage(
-        `Approved — ${data.approvedPayments ?? 0} payment(s) split across ${Object.keys(data.departmentTotals ?? {}).length} department(s).`
+        `Approved — ${plural(data.approvedPayments ?? 0, "payment")} split across ${plural(Object.keys(data.departmentTotals ?? {}).length, "department")}.`
       );
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : "Failed");
@@ -685,7 +687,7 @@ export function PaymentTraceabilityPage({
               </div>
               <div>
                 <label className={fieldLabelClass}>Expected amount</label>
-                <input value={subAmount} onChange={(e) => setSubAmount(e.target.value)} type="number" step="any" className={inputClass} />
+                <input value={subAmount} onChange={(e) => setSubAmount(e.target.value)} type="number" inputMode="decimal" step="any" className={inputClass} />
               </div>
             </div>
             <div className="grid grid-cols-4 gap-2">
@@ -695,7 +697,7 @@ export function PaymentTraceabilityPage({
               </div>
               <div>
                 <label className={fieldLabelClass}>Licences/seats</label>
-                <input value={subSeats} onChange={(e) => setSubSeats(e.target.value)} type="number" min="0" className={inputClass} />
+                <input value={subSeats} onChange={(e) => setSubSeats(e.target.value)} type="number" inputMode="numeric" min="0" className={inputClass} />
               </div>
               <div>
                 <label className={fieldLabelClass}>Department</label>
@@ -737,6 +739,7 @@ export function PaymentTraceabilityPage({
                 {subLicenceRows.map((u, idx) => (
                   <div key={idx} className="grid grid-cols-5 gap-1.5">
                     <input
+                      type="email"
                       value={u.email}
                       onChange={(e) =>
                         setSubLicenceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, email: e.target.value } : r)))
@@ -772,7 +775,7 @@ export function PaymentTraceabilityPage({
                         setSubLicenceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, licenceCost: e.target.value } : r)))
                       }
                       placeholder="Cost"
-                      type="number"
+                      type="number" inputMode="decimal"
                       className={inputClass}
                     />
                   </div>
@@ -815,7 +818,7 @@ export function PaymentTraceabilityPage({
       </div>
 
       <div className="mt-4">
-        <WidgetCard title={`Registered company accounts & cards · ${sources.length} records`}>
+        <WidgetCard title={`Registered company accounts & cards · ${plural(sources.length, "record")}`}>
           <div className="mb-2">
             <ListSearch
               value={sourceSearch.query}
@@ -965,7 +968,7 @@ export function PaymentTraceabilityPage({
                   disabled={approving}
                   className="rounded-lg bg-ink-50 px-3 py-1.5 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
                 >
-                  {approving ? "Approving…" : `Approve cost allocation for ${preview.eligiblePayments} payment(s)`}
+                  {approving ? "Approving…" : `Approve cost allocation for ${plural(preview.eligiblePayments, "payment")}`}
                 </button>
               </div>
             )}
@@ -974,7 +977,7 @@ export function PaymentTraceabilityPage({
       )}
 
       <div className="mt-4">
-        <WidgetCard title={`What recurring subscriptions are we actually paying for? · ${subscriptions.length} records`}>
+        <WidgetCard title={`What recurring subscriptions are we actually paying for? · ${plural(subscriptions.length, "record")}`}>
           <div className="mb-2">
             <ListSearch
               value={subscriptionSearch.query}
@@ -1014,7 +1017,7 @@ export function PaymentTraceabilityPage({
                       </td>
                       <td className="px-3 py-2">
                         {formatUsd(linkedTotal)}
-                        <div className="text-[11px] text-ink-500">{linked.length} payments</div>
+                        <div className="text-[11px] text-ink-500">{plural(linked.length, "payment")}</div>
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1.5">
@@ -1303,7 +1306,7 @@ export function PaymentTraceabilityPage({
                   <input
                     value={traceForm.sourceAmount}
                     onChange={(e) => setTraceForm((f) => ({ ...f, sourceAmount: e.target.value }))}
-                    type="number"
+                    type="number" inputMode="decimal"
                     step="any"
                     placeholder="If known"
                     className={inputClass}

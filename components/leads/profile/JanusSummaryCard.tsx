@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
 import { JanusGlyph } from "@/components/janus/JanusGlyph";
 import { JanusFeedback } from "@/components/janus/JanusFeedback";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 export function JanusSummaryCard({ lead }: { lead: Lead }) {
   const [summary, setSummary] = useState<string | null>(null);
@@ -81,9 +82,19 @@ export function JanusSummaryCard({ lead }: { lead: Lead }) {
       <button
         onClick={handleAskJanus}
         disabled={isAsking}
-        className="mt-3 w-full rounded-lg border border-base-600 bg-base-800 py-2 text-xs font-medium text-ink-50 transition hover:bg-base-700 disabled:opacity-60"
+        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-base-600 bg-base-800 py-2 text-xs font-medium text-ink-50 transition hover:bg-base-700 disabled:opacity-60"
       >
-        {isAsking ? "Asking Janus…" : summary ? "Ask again" : "Ask Janus about this lead"}
+        {isAsking ? (
+          <>
+            {/* -my-0.5 keeps the 20px orb from growing the button while it's busy. */}
+            <JanusOrb state="working" className="-my-0.5" />
+            Asking Janus…
+          </>
+        ) : summary ? (
+          "Ask again"
+        ) : (
+          "Ask Janus about this lead"
+        )}
       </button>
     </div>
   );

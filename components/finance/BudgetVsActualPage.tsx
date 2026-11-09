@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import type { FinanceState } from "@/lib/finance/ledgerData";
 import { budgetOk as budgetOkFor, mo, monthlyNumbers, relevantMonths } from "@/lib/finance/financeReporting";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Direct structural/content port of the source app's budgetPage() (server
 // render function, index.html line 1035) — same 4 KPI cards (same titles/
@@ -17,9 +19,7 @@ import { budgetOk as budgetOkFor, mo, monthlyNumbers, relevantMonths } from "@/l
 
 function usd(value: number | null, compact = false): string {
   if (value === null) return "Not available";
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 function Kpi({
@@ -47,7 +47,7 @@ function Kpi({
     <Link href={href} className="relative block rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
       <span className="absolute right-3 top-3 text-xs text-ink-500">↗</span>
       <h4 className="pr-4 text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${colorClass}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </Link>
   );
@@ -100,7 +100,7 @@ export function BudgetVsActualPage({ state: rawState }: { state: FinanceState })
         <Kpi
           title="Budget for months reported"
           value={usd(bud, true)}
-          detail={`${budgetedMonths.length} months have budgets and recorded actuals`}
+          detail={`${plural(budgetedMonths.length, "month")} ${budgetedMonths.length === 1 ? "has" : "have"} budgets and recorded actuals`}
           href="/finance/budget"
         />
         <Kpi
@@ -148,9 +148,9 @@ export function BudgetVsActualPage({ state: rawState }: { state: FinanceState })
                       {mo(x.month)}
                     </Link>
                   </td>
-                  <td className="px-3 py-2 text-right">{usd(x.opex)}</td>
-                  <td className="px-3 py-2 text-right">{usd(x.budget)}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-right tabular-nums">{usd(x.opex)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{usd(x.budget)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {x.variance === null ? (
                       <span className="rounded-full bg-status-alert/15 px-2 py-0.5 text-[11px] font-medium text-status-alert">
                         {x.awaitingActuals ? "Awaiting actuals" : "No comparable budget"}
@@ -168,8 +168,8 @@ export function BudgetVsActualPage({ state: rawState }: { state: FinanceState })
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right">{usd(x.collections)}</td>
-                  <td className="px-3 py-2 text-right">{usd(x.debt)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{usd(x.collections)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{usd(x.debt)}</td>
                   <td className="px-3 py-2">
                     <Link
                       href="/finance/planning"

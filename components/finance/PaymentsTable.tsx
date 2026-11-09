@@ -5,12 +5,14 @@ import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { effectiveCentre, effectiveHead, hasCostSplit, isUnidentified, mo } from "@/lib/finance/financeReporting";
 import { useFinanceLookups } from "./FinanceFilterContext";
 import { LIST_PAGE, ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Port of the source txTable(): reference/source column, shared-cost splits and review status.
 // Sphaera: first 10 rows with "Show more", plus a search box for the rows on this table.
 
 function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value);
 }
 
 const pill = "rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap";
@@ -155,14 +157,14 @@ export function PaymentsTable({
                     />
                   </td>
                 )}
-                <td className="whitespace-nowrap px-3 py-2">{x.date ? new Date(x.date).toISOString().slice(0, 10) : mo(x.month)}</td>
+                <td className="whitespace-nowrap px-3 py-2 tabular-nums">{x.date ? new Date(x.date).toISOString().slice(0, 10) : mo(x.month)}</td>
                 <td className="max-w-[370px] px-3 py-2">
                   <button onClick={() => onRowClick?.(x)} className="text-left font-medium text-ink-50 hover:underline">
                     {x.description}
                   </button>
                   <div className="text-[11px] text-ink-500">
                     {x.subscriptionId ? `↻ ${subscriptionNames?.get(x.subscriptionId) ?? "Subscription"} · ` : ""}
-                    {x.country ?? ""} · {x.sourceSheet || "Imported"}
+                    {[x.country, x.sourceSheet || "Imported"].filter(Boolean).join(" · ")}
                   </div>
                 </td>
                 <td className="px-3 py-2">
@@ -181,7 +183,7 @@ export function PaymentsTable({
                   {hasCostSplit(x) ? (
                     <>
                       <span className={`${pill} bg-status-active/15 text-status-active`}>
-                        Shared cost · {x.departmentSplits.length} departments
+                        Shared cost · {plural(x.departmentSplits.length, "department")}
                       </span>
                       <div className="mt-0.5 text-[11px] text-ink-500">
                         {x.departmentSplits.map((z) => `${z.department} ${usd(z.amountUsd)}`).join(" · ")}
@@ -194,7 +196,7 @@ export function PaymentsTable({
                     </>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold text-ink-50">{usd(x.amount)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-ink-50">{usd(x.amount)}</td>
                 <td className="px-3 py-2">
                   {x.debtPeriod === "current" ? (
                     <span className={`${pill} border border-base-700 text-ink-300`}>Current FY</span>
@@ -210,7 +212,7 @@ export function PaymentsTable({
         {pageRows.length === 0 && <p className="px-3 py-6 text-center text-xs text-ink-500">No payments match these filters.</p>}
       </div>
       {filteredRows.length <= LIST_PAGE && filteredRows.length > 0 && (
-        <p className="mt-2 text-[11px] text-ink-500">{filteredRows.length.toLocaleString()} payments</p>
+        <p className="mt-2 text-[11px] text-ink-500">{plural(filteredRows.length, "payment")}</p>
       )}
       <ShowMoreBar state={more} />
     </div>

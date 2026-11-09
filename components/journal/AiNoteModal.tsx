@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, Sparkles } from "lucide-react";
 import { journalFolders, type JournalFolder } from "@/lib/journalData";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 export function AiNoteModal({
   defaultFolder,
@@ -91,7 +92,11 @@ export function AiNoteModal({
             disabled={isGenerating}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-ink-50 py-2 text-xs font-semibold text-base-950 hover:bg-white disabled:opacity-60"
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            {isGenerating ? (
+              <JanusOrb state="composing" className="-my-0.5" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
             {isGenerating ? "Janus is writing…" : "Generate note"}
           </button>
         </form>

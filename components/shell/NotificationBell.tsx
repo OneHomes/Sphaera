@@ -98,7 +98,7 @@ export function NotificationBell() {
             {notifications.map((n) => (
               <article
                 key={n.id}
-                className={`rounded-2xl border border-white p-4 shadow-[0_4px_20px_rgba(42,42,42,0.03)] backdrop-blur-xl ${
+                className={`rounded-2xl border border-white p-4 shadow-[0_4px_20px_rgba(42,42,42,0.03)] ${
                   n.isRead ? "bg-white/60" : "bg-white/85"
                 }`}
               >

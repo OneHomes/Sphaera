@@ -4,13 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Sector } from "recharts";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 export const DONUT_COLORS = ["#009c91", "#2d6c85", "#e9a14b", "#8167b8", "#6ab4cc", "#d66b6e", "#8dad67", "#d9b95c", "#b4bed1"];
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 function renderSector(
@@ -83,7 +83,7 @@ export function DonutWidget({
         <div className={`relative mx-auto w-full max-w-[260px] ${wide ? "md:mx-0 md:shrink-0" : ""}`}>
           <ResponsiveContainer width="100%" height={210}>
             <PieChart>
-              <Pie
+              <Pie animationDuration={300} animationEasing="ease-out"
                 data={shown}
                 dataKey="value"
                 nameKey="name"
@@ -119,9 +119,9 @@ export function DonutWidget({
               <>
                 <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium text-ink-50">{item.name}</span>
+                  <span className="block truncate text-xs font-medium text-ink-50" title={item.name}>{item.name}</span>
                   <span className="block text-[10px] text-ink-500">
-                    {item.count.toLocaleString()} {item.count === 1 ? "payment" : "payments"}
+                    {plural(item.count, "payment")}
                     {!item.other && " · Click to explore"}
                   </span>
                 </span>

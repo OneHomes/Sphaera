@@ -7,6 +7,8 @@ import { PaymentDetailModal } from "./PaymentDetailModal";
 import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { relevantMonths } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Direct structural/content port of the source app's debtPage() (server
 // render function, index.html line 1041) — same 4 KPI cards (same titles/
@@ -18,9 +20,7 @@ import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
 // CSS — this is a re-skin, not a redesign.
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 function mo(month: string): string {
@@ -44,7 +44,7 @@ function Kpi({
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${colorClass}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
@@ -105,11 +105,11 @@ export function HistoricalDebtPage({ state: rawState }: { state: FinanceState })
         <Kpi
           title="Prior-year obligations cleared"
           value={usd(sum(t), true)}
-          detail={`${t.length} payments marked`}
+          detail={`${plural(t.length, "payment")} marked`}
           color="purple"
         />
-        <Kpi title="FY2024/25 liabilities" value={usd(sum(year), true)} detail={`${year.length} payments tagged as last year`} />
-        <Kpi title="Older obligations" value={usd(sum(older), true)} detail={`${older.length} payments tagged as older`} />
+        <Kpi title="FY2024/25 liabilities" value={usd(sum(year), true)} detail={`${plural(year.length, "payment")} tagged as last year`} />
+        <Kpi title="Older obligations" value={usd(sum(older), true)} detail={`${plural(older.length, "payment")} tagged as older`} />
         <Kpi
           title="Remaining old debt"
           value="Unknown"

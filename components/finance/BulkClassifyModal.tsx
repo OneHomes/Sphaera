@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X } from "lucide-react";
+import { plural } from "@/lib/plural";
 
 export function BulkClassifyModal({
   ids,
@@ -52,7 +53,7 @@ export function BulkClassifyModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-xl border border-base-700 bg-base-900 p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-ink-50">Bulk classify {ids.length.toLocaleString()} payment(s)</h2>
+          <h2 className="text-sm font-medium text-ink-50">Bulk classify {plural(ids.length, "payment")}</h2>
           <button onClick={onClose} className="text-ink-500 hover:text-ink-300">
             <X className="h-4 w-4" />
           </button>

@@ -3,9 +3,10 @@
 import type { Session } from "next-auth";
 import { usePathname } from "next/navigation";
 import { SignOutButton } from "./SignOutButton";
-import { SphaeraGlyph } from "./LeftRail";
+import { SphaeraWordmark } from "@/components/brand/SphaeraWordmark";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "@/components/providers/ThemeToggle";
+import { formatMoney } from "@/lib/money";
 export type RevenueLeaderboardEntry = {
   id: string;
   name: string;
@@ -33,9 +34,7 @@ const DEMO_FALLBACK_LEADERBOARD: RevenueLeaderboardEntry[] = [
 ];
 
 function formatCompactCurrency(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value}`;
+  return formatMoney(value, { compact: true });
 }
 
 export function TopLeaderboardBar({
@@ -63,8 +62,7 @@ export function TopLeaderboardBar({
     <div className={`flex h-11 items-center border-b border-base-700 bg-base-950 pr-3 ${inFinance ? "" : "pl-3"}`}>
       {inFinance && (
         <div className="theme-dark relative z-10 -mb-px mr-3 flex h-[calc(100%+1px)] w-56 shrink-0 items-center gap-2 self-start border-r border-base-700 bg-base-900 px-4 text-ink-50">
-          <SphaeraGlyph className="h-5 w-5" />
-          <span className="text-sm font-bold tracking-wide">SPHAERA</span>
+          <SphaeraWordmark className="h-[18px]" />
           <span className="text-[10px] font-medium uppercase tracking-wide text-ink-500">Finance</span>
         </div>
       )}
@@ -74,7 +72,8 @@ export function TopLeaderboardBar({
         className="min-w-0 flex-1 overflow-hidden"
       >
         <div
-          className="flex w-max animate-marquee items-center gap-2"
+          // Pauses under the pointer so a name can actually be read.
+          className="flex w-max animate-marquee items-center gap-2 hover:[animation-play-state:paused]"
           style={{ animationDuration: `${durationSeconds}s` }}
         >
           {/* Content is rendered twice back-to-back — the marquee

@@ -30,16 +30,18 @@ export function PendingTable({ rows }: { rows: PendingRow[] }) {
         <tbody>
           {rows.map((row) => (
             <tr key={row.id} className="border-t border-base-700 text-ink-300">
-              <td className="max-w-[100px] truncate py-2 pr-3 text-ink-50">{row.name}</td>
-              <td className="py-2 pr-3 text-right">{formatCurrency(row.value)}</td>
-              <td className="max-w-[100px] truncate py-2 pr-3" title={row.type}>
-                {row.type}
+              <td className="py-2 pr-3 text-ink-50">
+                <div className="max-w-[160px] truncate" title={row.name}>{row.name}</div>
+              </td>
+              <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums">{formatCurrency(row.value)}</td>
+              <td className="py-2 pr-3">
+                <div className="max-w-[120px] truncate" title={row.type}>{row.type}</div>
               </td>
               <td className="py-2 pr-3">
                 <PriorityBadge priority={row.priority} />
               </td>
               <td
-                className={`py-2 ${row.dueLabel === "Overdue" ? "text-status-inactive" : ""}`}
+                className={`whitespace-nowrap py-2 ${row.dueLabel === "Overdue" ? "text-status-inactive" : ""}`}
               >
                 {row.dueLabel}
               </td>

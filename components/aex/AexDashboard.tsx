@@ -6,6 +6,7 @@ import { DailyClubCard } from "./DailyClubCard";
 import type { Tier } from "@/lib/businessActivityData";
 import { ProductivityIndexCard } from "./ProductivityIndexCard";
 import { JanusCoachingCard } from "./JanusCoachingCard";
+import { plural } from "@/lib/plural";
 const tierStyles: Record<Tier, string> = {
   Gold: "bg-tier-gold/15 text-tier-gold",
   Silver: "bg-tier-silver/15 text-tier-silver",
@@ -115,7 +116,7 @@ function StreaksCard({ streaks }: { streaks: AexStreak[] }) {
             <div className="flex items-center justify-between">
               <span className="text-xs text-ink-300">{streak.label}</span>
               <span className="text-sm font-semibold text-status-alert">
-                {streak.currentCount} days
+                {plural(streak.currentCount, "day")}
               </span>
             </div>
             <p className="mt-0.5 text-[11px] text-ink-500">

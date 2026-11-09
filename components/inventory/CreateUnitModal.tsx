@@ -102,7 +102,7 @@ export function CreateUnitModal({
               value={size}
               onChange={(e) => setSize(e.target.value)}
               placeholder="Size"
-              type="number"
+              type="number" inputMode="decimal"
               className={inputClass}
             />
             <select value={areaBasis} onChange={(e) => setAreaBasis(e.target.value)} className={inputClass}>
@@ -115,7 +115,7 @@ export function CreateUnitModal({
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="Price"
-              type="number"
+              type="number" inputMode="decimal"
               className={inputClass}
             />
             <input

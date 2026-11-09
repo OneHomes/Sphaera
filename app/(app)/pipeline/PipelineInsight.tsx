@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 const quickQuestions = [
   "What needs attention in my pipeline right now?",
@@ -72,7 +73,7 @@ export function PipelineInsight() {
 
       {isAsking && (
         <div className="mb-3 flex items-center gap-2 text-xs text-ink-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <JanusOrb state="solving" />
           Janus is analysing your pipeline…
         </div>
       )}

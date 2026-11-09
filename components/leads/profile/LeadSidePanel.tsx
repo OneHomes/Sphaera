@@ -3,6 +3,7 @@ import { Target, MapPinned, Handshake, FileText } from "lucide-react";
 import type { Lead } from "@/lib/leadData";
 import type { Qualification } from "@/lib/leadProfileData";
 import { EngagementIndicator } from "@/components/leads/LeadBadges";
+import { formatMoney } from "@/lib/money";
 
 export type RealOpportunity = {
   value: number;
@@ -40,9 +41,9 @@ function SidePanelCard({
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between py-1.5 text-xs">
-      <span className="text-ink-500">{label}</span>
-      <span className="text-ink-300">{value}</span>
+    <div className="flex items-start justify-between gap-3 py-1.5 text-xs">
+      <span className="shrink-0 text-ink-500">{label}</span>
+      <span className="min-w-0 break-words text-right text-ink-300">{value}</span>
     </div>
   );
 }
@@ -83,7 +84,7 @@ export function LeadSidePanel({
       <SidePanelCard title="Opportunity & negotiation" icon={Handshake}>
         {opportunity ? (
           <>
-            <Field label="Value" value={`$${opportunity.value.toLocaleString()}`} />
+            <Field label="Value" value={formatMoney(opportunity.value)} />
             <Field label="Probability" value={`${opportunity.probability}%`} />
             <Field label="Stage" value={opportunity.stage} />
             <Field
@@ -110,9 +111,9 @@ export function LeadSidePanel({
               <Link
                 key={doc.id}
                 href="/documents"
-                className="flex items-center justify-between rounded-lg px-1.5 py-1 text-xs hover:bg-base-800"
+                className="flex items-center justify-between gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-base-800"
               >
-                <span className="truncate text-ink-300">{doc.name}</span>
+                <span className="min-w-0 truncate text-ink-300" title={doc.name}>{doc.name}</span>
                 <span className="shrink-0 text-[10px] text-ink-500">{doc.docType}</span>
               </Link>
             ))}

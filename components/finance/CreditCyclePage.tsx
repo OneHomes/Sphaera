@@ -18,6 +18,7 @@ import {
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "@/components/finance/ShowMore";
 import { alertDialog, confirmDialog } from "./dialogs";
+import { plural } from "@/lib/plural";
 
 // ---------------------------------------------------------------------------
 // Types — shapes returned by lib/finance/creditCycleData.ts (projection(),
@@ -586,7 +587,7 @@ export function CreditCyclePage({
                     <ul className="space-y-1 text-[11px] text-ink-300">
                       {events.slice(0, 6).map((e, i) => (
                         <li key={i} className="flex items-center justify-between gap-2 border-b border-base-800 pb-1 last:border-0">
-                          <span className="truncate">
+                          <span className="truncate" title={`${fmtDate(e.date)} · ${e.label}`}>
                             {fmtDate(e.date)} · {e.label}
                           </span>
                           <span className="shrink-0 text-ink-50">{fmt(e.amount, e.currency)}</span>
@@ -970,7 +971,7 @@ export function CreditCyclePage({
                           <b className="text-ink-50">{cardName(rule.id)}</b> {sourceCurrency(rule.paymentAccountId)}
                         </td>
                         <td className="px-3 py-2">Day {rule.statementDay} of month</td>
-                        <td className="px-3 py-2">{rule.dueOffsetDays} days</td>
+                        <td className="px-3 py-2">{plural(rule.dueOffsetDays, "day")}</td>
                         <td className="px-3 py-2">{rule.settlement}</td>
                         <td className="px-3 py-2">{sourceName(rule.paymentAccountId) ?? "No account"}</td>
                         <td className="px-3 py-2 text-right">
@@ -1347,7 +1348,7 @@ function InvoiceModal({
             <input value={dueDate} onChange={(e) => setDueDate(e.target.value)} type="date" className={inputClass} />
           </div>
           <div className="flex gap-2">
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" type="number" className={inputClass} />
+            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" type="number" inputMode="decimal" className={inputClass} />
             <input
               value={currency}
               onChange={(e) => setCurrency(e.target.value.toUpperCase())}
@@ -1454,7 +1455,7 @@ function RecurringModal({
           </select>
           <input value={beneficiary} onChange={(e) => setBeneficiary(e.target.value)} placeholder="Beneficiary (optional)" className={inputClass} />
           <div className="flex gap-2">
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" type="number" className={inputClass} />
+            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" type="number" inputMode="decimal" className={inputClass} />
             <input
               value={currency}
               onChange={(e) => setCurrency(e.target.value.toUpperCase())}
@@ -1475,7 +1476,7 @@ function RecurringModal({
               value={dayOfMonth}
               onChange={(e) => setDayOfMonth(e.target.value)}
               placeholder="Day of month (1-31)"
-              type="number"
+              type="number" inputMode="numeric"
               className={inputClass}
             />
           )}
@@ -1555,14 +1556,14 @@ function CardRuleModal({
               value={statementDay}
               onChange={(e) => setStatementDay(e.target.value)}
               placeholder="Statement closing day (1-31)"
-              type="number"
+              type="number" inputMode="numeric"
               className={inputClass}
             />
             <input
               value={dueOffsetDays}
               onChange={(e) => setDueOffsetDays(e.target.value)}
               placeholder="Days until due"
-              type="number"
+              type="number" inputMode="numeric"
               className={inputClass}
             />
           </div>
@@ -1767,15 +1768,15 @@ function CardStatementModal({
           </label>
           <label className={fieldLabel}>
             Statement balance
-            <input type="number" step="0.01" required value={f.amount} onChange={set("amount")} className={inputClass} />
+            <input type="number" inputMode="decimal" step="0.01" required value={f.amount} onChange={set("amount")} className={inputClass} />
           </label>
           <label className={fieldLabel}>
             Minimum due (if shown)
-            <input type="number" step="0.01" value={f.minimumDue} onChange={set("minimumDue")} className={inputClass} />
+            <input type="number" inputMode="decimal" step="0.01" value={f.minimumDue} onChange={set("minimumDue")} className={inputClass} />
           </label>
           <label className={fieldLabel}>
             Amount already paid
-            <input type="number" step="0.01" value={f.amountPaid} onChange={set("amountPaid")} className={inputClass} />
+            <input type="number" inputMode="decimal" step="0.01" value={f.amountPaid} onChange={set("amountPaid")} className={inputClass} />
           </label>
           <label className={fieldLabel}>
             Status
@@ -1844,7 +1845,7 @@ function CardChargeModal({
           </label>
           <label className={fieldLabel}>
             Amount
-            <input type="number" step="0.01" required value={f.amount} onChange={set("amount")} className={inputClass} />
+            <input type="number" inputMode="decimal" step="0.01" required value={f.amount} onChange={set("amount")} className={inputClass} />
           </label>
           <label className={fieldLabel}>
             Currency
@@ -1938,7 +1939,7 @@ function BankLinkModal({
           </label>
           <label className={fieldLabel}>
             Manual opening balance
-            <input type="number" step="0.01" value={f.openingBalance} onChange={set("openingBalance")} className={inputClass} />
+            <input type="number" inputMode="decimal" step="0.01" value={f.openingBalance} onChange={set("openingBalance")} className={inputClass} />
           </label>
           <label className={fieldLabel}>
             Balance as of

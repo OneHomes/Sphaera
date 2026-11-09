@@ -104,7 +104,7 @@ export function MiniCalendar() {
                     <div
                       className={`flex h-full items-center justify-between truncate rounded border-l-2 px-2 text-[10px] ${event.colorClass}`}
                     >
-                      <span className="truncate">{event.label}</span>
+                      <span className="truncate" title={event.label}>{event.label}</span>
                       <span className="shrink-0 opacity-70">
                         {formatHour(event.startHour)}–{formatHour(event.endHour)}
                       </span>

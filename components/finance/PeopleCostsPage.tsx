@@ -11,6 +11,7 @@ import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { PERSONNEL_COST_HEADS, personCostColumn, personCostHead } from "@/lib/finance/personCostHeads";
 import { LIST_PAGE, ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore";
 import { alertDialog, confirmDialog, promptDialog } from "./dialogs";
+import { plural } from "@/lib/plural";
 
 // Port of the source app's People Costs screen at v41: employee roster Excel import, suggested
 // name/alias payment matches, the cost-per-person report, the employee register (job title,
@@ -141,7 +142,7 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-ink-50">{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
@@ -354,13 +355,13 @@ export function PeopleCostsPage({
       if (
         !(await confirmDialog(
           `Move ${ledgerSync.count} linked payments to their employee's department in Spending Explorer? This is one change you can undo in Change History.`,
-          { title: "Move linked payments", confirmLabel: `Move ${ledgerSync.count} payments` }
+          { title: "Move linked payments", confirmLabel: `Move ${plural(ledgerSync.count, "payment")}` }
         ))
       )
         return;
       const body = await postJson("/api/finance/people/ledger-sync", {});
       await reload();
-      return `Moved ${body.moved} payments to their employee's department. Spending Explorer now shows them there.`;
+      return `Moved ${plural(body.moved, "payment")} to their employee's department. Spending Explorer now shows them there.`;
     });
 
   const previewExcel = (file: File) =>
@@ -566,7 +567,7 @@ export function PeopleCostsPage({
       if (
         !(await confirmDialog(`Assign ${ids.length} existing payments to the suggested employees? Total: ${usd(total)}\n\nReview the individual employee names first.`, {
           title: "Link suggested payments",
-          confirmLabel: `Link ${ids.length} payments`,
+          confirmLabel: `Link ${plural(ids.length, "payment")}`,
         }))
       )
         return;
@@ -578,7 +579,7 @@ export function PeopleCostsPage({
       });
       setSelectedMatches(new Set());
       await reload();
-      return `${body.linked} payments linked; ${usd(body.totalUsd)} attributed. Original ledger unchanged.`;
+      return `${plural(body.linked, "payment")} linked; ${usd(body.totalUsd)} attributed. Original ledger unchanged.`;
     });
 
   // --- Find payments + batch allocation (v41) ---------------------------------------------------
@@ -674,7 +675,7 @@ export function PeopleCostsPage({
       const employee = people.find((p) => p.id === selectedEmployee)?.fullName ?? "employee";
       if (
         !(await confirmDialog(
-          `Allocate ${pickEntries.length} payments totalling ${usd(pickTotal)} to ${employee}? Cost heads and amounts will be logged as a single undoable action.`,
+          `Allocate ${plural(pickEntries.length, "payment")} totalling ${usd(pickTotal)} to ${employee}? Cost heads and amounts will be logged as a single undoable action.`,
           { title: "Allocate payments", confirmLabel: "Allocate" }
         ))
       )
@@ -688,7 +689,7 @@ export function PeopleCostsPage({
       });
       setPicks({});
       await reload();
-      return `Allocated ${body.payments} payments (${usd(body.allocatedUsd)}).`;
+      return `Allocated ${plural(body.payments, "payment")} (${usd(body.allocatedUsd)}).`;
     });
 
   // --- Single-payment split editor --------------------------------------------------------------
@@ -716,7 +717,7 @@ export function PeopleCostsPage({
     const lines = (clear ? [] : draftLines)
       .filter((l) => l.personId && l.amountUsd)
       .map(({ personId, costType, amountUsd, reference, note }) => ({ personId, costType, amountUsd, reference, note }));
-    if (!(await confirmDialog(`Save ${lines.length} allocation line(s) against this original payment?`, { title: "Save allocation", confirmLabel: "Save" }))) return;
+    if (!(await confirmDialog(`Save ${plural(lines.length, "allocation line")} against this original payment?`, { title: "Save allocation", confirmLabel: "Save" }))) return;
     setBusy("alloc");
     setAllocError(null);
     try {
@@ -841,7 +842,7 @@ export function PeopleCostsPage({
                           <td className="px-3 py-1.5">
                             {fix ? (
                               <div className="space-y-1">
-                                <input value={raw.email} onChange={(e) => editRow(r.row, { email: e.target.value })} placeholder="Optional" className={cellInput} />
+                                <input type="email" value={raw.email} onChange={(e) => editRow(r.row, { email: e.target.value })} placeholder="Optional" className={cellInput} />
                                 {r.emailConflictRows.length > 0 && (
                                   <div className="flex flex-wrap gap-1">
                                     <button onClick={() => keepEmailOn(r.row, r.emailConflictRows)} className={smallBtn}>Email belongs here</button>
@@ -871,7 +872,7 @@ export function PeopleCostsPage({
                     ? "Importing…"
                     : preview.errors
                       ? `Fix ${preview.errors} row${preview.errors === 1 ? "" : "s"} to import`
-                      : `Confirm & import ${preview.rows.length} employees`}
+                      : `Confirm & import ${plural(preview.rows.length, "employee")}`}
                 </button>
                 <button onClick={() => setPreview(null)} className={smallBtn}>
                   Cancel
@@ -894,13 +895,13 @@ export function PeopleCostsPage({
             ). Move them to their employee&apos;s department? New links are moved automatically.
           </span>
           <button onClick={syncLedger} disabled={!!busy} className={primaryBtn}>
-            {busy === "ledger" ? "Moving…" : `Move ${ledgerSync.count} payments`}
+            {busy === "ledger" ? "Moving…" : `Move ${plural(ledgerSync.count, "payment")}`}
           </button>
         </div>
       )}
 
       <div className="mt-4">
-        <WidgetCard title="Suggested salary and commission matches" action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{suggestions.length} candidates</span>}>
+        <WidgetCard title="Suggested salary and commission matches" action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{plural(suggestions.length, "candidate")}</span>}>
           <p className="mb-3 text-xs text-ink-500">
             Based on a unique name or payment alias found in a salary/commission payment description. Review before applying; grouped
             payroll can be split manually below.
@@ -966,7 +967,7 @@ export function PeopleCostsPage({
                         <td className="px-3 py-1.5">{s.jobTitle}</td>
                         <td className="px-3 py-1.5">{s.department ?? "—"}</td>
                         <td className="px-3 py-1.5">{s.costType}</td>
-                        <td className="px-3 py-1.5 text-right">{usd(s.amountUsd)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{usd(s.amountUsd)}</td>
                       </tr>
                     ))}
                     {suggestionSearch.filtered.length === 0 && (
@@ -987,7 +988,7 @@ export function PeopleCostsPage({
         <div className="mt-4">
           <WidgetCard
             title="Paid but not in the employee list"
-            action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{unknownPayees.rows.length} names</span>}
+            action={<span className="rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{plural(unknownPayees.rows.length, "name")}</span>}
           >
             <p className="mb-3 text-xs text-ink-500">
               These names received salary or commission but don&apos;t match anyone in the employee list (they may have left, or their name is
@@ -1020,9 +1021,9 @@ export function PeopleCostsPage({
                     <Fragment key={g.name}>
                     <tr className="border-b border-base-800 text-ink-300 last:border-0">
                       <td className="px-3 py-1.5 font-medium text-ink-50">{g.name}</td>
-                      <td className="px-3 py-1.5 text-right">{g.count}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{g.count.toLocaleString("en-US")}</td>
                       <td className="px-3 py-1.5">{g.latest}</td>
-                      <td className="px-3 py-1.5 text-right">{usd(g.total)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{usd(g.total)}</td>
                       <td className="px-3 py-1.5">
                         <span className="flex justify-end gap-1.5">
                           <button onClick={() => searchPayments(g.name)} className={smallBtn}>
@@ -1193,10 +1194,10 @@ export function PeopleCostsPage({
                     </td>
                     <td className="px-3 py-2">{row.department ?? "—"}</td>
                     <td className="px-3 py-2">{row.jobTitle || "—"}</td>
-                    <td className="px-3 py-2 text-right">{usd(row.salary)}</td>
-                    <td className="px-3 py-2 text-right">{usd(row.commission)}</td>
-                    <td className="px-3 py-2 text-right">{usd(row.other)}</td>
-                    <td className="px-3 py-2 text-right font-medium text-ink-50">{usd(row.total)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(row.salary)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(row.commission)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(row.other)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium text-ink-50">{usd(row.total)}</td>
                   </tr>
                 ))}
                 {costPerPerson.length === 0 && (
@@ -1207,13 +1208,13 @@ export function PeopleCostsPage({
                 {costPerPerson.length > 1 && (
                   <tr className="border-t border-base-700 bg-base-900 font-semibold text-ink-50">
                     <td className="px-3 py-2" colSpan={3}>
-                      Total · {costPerPerson.length} people
+                      Total · {plural(costPerPerson.length, "person", "people")}
                       {costTotals.unlinked > 0 && <span className="ml-1 font-normal text-ink-500">({costTotals.unlinked} with nothing linked)</span>}
                     </td>
-                    <td className="px-3 py-2 text-right">{usd(costTotals.salary)}</td>
-                    <td className="px-3 py-2 text-right">{usd(costTotals.commission)}</td>
-                    <td className="px-3 py-2 text-right">{usd(costTotals.other)}</td>
-                    <td className="px-3 py-2 text-right">{usd(costTotals.total)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(costTotals.salary)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(costTotals.commission)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(costTotals.other)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(costTotals.total)}</td>
                   </tr>
                 )}
               </tbody>
@@ -1382,7 +1383,7 @@ export function PeopleCostsPage({
           </div>
           <ShowMoreBar state={choicesMore} />
           <p className="mt-2 text-[11px] text-ink-500">
-            {choices.length.toLocaleString()} matches. Tick multiple rows to add them below. Search matches payment descriptions across all years.
+            {plural(choices.length, "match", "matches")}. Tick multiple rows to add them below. Search matches payment descriptions across all years.
           </p>
         </WidgetCard>
         </div>
@@ -1420,7 +1421,7 @@ export function PeopleCostsPage({
                       </label>
                       <label className={labelClass}>
                         Allocate USD
-                        <input type="number" min="0.01" step="0.01" value={p.amountUsd} onChange={(e) => set({ amountUsd: e.target.value })} className={`${inputClass} normal-case tracking-normal`} />
+                        <input type="number" inputMode="decimal" min="0.01" step="0.01" value={p.amountUsd} onChange={(e) => set({ amountUsd: e.target.value })} className={`${inputClass} normal-case tracking-normal`} />
                       </label>
                       <label className={labelClass}>
                         Payroll/deal reference
@@ -1443,8 +1444,8 @@ export function PeopleCostsPage({
             {busy === "batch"
               ? "Allocating…"
               : selectedEmployee
-                ? `Allocate ${pickEntries.length} selected payments to ${selectedName ?? "employee"}`
-                : `Allocate ${pickEntries.length} selected payments`}
+                ? `Allocate ${plural(pickEntries.length, "selected payment")} to ${selectedName ?? "employee"}`
+                : `Allocate ${plural(pickEntries.length, "selected payment")}`}
           </button>
         </WidgetCard>
       </div>
@@ -1479,7 +1480,7 @@ export function PeopleCostsPage({
                     {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                     <option value={NEW_CATEGORY}>+ Add new cost head…</option>
                   </select>
-                  <input type="number" min="0.01" step="0.01" value={line.amountUsd} onChange={(e) => updateLine(line.key, { amountUsd: e.target.value })} placeholder="0.00" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
+                  <input type="number" inputMode="decimal" min="0.01" step="0.01" value={line.amountUsd} onChange={(e) => updateLine(line.key, { amountUsd: e.target.value })} placeholder="0.00" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
                   <input value={line.reference} maxLength={180} onChange={(e) => updateLine(line.key, { reference: e.target.value })} placeholder="Deal, pay period or reference" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
                   <input value={line.note} maxLength={500} onChange={(e) => updateLine(line.key, { note: e.target.value })} placeholder="Notes" className="rounded-md border border-base-700 bg-base-900 px-2 py-1.5 text-xs text-ink-50 outline-none placeholder:text-ink-500" />
                   <button onClick={() => setDraftLines((prev) => prev.filter((l) => l.key !== line.key))} className="rounded-md border border-base-700 px-2 py-1.5 text-xs text-ink-500 hover:border-status-inactive/40 hover:text-status-inactive">
@@ -1559,7 +1560,7 @@ export function PeopleCostsPage({
                       <p className="truncate" title={h.paymentDescription}>{h.paymentDescription}</p>
                       <p className="text-[10px] text-ink-500">{h.reference || h.transactionId}</p>
                     </td>
-                    <td className="px-3 py-2 text-right">{usd(h.amountUsd)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(h.amountUsd)}</td>
                   </tr>
                 ))}
                 {history.length === 0 && (

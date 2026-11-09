@@ -23,6 +23,8 @@ import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore"
 import { fyOf } from "@/lib/finance/financeFilters";
 import { effectiveCentre, effectiveHead, isOperating, mo, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 type PlanRow = {
   id: string;
@@ -84,7 +86,7 @@ function fiscalYearStartFromDate(d: Date): number {
 
 
 function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value);
 }
 
 const DONUT_COLORS = ["#14b8a6", "#ef4444", "#f59e0b", "#d4af37", "#9ca3af", "#7965bd", "#60a5fa", "#fb923c"];
@@ -113,9 +115,7 @@ function PlanKpi({ title, value, detail }: { title: string; value: string; detai
 }
 
 function usdCompact(value: number): string {
-  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return usd(value);
+  return formatMoney(value, { compact: true });
 }
 
 export function FinancialPlanningPage({
@@ -348,9 +348,9 @@ export function FinancialPlanningPage({
                 {monthlyRows.map((row) => (
                   <tr key={row.month} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2 text-ink-50">{mo(row.month)}</td>
-                    <td className="px-3 py-2 text-right">{row.sales !== null ? usd(row.sales) : "Not entered"}</td>
-                    <td className="px-3 py-2 text-right">{row.collections !== null ? usd(row.collections) : "Not entered"}</td>
-                    <td className="px-3 py-2 text-right">{row.budget !== null ? usd(row.budget) : "Not entered"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{row.sales !== null ? usd(row.sales) : "Not entered"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{row.collections !== null ? usd(row.collections) : "Not entered"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{row.budget !== null ? usd(row.budget) : "Not entered"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -364,7 +364,7 @@ export function FinancialPlanningPage({
           {plan && donutData.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie
+                <Pie animationDuration={300} animationEasing="ease-out"
                   data={donutData}
                   dataKey="value"
                   nameKey="name"
@@ -407,8 +407,8 @@ export function FinancialPlanningPage({
                 {deptMore.visible.map((r) => (
                   <tr key={r.dept} className="border-b border-base-800 text-ink-300 last:border-0">
                     <td className="px-3 py-2 text-ink-50">{r.dept}</td>
-                    <td className="px-3 py-2 text-right">{plan ? usd(r.budget) : "Not available"}</td>
-                    <td className="px-3 py-2 text-right">{usd(r.actual)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{plan ? usd(r.budget) : "Not available"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(r.actual)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -470,8 +470,8 @@ export function FinancialPlanningPage({
                         {r.head} ↗
                       </button>
                     </td>
-                    <td className="px-3 py-2 text-right">{usd(r.budget)}</td>
-                    <td className="px-3 py-2 text-right">{usd(r.actual)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(r.budget)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(r.actual)}</td>
                   </tr>
                 ))}
                 {heads.length === 0 && (
@@ -522,8 +522,8 @@ export function FinancialPlanningPage({
                       </button>
                     </td>
                     <td className="px-3 py-2">{r.plan ? `v${r.plan.version}` : "Not approved"}</td>
-                    <td className="px-3 py-2 text-right">{r.annualBudget !== null ? usd(r.annualBudget) : "Not available"}</td>
-                    <td className="px-3 py-2 text-right">{usd(r.spend)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{r.annualBudget !== null ? usd(r.annualBudget) : "Not available"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(r.spend)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -679,7 +679,7 @@ function CreateApprovedYearForm({
           value={year}
           onChange={(e) => setYear(e.target.value)}
           placeholder="Fiscal year, e.g. 2027"
-          type="number"
+          type="number" inputMode="numeric"
           className={inputClass}
         />
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Plan name (optional)" className={inputClass} />
@@ -689,14 +689,14 @@ function CreateApprovedYearForm({
           value={annualCollectionsUsd}
           onChange={(e) => setAnnualCollectionsUsd(e.target.value)}
           placeholder="Annual collections target USD"
-          type="number"
+          type="number" inputMode="decimal"
           className={inputClass}
         />
         <input
           value={annualSalesUsd}
           onChange={(e) => setAnnualSalesUsd(e.target.value)}
           placeholder="Annual sales target USD (optional)"
-          type="number"
+          type="number" inputMode="decimal"
           className={inputClass}
         />
       </div>
@@ -729,7 +729,7 @@ function CreateApprovedYearForm({
               value={row.annualBudgetUsd}
               onChange={(e) => updateRow(i, { annualBudgetUsd: e.target.value })}
               placeholder="Annual USD"
-              type="number"
+              type="number" inputMode="decimal"
               className={inputClass}
             />
             <button
@@ -851,7 +851,7 @@ function UploadPlanForm({ defaultYear, onCommitted }: { defaultYear: number; onC
 
       <form onSubmit={handlePreview} className="space-y-2.5">
         <div className="flex gap-2">
-          <input value={fy} onChange={(e) => setFy(e.target.value)} type="number" placeholder="Fiscal year" className={inputClass} />
+          <input value={fy} onChange={(e) => setFy(e.target.value)} type="number" inputMode="numeric" placeholder="Fiscal year" className={inputClass} />
           <input
             type="file"
             accept=".xlsx"
@@ -880,7 +880,7 @@ function UploadPlanForm({ defaultYear, onCommitted }: { defaultYear: number; onC
           {preview.issues.length > 0 && (
             <div className="rounded-lg border border-status-alert/40 bg-status-alert/10 p-2 text-[11px] text-status-alert">
               <div className="mb-1 flex items-center gap-1 font-medium">
-                <AlertTriangle className="h-3 w-3" strokeWidth={1.75} /> {preview.issues.length} issue(s)
+                <AlertTriangle className="h-3 w-3" strokeWidth={1.75} /> {plural(preview.issues.length, "issue")}
               </div>
               <ul className="max-h-28 space-y-0.5 overflow-y-auto">
                 {preview.issues.slice(0, 10).map((issue, i) => (

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { UploadCloud, FileSpreadsheet, History } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Direct structural port of the source app's "Upload more months" screen
 // (import a ledger/cost-centre-detail XLSX, preview before saving, approve
@@ -44,7 +46,7 @@ type PreviewResult = {
 };
 
 function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value);
 }
 
 export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHistoryRow[] }) {
@@ -194,7 +196,7 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
 
             <p className="mt-3 text-[11px] text-ink-500">
               {preview.invalidRows > 0
-                ? `${preview.invalidRows} row(s) could not be read and will be skipped. `
+                ? `${plural(preview.invalidRows, "row")} could not be read and will be skipped. `
                 : ""}
               {preview.mode} used. Months being added: {preview.monthsAdded.length ? preview.monthsAdded.join(", ") : "none"}.
               <br />
@@ -248,7 +250,7 @@ export function UploadNewMonthsPage({ importHistory }: { importHistory: ImportHi
                 disabled={approving || approved || preview.newPayments === 0}
                 className="rounded-lg bg-ink-50 px-3 py-2 text-xs font-medium text-base-950 hover:bg-white disabled:opacity-50"
               >
-                {approving ? "Adding..." : `Approve and add ${preview.newPayments} payments to SQL`}
+                {approving ? "Adding..." : `Approve and add ${plural(preview.newPayments, "payment")} to SQL`}
               </button>
               <button
                 onClick={cancelPreview}

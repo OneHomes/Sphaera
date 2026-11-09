@@ -13,6 +13,7 @@ import {
 import { BarChart3 } from "lucide-react";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { MonthlyStageBreakdown } from "@/lib/agentPerformanceMetrics";
+import { formatMoney, formatMoneyAxis } from "@/lib/money";
 
 export function MonthlySalesBreakdownChart({ data }: { data: MonthlyStageBreakdown[] }) {
   return (
@@ -24,7 +25,7 @@ export function MonthlySalesBreakdownChart({ data }: { data: MonthlyStageBreakdo
           <YAxis
             stroke="#71717a"
             fontSize={10}
-            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`}
+            tickFormatter={(v) => formatMoneyAxis(Number(v))}
           />
           <Tooltip
             contentStyle={{
@@ -32,12 +33,12 @@ export function MonthlySalesBreakdownChart({ data }: { data: MonthlyStageBreakdo
               border: "1px solid rgb(var(--base-700))",
               fontSize: 11,
             }}
-            formatter={(value) => [`$${Number(value).toLocaleString()}`]}
+            formatter={(value) => [formatMoney(Number(value))]}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Bar dataKey="won" name="Closed Won" stackId="a" fill="#14b8a6" />
-          <Bar dataKey="lost" name="Closed Lost" stackId="a" fill="#ef4444" />
-          <Bar dataKey="expected" name="Open (Expected)" stackId="a" fill="#f59e0b" />
+          <Bar animationDuration={300} animationEasing="ease-out" dataKey="won" name="Closed Won" stackId="a" fill="#14b8a6" />
+          <Bar animationDuration={300} animationEasing="ease-out" dataKey="lost" name="Closed Lost" stackId="a" fill="#ef4444" />
+          <Bar animationDuration={300} animationEasing="ease-out" dataKey="expected" name="Open (Expected)" stackId="a" fill="#f59e0b" />
         </BarChart>
       </ResponsiveContainer>
       <p className="mt-1 text-[10px] text-ink-500">

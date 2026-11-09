@@ -32,7 +32,7 @@ export function ProductivityByHourChart({
               fontSize: 11,
             }}
           />
-          <Line
+          <Line animationDuration={300} animationEasing="ease-out"
             type="monotone"
             dataKey="count"
             stroke="#f59e0b"

@@ -12,15 +12,15 @@ import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "./ShowMore"
 import { useFilteredFinanceRows, useFinanceFilters } from "./FinanceFilterContext";
 import { effectiveCentre, effectiveHead, hasCostSplit, isOperating, reportingRows } from "@/lib/finance/financeReporting";
 import type { FinanceLedgerRow, FinanceState } from "@/lib/finance/ledgerData";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Port of the source spendingExplorer(): department -> cost head -> description drill, URL-driven.
 
 type Basis = "operating" | "all" | "debt";
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 function groupCosts(tx: FinanceLedgerRow[], fn: (t: FinanceLedgerRow) => string) {
@@ -39,7 +39,7 @@ function Kpi({ title, value, detail }: { title: string; value: string; detail: s
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className="mt-1 text-xl font-semibold text-ink-50">{value}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-ink-50">{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );
@@ -291,8 +291,8 @@ export function SpendingExplorerPage({ state }: { state: FinanceState }) {
                 className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-base-800"
               >
                 <span className="min-w-0">
-                  <strong className="block truncate text-ink-50">{g.key}</strong>
-                  <small className="text-[10px] text-ink-500">{g.count} payments</small>
+                  <strong className="block truncate text-ink-50" title={g.key}>{g.key}</strong>
+                  <small className="text-[10px] text-ink-500">{plural(g.count, "payment")}</small>
                 </span>
                 <span className="shrink-0 font-semibold text-ink-50">{usd(g.value, true)} ↗</span>
               </Link>

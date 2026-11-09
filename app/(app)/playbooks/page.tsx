@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withTenantPage } from "@/lib/withTenant";
+import { sanitizePlaybookHtml } from "@/lib/sanitizeHtml";
 import { PlaybooksPage } from "@/components/playbooks/PlaybooksPage";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,9 @@ export default async function PlaybooksRoute() {
       id: p.id,
       title: p.title,
       category: p.category,
-      body: p.body,
+      // Rendered via dangerouslySetInnerHTML; cleaned here as well as on
+      // write so older rows are safe too.
+      body: sanitizePlaybookHtml(p.body),
       createdByName: p.createdBy.name,
       createdAt: p.createdAt.toLocaleDateString([], { month: "short", day: "numeric" }),
     }));

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import type { WelcomeData, WelcomePeriod, WelcomeTargetRow } from "@/lib/dailyWelcome";
 
 const statusColors: Record<WelcomeTargetRow["status"], string> = {
@@ -94,7 +94,7 @@ export function YesterdayTargetReview({
           <div className="mt-4 rounded-lg border border-base-700 bg-base-800 p-3 text-[11px] leading-relaxed text-ink-300">
             {janusInsight === null ? (
               <span className="flex items-center gap-2 text-ink-500">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <AlertCircle className="h-3 w-3 shrink-0 text-ink-500" />
                 Janus couldn&apos;t prepare an insight right now.
               </span>
             ) : (

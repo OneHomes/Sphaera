@@ -18,20 +18,6 @@ function formatTimestamp(iso: string): string {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function sanitizeHtml(html: string): string {
-  // Basic mitigation, NOT a full sanitizer. Strips <script> tags and
-  // inline event-handler attributes (onclick, onerror, etc.) and
-  // javascript: URIs before rendering email HTML via
-  // dangerouslySetInnerHTML. A proper library (e.g. DOMPurify) should
-  // replace this before this feature is trusted for a wider rollout —
-  // flagged here rather than silently assumed safe.
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/on\w+="[^"]*"/gi, "")
-    .replace(/on\w+='[^']*'/gi, "")
-    .replace(/javascript:/gi, "");
-}
-
 // "Sent Items" and "Drafts" show recipients ("To:") instead of a sender,
 // since the signed-in user authored those messages themselves.
 const RECIPIENT_FOLDERS: MailFolder[] = ["sentitems", "drafts"];
@@ -378,9 +364,9 @@ function MailDetail({
         <div className="max-w-3xl overflow-hidden rounded-lg border border-base-700 bg-white">
           <div
             className="prose prose-sm max-w-none p-4 text-black"
-            dangerouslySetInnerHTML={{
-              __html: sanitizeHtml(message.body.content),
-            }}
+            // Already sanitized server-side (lib/sanitizeHtml.ts, applied in
+            // app/api/mail/route.ts and app/(app)/mail/page.tsx).
+            dangerouslySetInnerHTML={{ __html: message.body.content }}
           />
         </div>
       ) : (

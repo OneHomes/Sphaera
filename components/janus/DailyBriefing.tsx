@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Flame, Award, AlertTriangle, Loader2 } from "lucide-react";
+import { Flame, Award, AlertTriangle } from "lucide-react";
 import { JanusFeedback } from "./JanusFeedback";
+import { JanusOrb } from "./JanusOrb";
 
 type BriefingData = {
   briefing: string;
@@ -67,7 +68,7 @@ export function DailyBriefing() {
 
       {isLoading && (
         <div className="flex items-center gap-2 py-2 text-xs text-ink-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <JanusOrb state="composing" />
           {period === "day" ? "Preparing your daily briefing…" : "Preparing your weekly rollup…"}
         </div>
       )}

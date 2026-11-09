@@ -59,8 +59,8 @@ export function SettingsPage() {
               }`}
             >
               <span
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                  setting.enabled ? "left-4" : "left-0.5"
+                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-150 ease-out-strong ${
+                  setting.enabled ? "translate-x-3.5" : "translate-x-0"
                 }`}
               />
             </button>

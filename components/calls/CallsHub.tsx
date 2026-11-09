@@ -19,7 +19,7 @@ export function CallsHub({ leads }: { leads: Lead[] }) {
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-medium text-ink-50">{lead.name}</p>
+                <p className="truncate text-sm font-medium text-ink-50" title={lead.name}>{lead.name}</p>
                 <StageBadge stage={lead.stage} />
               </div>
               <p className="mt-0.5 text-xs text-ink-500">

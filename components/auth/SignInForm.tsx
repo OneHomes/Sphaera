@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Loader2, AlertTriangle } from "lucide-react";
+import { SphaeraWordmark } from "@/components/brand/SphaeraWordmark";
 
 // NextAuth's own error codes (no pages.error configured in lib/auth.ts,
 // so it defaults to redirecting back here as /sign-in?error=CODE on any
@@ -18,9 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   Default: "Sign-in failed for an unspecified reason.",
 };
 
-// HARDENING NOTE: the temporary email/password testing form has been
-// removed along with the Credentials provider in lib/auth.ts. Microsoft
-// Entra ID is now the only sign-in method, per PRD PF01.
+// Microsoft Entra ID is the only sign-in method on this page (PRD PF01).
 export function SignInForm() {
   const [isMicrosoftLoading, setIsMicrosoftLoading] = useState(false);
   const searchParams = useSearchParams();
@@ -37,11 +36,8 @@ export function SignInForm() {
 
   return (
     <div className="flex w-full flex-col justify-center px-8 py-12 sm:px-16 md:w-1/2 lg:px-24">
-      <div className="mb-10 flex items-center gap-2">
-        <SphaeraMark className="h-6 w-6 text-ink-50" />
-        <span className="font-display text-lg font-semibold tracking-tight text-ink-50">
-          SPHAERA
-        </span>
+      <div className="mb-10 text-ink-50">
+        <SphaeraWordmark tagline className="h-10" />
       </div>
 
       <h1 className="font-display text-3xl font-semibold text-ink-50">
@@ -77,24 +73,11 @@ export function SignInForm() {
         Sign in with Microsoft
       </button>
 
+
       <p className="mt-8 text-center text-sm text-ink-300">
         Need access? Contact your Sphaera administrator.
       </p>
     </div>
-  );
-}
-
-function SphaeraMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="7" r="3.2" stroke="currentColor" strokeWidth="1.6" />
-      <path
-        d="M5 17c0-2.5 2-5 3.5-5M19 17c0-2.5-2-5-3.5-5"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }
 

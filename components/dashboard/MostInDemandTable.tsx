@@ -20,14 +20,13 @@ export function MostInDemandTable({ rows }: { rows: MostInDemandRow[] }) {
               key={row.projectInterest}
               className="border-t border-base-700 text-ink-300"
             >
-              <td
-                className="max-w-[160px] truncate py-2 pr-3"
-                title={row.projectInterest}
-              >
-                {row.projectInterest}
+              <td className="py-2 pr-3">
+                <div className="max-w-[160px] truncate" title={row.projectInterest}>
+                  {row.projectInterest}
+                </div>
               </td>
-              <td className="py-2 pr-3 text-right">{row.interested}</td>
-              <td className="py-2 text-right text-ink-50">
+              <td className="py-2 pr-3 text-right tabular-nums">{row.interested.toLocaleString("en-US")}</td>
+              <td className="whitespace-nowrap py-2 text-right tabular-nums text-ink-50">
                 {formatCurrency(row.totalValue)}
               </td>
             </tr>

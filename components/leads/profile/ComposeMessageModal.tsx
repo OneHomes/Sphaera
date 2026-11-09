@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, RotateCcw, Send } from "lucide-react";
+import { X, RotateCcw, Send } from "lucide-react";
+import { JanusOrb } from "@/components/janus/JanusOrb";
 
 export function ComposeMessageModal({
   leadId,
@@ -81,7 +82,7 @@ export function ComposeMessageModal({
 
         {isDrafting ? (
           <div className="flex items-center gap-2 py-8 text-sm text-ink-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <JanusOrb state="composing" />
             Janus is drafting…
           </div>
         ) : (

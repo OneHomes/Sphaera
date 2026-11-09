@@ -3,6 +3,10 @@
 @tailwind utilities;
 
 :root {
+  /* Strong ease-out for UI entering/leaving; built-in `ease-out` is too weak. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  /* iOS-like curve for drawers and sheets. */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --font-display: -apple-system, "Segoe UI", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-body: -apple-system, "Segoe UI", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -77,6 +81,157 @@ body {
   color: rgb(var(--ink-50));
 }
 
+/* Mobile platform baseline: no grey tap flash, no font inflation in
+   landscape, no pull-to-refresh/rubber-band on the app shell (it scrolls
+   inside <main>, not the page), no 300ms tap delay on controls. */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+/* iOS zooms into any field under 16px and never zooms back out. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Press feedback on every button. Uses the individual `scale` property so
+   it composes with Tailwind's translate/rotate transforms instead of
+   replacing them; `scale` is in the default transition list
+   (tailwind.config.ts), so buttons with `transition` ease into it. */
+@media (prefers-reduced-motion: no-preference) {
+  button:not(:disabled):active {
+    scale: 0.97;
+  }
+}
+
+/* Hand-rolled modals (`fixed inset-0 … bg-black/60` overlay + panel) used
+   to appear in a single frame. Fade the overlay and settle the panel from
+   0.96 — entry only, since they unmount instantly on close (a fast exit is
+   what the motion rules want anyway). Browsers without @starting-style just
+   show them as before. */
+.fixed.inset-0.bg-black\/60 {
+  transition: opacity 200ms var(--ease-out);
+}
+/* Most modal panels had no height cap: on a phone with the keyboard open,
+   the top and the submit button sat off-screen with no way to scroll. */
+.fixed.inset-0.bg-black\/60 > * {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@starting-style {
+  .fixed.inset-0.bg-black\/60 {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fixed.inset-0.bg-black\/60 > * {
+    transition: scale 200ms var(--ease-out);
+  }
+  @starting-style {
+    .fixed.inset-0.bg-black\/60 > * {
+      scale: 0.96;
+    }
+  }
+}
+
+/* ---------- Glass theme (html.glass, set in app/layout.tsx) ----------
+   Translucent surfaces over a soft ambient gradient. Tailwind's base-*
+   colours are `rgb(var(--base-N) / var(--tw-bg-opacity))`, so lowering the
+   opacity variable makes every existing panel glass without touching
+   component code (hover colours stay translucent the same way).
+   Backdrop blur is deliberately limited to surfaces that float over other
+   content (dropdowns, sticky headers, popovers, modal overlays): in-flow
+   cards sit on a smooth gradient where blur changes nothing visible, and
+   hundreds of blurred cards would cost frames on every scroll. */
+html.glass {
+  --glass-chrome: 0.35;
+  --glass-panel: 0.4;
+  --glass-card: 0.45;
+  --glass-float: 0.82;
+  --glass-border: 0.55;
+  --glass-edge: 255 255 255 / 0.09;
+  --glass-highlight: 255 255 255 / 0.12;
+  --glass-glow-a: 0.42;
+  --glass-glow-b: 0.36;
+  --glass-glow-c: 0.26;
+}
+html.glass.light {
+  --glass-chrome: 0.45;
+  --glass-panel: 0.55;
+  --glass-card: 0.55;
+  --glass-float: 0.88;
+  --glass-edge: 255 255 255 / 0.85;
+  --glass-highlight: 255 255 255 / 0.9;
+  --glass-glow-a: 0.3;
+  --glass-glow-b: 0.26;
+  --glass-glow-c: 0.22;
+}
+
+html.glass body {
+  background-image:
+    radial-gradient(60rem 40rem at 8% -10%, rgb(var(--status-active) / var(--glass-glow-a)), transparent 60%),
+    radial-gradient(52rem 38rem at 100% 0%, rgb(139 92 246 / var(--glass-glow-b)), transparent 60%),
+    radial-gradient(56rem 42rem at 55% 115%, rgb(14 165 233 / var(--glass-glow-c)), transparent 60%);
+}
+
+html.glass .glass-root {
+  background-color: transparent;
+}
+html.glass .bg-base-950 {
+  --tw-bg-opacity: var(--glass-chrome);
+}
+/* Surfaces pinned dark (`.theme-dark`, the side rails) turn a muddy grey
+   when half-transparent over the light theme's paper; keep them near-solid. */
+html.glass .theme-dark:is(.bg-base-950, .bg-base-900) {
+  --tw-bg-opacity: 0.92;
+}
+html.glass .bg-base-900,
+html.glass [class*="hover:bg-base-9"]:hover {
+  --tw-bg-opacity: var(--glass-panel);
+}
+html.glass .bg-base-800,
+html.glass .bg-base-700,
+html.glass [class*="hover:bg-base-8"]:hover,
+html.glass [class*="hover:bg-base-7"]:hover {
+  --tw-bg-opacity: var(--glass-card);
+}
+html.glass .border-base-700,
+html.glass .border-base-600 {
+  --tw-border-opacity: var(--glass-border);
+}
+
+/* Cards and panels: a hairline top highlight and a soft drop shadow give
+   the "pane of glass" edge. */
+html.glass :is(.rounded-xl, .rounded-xl2, .rounded-2xl).bg-base-900 {
+  border-color: rgb(var(--glass-edge));
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.04), transparent 40%);
+  box-shadow:
+    inset 0 1px 0 rgb(var(--glass-highlight)),
+    0 12px 32px -16px rgb(0 0 0 / 0.45);
+}
+
+/* Anything floating over other content needs to stay readable: more
+   opaque, and blurred so the content behind it doesn't show through. */
+html.glass :is(.absolute, .fixed, .sticky):is(.bg-base-950, .bg-base-900, .bg-base-800) {
+  --tw-bg-opacity: var(--glass-float);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+html.glass .fixed.inset-0.bg-black\/60 {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -94,14 +249,28 @@ body {
   outline: none !important;
 }
 
+/* Reduced motion means gentler, not none: drop movement (the leaderboard
+   marquee, slide/zoom entrances, smooth scrolling) but keep fades, colour
+   changes and spinners. Zeroing every animation used to freeze each
+   `animate-spin` loader after one frame, so loading looked stuck. Press
+   scale and modal settle are already gated on no-preference above. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .animate-marquee {
+    animation: none !important;
+  }
+  .animate-in,
+  .animate-out {
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
   }
 }
 
@@ -116,6 +285,123 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
   border-radius: 999px;
+}
+
+/* Left rail as a dock (components/shell/LeftRail.tsx). Icons share the
+   rail's height instead of scrolling: --dock-n is the item count, 4rem is
+   the rail's padding plus the logo at the bottom. */
+.dock {
+  --dock-h: min(36px, calc((100dvh - 4rem) / var(--dock-n, 25)));
+}
+.dock-item {
+  width: 36px;
+  height: var(--dock-h);
+  transform-origin: left center;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    scale 160ms var(--ease-out),
+    translate 160ms var(--ease-out);
+}
+.dock-icon {
+  width: min(18px, calc(var(--dock-h) * 0.58));
+  height: min(18px, calc(var(--dock-h) * 0.58));
+}
+/* macOS-style magnification: the hovered icon grows out of the rail and
+   its neighbours grow less and step aside so they don't overlap it.
+   `scale`/`translate` only (no layout), mouse devices only. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .dock-item:hover {
+    scale: 1.4;
+    translate: 10px 0;
+    z-index: 1;
+  }
+  .dock-item:has(+ .dock-item:hover) {
+    scale: 1.18;
+    translate: 5px calc(var(--dock-h) * -0.3);
+  }
+  .dock-item:hover + .dock-item {
+    scale: 1.18;
+    translate: 5px calc(var(--dock-h) * 0.3);
+  }
+  .dock-item:has(+ .dock-item + .dock-item:hover) {
+    scale: 1.06;
+    translate: 2px calc(var(--dock-h) * -0.12);
+  }
+  .dock-item:hover + .dock-item + .dock-item {
+    scale: 1.06;
+    translate: 2px calc(var(--dock-h) * 0.12);
+  }
+}
+
+/* Brand wordmark masks (components/brand/SphaeraWordmark.tsx). */
+.brand-wordmark,
+.brand-wordmark-tagline {
+  aspect-ratio: 900 / 185;
+  -webkit-mask: var(--brand-src) left center / contain no-repeat;
+  mask: var(--brand-src) left center / contain no-repeat;
+}
+.brand-wordmark {
+  --brand-src: url("/brand/sphaera-wordmark.png");
+}
+.brand-wordmark-tagline {
+  --brand-src: url("/brand/sphaera-wordmark-tagline.png");
+}
+
+/* Popovers/dropdowns: grow out of their trigger instead of appearing in one
+   frame. Set the origin with Tailwind (`origin-top-right` etc.). */
+.pop-in {
+  transition: opacity 150ms var(--ease-out);
+}
+@starting-style {
+  .pop-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pop-in {
+    transition:
+      opacity 150ms var(--ease-out),
+      scale 150ms var(--ease-out);
+  }
+  @starting-style {
+    .pop-in {
+      scale: 0.97;
+    }
+  }
+}
+
+/* Janus pill (components/janus/JanusPill.tsx): floats over page content,
+   so it stays near-solid and blurred like other floating surfaces. */
+html.glass .janus-float {
+  --tw-bg-opacity: 0.88;
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+/* Panel rises out of the pill: opacity always, scale/lift only when motion
+   is allowed. Skipped entirely when opened from the keyboard. */
+.janus-pill-animate {
+  transform-origin: bottom center;
+  transition: opacity 180ms var(--ease-out);
+}
+@starting-style {
+  .janus-pill-animate {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .janus-pill-animate {
+    transition:
+      opacity 180ms var(--ease-out),
+      scale 180ms var(--ease-out),
+      translate 180ms var(--ease-out);
+  }
+  @starting-style {
+    .janus-pill-animate {
+      scale: 0.96;
+      translate: 0 6px;
+    }
+  }
 }
 
 /* scrolls, but without a visible bar (the left icon rail) */

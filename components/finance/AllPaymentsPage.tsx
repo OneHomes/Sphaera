@@ -8,6 +8,8 @@ import { PaymentsTable } from "./PaymentsTable";
 import { BulkPaymentToolbar } from "./BulkPaymentToolbar";
 import { useFilteredFinanceRows } from "./FinanceFilterContext";
 import { isOperating, isUnidentified, mo } from "@/lib/finance/financeReporting";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 // Direct structural/content port of the source app's paymentPage()
 // (index.html line 1039) — same "Show" filter, same drilldown chip, same
@@ -28,16 +30,14 @@ const SHOW_OPTIONS: { value: ShowMode; label: string }[] = [
 ];
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 function Kpi({ title, value, detail, color }: { title: string; value: string; detail: string; color?: "purple" }) {
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${color === "purple" ? "text-[#7965bd]" : "text-ink-50"}`}>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${color === "purple" ? "text-[#7965bd]" : "text-ink-50"}`}>
         {value}
       </div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
@@ -236,7 +236,7 @@ export function AllPaymentsPage({
             disabled={selected.size === 0}
             className="rounded-lg bg-status-active/15 px-3 py-1.5 text-xs font-medium text-status-active disabled:opacity-40"
           >
-            Link {selected.size} selected payments to a subscription
+            Link {plural(selected.size, "selected payment")} to a subscription
           </button>
         </div>
         {showLinkBar && (

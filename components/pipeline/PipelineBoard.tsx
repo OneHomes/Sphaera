@@ -12,6 +12,8 @@ import { PipelineColumn } from "./PipelineColumn";
 import { LossReasonModal } from "./LossReasonModal";
 import { PipelineInsight } from "./PipelineInsight";
 import { PipelineForecastCard } from "./PipelineForecastCard";
+import { formatMoney } from "@/lib/money";
+import { plural } from "@/lib/plural";
 
 type PendingLossMove = {
   opportunityId: string;
@@ -141,8 +143,8 @@ export function PipelineBoard({
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Pipeline</h1>
           <p className="mt-1 text-sm text-ink-500">
-            {opportunities.length} opportunities · $
-            {(totalPipelineValue / 1_000_000).toFixed(2)}M active pipeline
+            {plural(opportunities.length, "opportunity", "opportunities")} ·{" "}
+            {formatMoney(totalPipelineValue, { compact: true })} active pipeline
           </p>
         </div>
         {canExportData && (

@@ -8,13 +8,12 @@ import { ChartPicker, selectionAllows } from "./ChartPicker";
 import { useTablePager } from "./TablePager";
 import { effectiveCentre, effectiveHead, isOperating } from "@/lib/finance/financeReporting";
 import type { FinanceState } from "@/lib/finance/ledgerData";
+import { formatMoney } from "@/lib/money";
 
 // Port of the source headPage().
 
 function usd(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value, { compact });
 }
 
 function Kpi({ title, value, detail, purple, href }: { title: string; value: string; detail: string; purple?: boolean; href: string }) {
@@ -22,7 +21,7 @@ function Kpi({ title, value, detail, purple, href }: { title: string; value: str
     <Link href={href} className="relative block rounded-xl border border-base-700 bg-base-900 p-4 transition hover:border-base-600">
       <span className="absolute right-3 top-3 text-xs text-ink-500">↗</span>
       <h4 className="pr-4 text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${purple ? "text-[#8167b8]" : "text-ink-50"}`}>{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${purple ? "text-[#8167b8]" : "text-ink-50"}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </Link>
   );
@@ -151,9 +150,9 @@ export function CostHeadsPage({ state: rawState }: { state: FinanceState }) {
                         {key}
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-right">{g.count}</td>
-                    <td className="px-3 py-2 text-right">{usd(g.total)}</td>
-                    <td className="px-3 py-2 text-right">{usd(g.debt)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{g.count.toLocaleString("en-US")}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(g.total)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{usd(g.debt)}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1.5">
                         {centres.slice(0, 3).map(([centre, amount]) => (

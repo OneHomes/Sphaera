@@ -33,14 +33,24 @@ function Dialog({
 }) {
   const [value, setValue] = useState(options.defaultValue ?? "");
   const [visible, setVisible] = useState(false);
+  const doneRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const okRef = useRef<HTMLButtonElement | null>(null);
 
-  const cancel = () => onDone(kind === "prompt" ? null : false);
-  const ok = () => onDone(kind === "prompt" ? value : true);
+  // Fade out (faster than the fade in) before open() unmounts us.
+  const finish = (result: boolean | string | null) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setVisible(false);
+    onDone(result);
+  };
+  const cancel = () => finish(kind === "prompt" ? null : false);
+  const ok = () => finish(kind === "prompt" ? value : true);
 
   useEffect(() => {
-    setVisible(true);
+    // Two frames so the hidden state is painted first and the entry
+    // actually transitions (a single effect can run before first paint).
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
     (kind === "prompt" ? inputRef.current : okRef.current)?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -50,7 +60,10 @@ function Dialog({
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("keydown", onKey);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -62,7 +75,9 @@ function Dialog({
 
   return (
     <div
-      className={`fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px] transition-opacity duration-150 ${visible ? "opacity-100" : "opacity-0"}`}
+      // bg-black/[0.6], not /60: this dialog runs its own enter/exit, so it
+      // opts out of the generic modal rules in globals.css.
+      className={`fixed inset-0 z-[1000] flex items-center justify-center bg-black/[0.6] p-4 backdrop-blur-[2px] transition-opacity ease-out-strong ${visible ? "opacity-100 duration-200" : "opacity-0 duration-[120ms]"}`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && kind !== "alert") cancel();
       }}
@@ -71,7 +86,7 @@ function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="finance-dialog-title"
-        className={`w-full max-w-md rounded-2xl border border-base-700 bg-base-900 p-5 shadow-2xl transition-transform duration-150 ${visible ? "scale-100" : "scale-95"}`}
+        className={`w-full max-w-md rounded-2xl border border-base-700 bg-base-900 p-5 shadow-2xl motion-safe:transition-transform motion-safe:ease-out-strong ${visible ? "scale-100 duration-200" : "motion-safe:scale-[0.96] duration-[120ms]"}`}
       >
         <h2 id="finance-dialog-title" className="text-sm font-semibold text-ink-50">
           {title}
@@ -119,10 +134,14 @@ function open(kind: DialogKind, message: string, options: DialogOptions = {}): P
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
+    // Answer immediately so the caller isn't held up; unmount once the
+    // 120ms exit fade has played.
     const done = (result: boolean | string | null) => {
-      root.unmount();
-      host.remove();
       resolve(result);
+      setTimeout(() => {
+        root.unmount();
+        host.remove();
+      }, 130);
     };
     root.render(<Dialog kind={kind} message={message} options={options} onDone={done} />);
   });

@@ -15,11 +15,8 @@ export function LeftRail({
   canAccessFinance?: boolean;
 }) {
   const pathname = usePathname();
-  // The icon list is taller than short windows (~25 items), so it scrolls
-  // inside the rail instead of stretching the page (which gave the page a
-  // second scrollbar and spilled icons past the rail). A scrolling box
-  // clips anything positioned outside it, so the hover label is drawn
-  // position:fixed beside the hovered icon instead of absolute.
+  // Hover label is position:fixed beside the hovered icon so the dock
+  // magnification (app/globals.css `.dock`) can't push it around.
   const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
 
   // Finance is a self-contained workspace with its own sidebar and a "Back to main menu" link.
@@ -35,11 +32,13 @@ export function LeftRail({
   return (
     <nav
       aria-label="Primary"
-      className="theme-dark flex h-full w-14 shrink-0 flex-col items-center border-r border-base-700 bg-base-950 py-4"
+      className="theme-dark relative z-40 flex h-full w-14 shrink-0 flex-col items-center border-r border-base-700 bg-base-950 py-3"
     >
+      {/* No scrolling: each icon's height is the rail's height shared by
+          the item count (capped at 36px), so all ~25 fit on short screens. */}
       <div
-        className="no-scrollbar flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto"
-        onScroll={() => setTip(null)}
+        className="dock flex min-h-0 w-full flex-1 flex-col items-center justify-start"
+        style={{ "--dock-n": visibleItems.length } as React.CSSProperties}
       >
         {visibleItems.map((item) => {
           const isActive = pathname?.startsWith(item.href);
@@ -55,13 +54,13 @@ export function LeftRail({
                 setTip({ label: item.label, top: r.top + r.height / 2 });
               }}
               onMouseLeave={() => setTip(null)}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
+              className={`dock-item flex shrink-0 items-center justify-center rounded-lg ${
                 isActive
                   ? "bg-base-800 text-ink-50"
                   : "text-ink-500 hover:bg-base-800 hover:text-ink-300"
               }`}
             >
-              <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+              <Icon className="dock-icon" strokeWidth={1.75} />
             </Link>
           );
         })}
@@ -73,7 +72,7 @@ export function LeftRail({
 
       {tip && (
         <span
-          className="pointer-events-none fixed left-[3.75rem] z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-base-800 px-2 py-1 text-xs text-ink-50 shadow-lg"
+          className="pointer-events-none fixed left-[4.5rem] z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-base-800 px-2 py-1 text-xs text-ink-50 shadow-lg"
           style={{ top: tip.top }}
         >
           {tip.label}

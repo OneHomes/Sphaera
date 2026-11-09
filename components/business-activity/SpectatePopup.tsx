@@ -1,6 +1,7 @@
 "use client";
 
-import { Headphones, X } from "lucide-react";
+import { Headphones, User, X } from "lucide-react";
+import { initials } from "@/lib/initials";
 
 export function SpectatePopup({
   agentName,
@@ -17,8 +18,8 @@ export function SpectatePopup({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-xs rounded-xl border border-base-700 bg-base-900 p-4">
         <div className="mb-3 flex items-start justify-between">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-base-700 text-sm font-medium text-ink-50">
-            {agentName.charAt(0)}
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-base-700 text-sm font-medium text-ink-50">
+            {initials(agentName) || <User className="h-4 w-4" />}
           </div>
           <button onClick={onClose} className="text-ink-500 hover:text-ink-300">
             <X className="h-4 w-4" />

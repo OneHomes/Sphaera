@@ -19,6 +19,7 @@ import { useSearchParams } from "next/navigation";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import { ListSearch, ShowMoreBar, useListSearch, useShowMore } from "@/components/finance/ShowMore";
+import { plural } from "@/lib/plural";
 
 export type FundName = "S&M" | "Development" | "Unallocated";
 
@@ -474,7 +475,7 @@ export function BanksPage({ state: initialState }: { state: TreasuryState }) {
               onChange={registerSearch.setQuery}
               placeholder="Filter banks, entities, accounts…"
             />
-            <span className="shrink-0 rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{scopedBanks.length} accounts</span>
+            <span className="shrink-0 rounded-full bg-base-800 px-2 py-0.5 text-[11px] text-ink-300">{plural(scopedBanks.length, "account")}</span>
           </div>
         </div>
         {scopedBanks.length === 0 ? (
@@ -617,7 +618,7 @@ function BankDetailPanel({
               <>
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
+                    <Pie animationDuration={300} animationEasing="ease-out" data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
                       {donutData.map((d) => (
                         <Cell key={d.name} fill={FUND_COLORS[d.name]} />
                       ))}
@@ -883,7 +884,7 @@ export function BankAccountModal({
                 value={usdPerUnit}
                 onChange={(e) => setUsdPerUnit(e.target.value)}
                 placeholder="USD per unit (FX rate)"
-                type="number"
+                type="number" inputMode="decimal"
                 step="any"
                 className={inputClass}
               />
@@ -1071,7 +1072,7 @@ export function MovementModal({
             <input
               value={smAmount}
               onChange={(e) => setSmAmount(e.target.value)}
-              type="number"
+              type="number" inputMode="decimal"
               step="any"
               placeholder="S&M allocation"
               className={inputClass}
@@ -1079,7 +1080,7 @@ export function MovementModal({
             <input
               value={devAmount}
               onChange={(e) => setDevAmount(e.target.value)}
-              type="number"
+              type="number" inputMode="decimal"
               step="any"
               placeholder="Development allocation"
               className={inputClass}
@@ -1087,7 +1088,7 @@ export function MovementModal({
             <input
               value={unAmount}
               onChange={(e) => setUnAmount(e.target.value)}
-              type="number"
+              type="number" inputMode="decimal"
               step="any"
               placeholder="Unallocated"
               className={inputClass}
@@ -1194,7 +1195,7 @@ export function SettlementModal({
   const num = (k: keyof typeof f, title: string) => (
     <label className={label}>
       {title}
-      <input type="number" step="0.01" value={f[k]} onChange={set(k)} className={inputClass} />
+      <input type="number" inputMode="decimal" step="0.01" value={f[k]} onChange={set(k)} className={inputClass} />
     </label>
   );
 

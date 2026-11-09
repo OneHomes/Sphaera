@@ -1,5 +1,6 @@
 // Placeholder data only. Replace with a real AEX leaderboard API call
 // (e.g. GET /api/aex/leaderboard) once the AEX event/point engine is built.
+import { formatMoney } from "./money";
 
 export type LeaderboardEntry = {
   id: string;
@@ -21,11 +22,5 @@ export const leaderboardData: LeaderboardEntry[] = [
 ];
 
 export function formatCompactCurrency(value: number): string {
-  if (value >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(1)}M`;
-  }
-  if (value >= 1_000) {
-    return `$${(value / 1_000).toFixed(0)}K`;
-  }
-  return `$${value}`;
+  return formatMoney(value, { compact: true });
 }

@@ -6,9 +6,10 @@ import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import type { FinanceLedgerRow } from "@/lib/finance/ledgerData";
 import { DisputeModal } from "./DisputeModal";
 import { ShowMoreBar, useShowMore } from "./ShowMore";
+import { formatMoney } from "@/lib/money";
 
 function usd(value: number): string {
-  return `${value < 0 ? "-" : ""}$${Math.abs(Math.round(value)).toLocaleString()}`;
+  return formatMoney(value);
 }
 
 function Kpi({
@@ -26,7 +27,7 @@ function Kpi({
   return (
     <div className="rounded-xl border border-base-700 bg-base-900 p-4">
       <h4 className="text-[11px] text-ink-500">{title}</h4>
-      <div className={`mt-1 text-xl font-semibold ${colorClass}`}>{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums ${colorClass}`}>{value}</div>
       <div className="mt-1 text-[11px] text-ink-500">{detail}</div>
     </div>
   );

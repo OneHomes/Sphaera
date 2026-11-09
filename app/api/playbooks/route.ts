@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
+import { sanitizePlaybookHtml } from "@/lib/sanitizeHtml";
 
 // PRD AE18 — Playbook / best-practice feed. Read is open to everyone
 // signed in (agents are the primary audience); authoring is
@@ -19,7 +20,9 @@ export async function GET() {
           id: p.id,
           title: p.title,
           category: p.category,
-          body: p.body,
+          // Sanitized on read too, so rows written before write-time
+          // sanitizing existed are still safe to render.
+          body: sanitizePlaybookHtml(p.body),
           createdByName: p.createdBy.name,
           createdAt: p.createdAt.toISOString(),
         }))
@@ -41,7 +44,12 @@ export async function POST(request: Request) {
       }
 
       const body = await request.json();
-      if (!body.title?.trim() || !body.category?.trim() || !body.body?.trim()) {
+      // The body is rendered as HTML and this endpoint can be called
+      // directly (not only via the rich-text editor), so clean it before
+      // storing it.
+      const cleanBody =
+        typeof body.body === "string" ? sanitizePlaybookHtml(body.body).trim() : "";
+      if (!body.title?.trim() || !body.category?.trim() || !cleanBody) {
         return NextResponse.json(
           { error: "title, category, and body are required" },
           { status: 400 }
@@ -52,7 +60,7 @@ export async function POST(request: Request) {
         data: {
           title: body.title.trim(),
           category: body.category.trim(),
-          body: body.body.trim(),
+          body: cleanBody,
           createdById: authUser.id,
         },
         include: { createdBy: { select: { name: true } } },

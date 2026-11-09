@@ -2,6 +2,7 @@ import { getFinanceState } from "./ledgerData";
 import { projection } from "./creditCycleData";
 import { fyOf } from "./financeFilters";
 import type { FinanceLedgerRow } from "./ledgerData";
+import { formatMoney } from "../money";
 
 type Slice = { amount: number; managementDepartment: string | null };
 
@@ -87,7 +88,7 @@ export async function getWeeklyBrief(year: number, departmentScope?: string[] | 
 export type WeeklyBrief = Awaited<ReturnType<typeof getWeeklyBrief>>;
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const money = (n: number | null) => (n === null ? "Not supplied" : `$${Math.round(n).toLocaleString("en-US")}`);
+const money = (n: number | null) => (n === null ? "Not supplied" : formatMoney(n));
 
 /** Port of the source weekly_html(report), re-skinned to Sphaera's dark palette (white when printed). */
 export function weeklyBriefHtml(r: WeeklyBrief): string {

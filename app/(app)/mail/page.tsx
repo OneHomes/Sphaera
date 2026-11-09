@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { listMailMessages, type GraphMailMessage } from "@/lib/graph";
 import { MailPage as MailPageComponent } from "@/components/mail/MailPage";
 import { withTenantPage } from "@/lib/withTenant";
+import { sanitizeMailMessages } from "@/lib/sanitizeHtml";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function MailRoute() {
     let error: string | null = null;
 
     try {
-      messages = await listMailMessages(session.accessToken, 25);
+      messages = sanitizeMailMessages(await listMailMessages(session.accessToken, 25));
     } catch (err) {
       error =
         "Couldn't load mail from Microsoft Graph. Try signing out and back in.";
