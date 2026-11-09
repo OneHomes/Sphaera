@@ -1,8 +1,13 @@
 // A soft "tick" when the pointer moves across the left rail, like the macOS
 // Dock. Synthesised with Web Audio (no sound file): a 40ms sine blip that
 // falls in pitch, kept short because it plays dozens of times a day.
-// Browsers keep audio locked until the first click on the page, so hovers
-// before that are silent. Muted via the speaker toggle in the top bar.
+// Muted via the speaker toggle in the top bar.
+//
+// Browsers only let audio start inside a user gesture (click, key press).
+// A hover is not a gesture, so creating or resuming the AudioContext from
+// the hover itself leaves it suspended and every tick is silent. Instead
+// the context is created/resumed on the page's first pointerdown/keydown,
+// and hovers after that play.
 
 export const UI_SOUND_KEY = "sphaera-ui-sounds";
 
@@ -12,6 +17,30 @@ const TICK_VOLUME = 0.12;
 
 let ctx: AudioContext | null = null;
 let lastTick = 0;
+
+function getContext(): AudioContext | null {
+  if (ctx) return ctx;
+  const AudioCtx =
+    window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+  ctx = new AudioCtx();
+  return ctx;
+}
+
+// Runs inside the gesture, which is what allows the context to start.
+function unlockAudio() {
+  try {
+    const c = getContext();
+    if (c && c.state !== "running") void c.resume();
+  } catch {
+    // audio unavailable: hovering stays silent
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pointerdown", unlockAudio, { capture: true, passive: true });
+  window.addEventListener("keydown", unlockAudio, { capture: true, passive: true });
+}
 
 export function uiSoundsEnabled(): boolean {
   try {
@@ -39,13 +68,8 @@ export function playTick() {
   lastTick = now;
 
   try {
-    const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    ctx ??= new AudioCtx();
-    if (ctx.state !== "running") {
-      void ctx.resume();
-      return;
-    }
+    // Not unlocked by a click/key press yet: nothing can play.
+    if (!ctx || ctx.state !== "running") return;
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();

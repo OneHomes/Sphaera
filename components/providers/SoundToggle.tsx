@@ -17,7 +17,9 @@ export function SoundToggle() {
     const next = !on;
     setOn(next);
     setUiSoundsEnabled(next);
-    if (next) playTick(); // a sample, so you hear what you turned on
+    // A sample so you hear what you turned on; a beat later because this
+    // click is also what unlocks audio, and that takes a moment.
+    if (next) setTimeout(playTick, 80);
   }
 
   const label = on ? "Turn off menu sounds" : "Turn on menu sounds";
