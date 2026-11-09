@@ -334,6 +334,20 @@ html.glass .fixed.inset-0.bg-black\/60 {
   }
 }
 
+/* Brand wordmark masks (components/brand/SphaeraWordmark.tsx). */
+.brand-wordmark,
+.brand-wordmark-tagline {
+  aspect-ratio: 900 / 185;
+  -webkit-mask: var(--brand-src) left center / contain no-repeat;
+  mask: var(--brand-src) left center / contain no-repeat;
+}
+.brand-wordmark {
+  --brand-src: url("/brand/sphaera-wordmark.png");
+}
+.brand-wordmark-tagline {
+  --brand-src: url("/brand/sphaera-wordmark-tagline.png");
+}
+
 /* Popovers/dropdowns: grow out of their trigger instead of appearing in one
    frame. Set the origin with Tailwind (`origin-top-right` etc.). */
 .pop-in {

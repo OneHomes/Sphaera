@@ -1,3 +1,5 @@
+import { SphaeraGlyph } from "@/components/shell/LeftRail";
+
 export function AmbientPanel() {
   // Concentric dot rings around the Sphaera mark, matching the reference
   // sign-in screen's right-hand ambient visual.
@@ -32,22 +34,8 @@ export function AmbientPanel() {
       </svg>
 
       <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full">
-        <SphaeraMarkLarge />
+        <SphaeraGlyph className="h-20 w-20 text-white" />
       </div>
     </div>
-  );
-}
-
-function SphaeraMarkLarge() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-16 w-16 text-white">
-      <circle cx="12" cy="7" r="3.4" stroke="currentColor" strokeWidth="1.4" />
-      <path
-        d="M4.5 17.5c0-2.8 2.2-5.5 3.8-5.5M19.5 17.5c0-2.8-2.2-5.5-3.8-5.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }
