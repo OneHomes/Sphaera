@@ -36,9 +36,9 @@ export function MonthlySalesBreakdownChart({ data }: { data: MonthlyStageBreakdo
             formatter={(value) => [formatMoney(Number(value))]}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Bar dataKey="won" name="Closed Won" stackId="a" fill="#14b8a6" />
-          <Bar dataKey="lost" name="Closed Lost" stackId="a" fill="#ef4444" />
-          <Bar dataKey="expected" name="Open (Expected)" stackId="a" fill="#f59e0b" />
+          <Bar animationDuration={300} animationEasing="ease-out" dataKey="won" name="Closed Won" stackId="a" fill="#14b8a6" />
+          <Bar animationDuration={300} animationEasing="ease-out" dataKey="lost" name="Closed Lost" stackId="a" fill="#ef4444" />
+          <Bar animationDuration={300} animationEasing="ease-out" dataKey="expected" name="Open (Expected)" stackId="a" fill="#f59e0b" />
         </BarChart>
       </ResponsiveContainer>
       <p className="mt-1 text-[10px] text-ink-500">

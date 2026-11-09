@@ -364,7 +364,7 @@ export function FinancialPlanningPage({
           {plan && donutData.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie
+                <Pie animationDuration={300} animationEasing="ease-out"
                   data={donutData}
                   dataKey="value"
                   nameKey="name"

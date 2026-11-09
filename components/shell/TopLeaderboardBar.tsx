@@ -73,7 +73,8 @@ export function TopLeaderboardBar({
         className="min-w-0 flex-1 overflow-hidden"
       >
         <div
-          className="flex w-max animate-marquee items-center gap-2"
+          // Pauses under the pointer so a name can actually be read.
+          className="flex w-max animate-marquee items-center gap-2 hover:[animation-play-state:paused]"
           style={{ animationDuration: `${durationSeconds}s` }}
         >
           {/* Content is rendered twice back-to-back — the marquee

@@ -186,7 +186,7 @@ export function ActivityTimeline({ events }: { events: TimelineEvent[] }) {
               {filterOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setFilterOpen(false)} />
-                  <div className="absolute right-0 z-20 mt-1 max-h-96 w-56 overflow-y-auto rounded-lg border border-base-700 bg-base-800 p-2 shadow-lg">
+                  <div className="pop-in absolute right-0 z-20 mt-1 max-h-96 w-56 origin-top-right overflow-y-auto rounded-lg border border-base-700 bg-base-800 p-2 shadow-lg">
                     {FILTER_GROUPS.map((group) => {
                       const allOn = group.types.every((t) => activeTypes.has(t));
                       const someOn = !allOn && group.types.some((t) => activeTypes.has(t));

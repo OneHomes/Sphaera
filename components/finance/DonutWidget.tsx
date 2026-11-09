@@ -83,7 +83,7 @@ export function DonutWidget({
         <div className={`relative mx-auto w-full max-w-[260px] ${wide ? "md:mx-0 md:shrink-0" : ""}`}>
           <ResponsiveContainer width="100%" height={210}>
             <PieChart>
-              <Pie
+              <Pie animationDuration={300} animationEasing="ease-out"
                 data={shown}
                 dataKey="value"
                 nameKey="name"

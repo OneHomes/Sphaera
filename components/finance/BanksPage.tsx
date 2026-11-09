@@ -618,7 +618,7 @@ function BankDetailPanel({
               <>
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
+                    <Pie animationDuration={300} animationEasing="ease-out" data={donutData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85}>
                       {donutData.map((d) => (
                         <Cell key={d.name} fill={FUND_COLORS[d.name]} />
                       ))}

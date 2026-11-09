@@ -67,7 +67,7 @@ export function MonthlySalesChart({ data }: { data: MonthlySalesPoint[] }) {
               mode === "value" ? "Closed Value" : "Closed Deals",
             ]}
           />
-          <Line
+          <Line animationDuration={300} animationEasing="ease-out"
             type="monotone"
             dataKey={dataKey}
             stroke="#14b8a6"

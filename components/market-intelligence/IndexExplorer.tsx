@@ -257,8 +257,8 @@ export default function IndexExplorer() {
                         activeDot={{ r: 5 }}
                         connectNulls={true}
                         isAnimationActive
-                        animationDuration={900}
-                        animationBegin={60}
+                        animationDuration={300}
+                        animationBegin={0}
                         animationEasing="ease-out"
                       />
                     ))}

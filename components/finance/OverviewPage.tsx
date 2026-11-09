@@ -354,10 +354,10 @@ export function OverviewPage({
                 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="collections" name="Collections" fill="#a8a29e" cursor="pointer" onClick={openMonth} />
+              <Bar animationDuration={300} animationEasing="ease-out" dataKey="collections" name="Collections" fill="#a8a29e" cursor="pointer" onClick={openMonth} />
               {/* currentColor = the wrapper's ink-50, so the bars stay high-contrast in both themes */}
-              <Bar dataKey="opex" name="Current-year operating spend" fill="currentColor" cursor="pointer" onClick={openMonth} />
-              <Bar dataKey="budget" name="Operating budget" fill="#71717a" cursor="pointer" onClick={openMonth} />
+              <Bar animationDuration={300} animationEasing="ease-out" dataKey="opex" name="Current-year operating spend" fill="currentColor" cursor="pointer" onClick={openMonth} />
+              <Bar animationDuration={300} animationEasing="ease-out" dataKey="budget" name="Operating budget" fill="#71717a" cursor="pointer" onClick={openMonth} />
             </BarChart>
           </ResponsiveContainer>
           </div>
@@ -431,7 +431,7 @@ export function OverviewPage({
               <div className="relative mx-auto w-full max-w-[260px]">
                 <ResponsiveContainer width="100%" height={210}>
                   <PieChart>
-                    <Pie
+                    <Pie animationDuration={300} animationEasing="ease-out"
                       data={donutData}
                       dataKey="value"
                       nameKey="name"

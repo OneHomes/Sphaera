@@ -334,6 +334,29 @@ html.glass .fixed.inset-0.bg-black\/60 {
   }
 }
 
+/* Popovers/dropdowns: grow out of their trigger instead of appearing in one
+   frame. Set the origin with Tailwind (`origin-top-right` etc.). */
+.pop-in {
+  transition: opacity 150ms var(--ease-out);
+}
+@starting-style {
+  .pop-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pop-in {
+    transition:
+      opacity 150ms var(--ease-out),
+      scale 150ms var(--ease-out);
+  }
+  @starting-style {
+    .pop-in {
+      scale: 0.97;
+    }
+  }
+}
+
 /* Janus pill (components/janus/JanusPill.tsx): floats over page content,
    so it stays near-solid and blurred like other floating surfaces. */
 html.glass .janus-float {

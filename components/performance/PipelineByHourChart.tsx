@@ -34,7 +34,7 @@ export function PipelineByHourChart({ data }: { data: HourlyPipelinePoint[] }) {
             }}
             formatter={(value) => [formatMoney(Number(value)), "Pipeline moved"]}
           />
-          <Bar dataKey="value" fill="#14b8a6" radius={[3, 3, 0, 0]} />
+          <Bar animationDuration={300} animationEasing="ease-out" dataKey="value" fill="#14b8a6" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
       <p className="mt-1 text-[10px] text-ink-500">
