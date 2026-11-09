@@ -137,8 +137,8 @@ export function MeetingPrepModal({
         {!isPast && (
           <>
             {isLoading && (
-              <div className="flex items-center gap-2 py-6 text-sm text-ink-500">
-                <JanusOrb state="composing" />
+              <div className="flex flex-col items-center gap-3 py-8 text-center text-sm text-ink-500">
+                <JanusOrb state="composing" size={64} />
                 Janus is preparing your brief…
               </div>
             )}
@@ -176,8 +176,8 @@ export function MeetingPrepModal({
             )}
 
             {isRecapLoading && (
-              <div className="flex items-center gap-2 py-6 text-sm text-ink-500">
-                <JanusOrb state="composing" />
+              <div className="flex flex-col items-center gap-3 py-8 text-center text-sm text-ink-500">
+                <JanusOrb state="composing" size={64} />
                 Fetching transcript and asking Janus to summarize…
               </div>
             )}

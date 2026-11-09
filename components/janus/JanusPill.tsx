@@ -188,8 +188,8 @@ export function JanusPill() {
               </p>
             ))}
             {isAsking && (
-              <div className="flex items-center gap-2 text-sm text-ink-500">
-                <JanusOrb state="working" />
+              <div className="flex flex-col items-center gap-3 py-4 text-sm text-ink-500">
+                <JanusOrb state="working" size={64} />
                 Janus is thinking…
               </div>
             )}

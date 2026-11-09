@@ -106,8 +106,8 @@ export function AskYourDataPage() {
               </div>
             ))}
             {loading && (
-              <div className="flex w-fit items-center gap-2 rounded-lg bg-base-800 px-3 py-2 text-xs text-ink-500">
-                <JanusOrb state="solving" className="-my-0.5" />
+              <div className="flex w-full flex-col items-center gap-3 py-6 text-xs text-ink-500">
+                <JanusOrb state="solving" size={64} />
                 Analysing the database...
               </div>
             )}
