@@ -32,7 +32,7 @@ export function LeftRail({
   return (
     <nav
       aria-label="Primary"
-      className="theme-dark relative z-40 flex h-full w-14 shrink-0 flex-col items-center border-r border-base-700 bg-base-950 py-3"
+      className="theme-dark relative z-40 flex h-full w-12 shrink-0 flex-col items-center border-r border-base-700 bg-base-950 py-3"
     >
       {/* No scrolling: each icon's height is the rail's height shared by
           the item count (capped at 36px), so all ~25 fit on short screens. */}
@@ -72,7 +72,7 @@ export function LeftRail({
 
       {tip && (
         <span
-          className="pointer-events-none fixed left-[4.5rem] z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-base-800 px-2 py-1 text-xs text-ink-50 shadow-lg"
+          className="pointer-events-none fixed left-[4rem] z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-base-800 px-2 py-1 text-xs text-ink-50 shadow-lg"
           style={{ top: tip.top }}
         >
           {tip.label}

@@ -294,7 +294,7 @@ html.glass .fixed.inset-0.bg-black\/60 {
   --dock-h: min(36px, calc((100dvh - 4rem) / var(--dock-n, 25)));
 }
 .dock-item {
-  width: 36px;
+  width: 32px;
   height: var(--dock-h);
   transform-origin: left center;
   transition:
