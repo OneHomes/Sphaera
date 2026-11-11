@@ -14,7 +14,10 @@ import {
   UserPlus,
   Sparkles,
   FileText,
+  Video,
 } from "lucide-react";
+import { linkStorageKey } from "@/lib/video/clientLink";
+import { alertDialog } from "@/components/finance/dialogs";
 import type { Lead, LeadStage } from "@/lib/leadData";
 import { leadStages } from "@/lib/leadData";
 import { StageBadge, PriorityBadge, ScoreBadge, AssignmentBadge } from "@/components/leads/LeadBadges";
@@ -26,6 +29,7 @@ import { AddTaskModal } from "@/components/tasks/AddTaskModal";
 
 const actionButtons = [
   { icon: Phone, label: "Call" },
+  { icon: Video, label: "Video call" },
   { icon: Mail, label: "Email" },
   { icon: Sparkles, label: "Draft with Janus" },
   { icon: FileText, label: "Generate proposal" },
@@ -59,6 +63,7 @@ export function ProfileHeader({
     // past call without the live workspace, open "Propose meeting" or
     // "Email" and switch the type selector inside that modal to Call.
     if (label === "Call") router.push(`/calls/${lead.id}`);
+    else if (label === "Video call") void startVideoCall();
     else if (label === "Email") setLogType("email");
     else if (label === "Draft with Janus") setShowCompose(true);
     else if (label === "Generate proposal") setShowProposal(true);
@@ -69,6 +74,28 @@ export function ProfileHeader({
     // Messages surface, not this button yet. Request manager assistance
     // IS real now, but scoped to the Call Workspace (a live-call concept)
     // rather than this static profile page.
+  }
+
+  // Starts a video call for this lead and opens the agent's call screen,
+  // where the client's join link can be copied (kept in sessionStorage:
+  // the server only stores its hash).
+  async function startVideoCall() {
+    const res = await fetch("/api/video/calls", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId: lead.id }),
+    }).catch(() => null);
+    const data = await res?.json().catch(() => null);
+    if (!res?.ok) {
+      await alertDialog(data?.error ?? "Couldn't start the video call", { title: "Video call" });
+      return;
+    }
+    try {
+      sessionStorage.setItem(linkStorageKey(data.callId), data.joinUrl);
+    } catch {
+      // the call screen can issue a new link
+    }
+    router.push(`/video/${data.callId}`);
   }
 
   async function handleStageChange(
