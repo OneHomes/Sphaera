@@ -1,3 +1,5 @@
+import { notFound } from "next/navigation";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -9,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 // Admin only: live video calls and the unseen monitor.
 export default async function LiveCallsPage() {
+  if (!VIDEO_CALLS_ENABLED) notFound();
   const session = await getServerSession(authOptions);
   if (!session) redirect("/sign-in");
 

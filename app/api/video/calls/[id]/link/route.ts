@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/auditLog";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
@@ -9,6 +10,7 @@ import { isCallOpen, joinUrl, publicOrigin } from "@/lib/video/calls";
 // is stored, so a lost link can't be shown again; the previous link stops
 // working once this one is issued.
 export async function POST(request: Request, { params }: { params: { id: string } }) {
+  if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     return await withTenant(async (authUser, session) => {
       const call = await prisma.videoCall.findFirst({ where: { id: params.id } });

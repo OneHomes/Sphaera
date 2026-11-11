@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { canAccessRecord } from "@/lib/authz";
 import { logAudit } from "@/lib/auditLog";
@@ -11,6 +12,7 @@ import { joinUrl, publicOrigin } from "@/lib/video/calls";
 // link once: only its hash is stored, so it can't be shown again later
 // (a new link can be issued from the call screen).
 export async function POST(request: Request) {
+  if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     return await withTenant(async (authUser, session) => {
       if (!liveKitConfig()) {

@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { guestKeyMatches, guestToken } from "@/lib/video/livekit";
 import { isCallOpen, notConfigured } from "@/lib/video/calls";
@@ -9,6 +10,7 @@ import { isCallOpen, notConfigured } from "@/lib/video/calls";
 // being monitored and recorded; the consent is stored with time, IP and
 // browser so it can be shown later.
 export async function POST(request: Request) {
+  if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const body = await request.json().catch(() => ({}));
   const callId = typeof body.callId === "string" ? body.callId : "";
   const key = typeof body.key === "string" ? body.key : "";

@@ -27,6 +27,7 @@ import {
   TrendingUp,
   Landmark,
 } from "lucide-react";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 
 export type NavItem = {
   href: string;
@@ -65,7 +66,7 @@ export const navItems: NavItem[] = [
   { href: "/profile", label: "Profile", icon: User },
   { href: "/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/finance", label: "Finance", icon: Landmark, financeAccess: true },
-  { href: "/video/live", label: "Live calls", icon: MonitorPlay, adminOnly: true },
+  ...(VIDEO_CALLS_ENABLED ? [{ href: "/video/live", label: "Live calls", icon: MonitorPlay, adminOnly: true }] : []),
   { href: "/admin/users", label: "Admin", icon: ShieldCheck, adminOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

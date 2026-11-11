@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
 import { logAudit } from "@/lib/auditLog";
@@ -10,6 +11,7 @@ import { isCallOpen, notConfigured } from "@/lib/video/calls";
 // speak to the agent through the coaching room. Every monitoring session
 // is written to the audit log.
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
+  if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     return await withTenant(async (authUser, session) => {
       if (!hasRole(authUser, ["ADMIN"])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

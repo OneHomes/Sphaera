@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
 import { logAudit } from "@/lib/auditLog";
@@ -8,6 +9,7 @@ import { coachRoomName, liveKitConfig, roomService } from "@/lib/video/livekit";
 // End a call for everyone (the agent who started it, or an Admin): the
 // link stops working and both LiveKit rooms are closed.
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
+  if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     return await withTenant(async (authUser, session) => {
       const call = await prisma.videoCall.findFirst({ where: { id: params.id } });

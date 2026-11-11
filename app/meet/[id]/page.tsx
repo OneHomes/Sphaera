@@ -1,3 +1,5 @@
+import { notFound } from "next/navigation";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { guestKeyMatches } from "@/lib/video/livekit";
 import { isCallOpen } from "@/lib/video/calls";
@@ -9,6 +11,7 @@ export const dynamic = "force-dynamic";
 // call id and a secret; nothing about the call or lead is shown unless the
 // secret matches.
 export default async function MeetPage({ params, searchParams }: { params: { id: string }; searchParams: { k?: string } }) {
+  if (!VIDEO_CALLS_ENABLED) notFound();
   const key = typeof searchParams.k === "string" ? searchParams.k : "";
   const call = key ? await prisma.videoCall.findUnique({ where: { id: params.id } }) : null;
 

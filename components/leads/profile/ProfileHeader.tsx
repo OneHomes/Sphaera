@@ -17,6 +17,7 @@ import {
   Video,
 } from "lucide-react";
 import { linkStorageKey } from "@/lib/video/clientLink";
+import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { alertDialog } from "@/components/finance/dialogs";
 import type { Lead, LeadStage } from "@/lib/leadData";
 import { leadStages } from "@/lib/leadData";
@@ -27,7 +28,7 @@ import { ProposalModal } from "./ProposalModal";
 import { StageChangeModal } from "./StageChangeModal";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
 
-const actionButtons = [
+const allActionButtons = [
   { icon: Phone, label: "Call" },
   { icon: Video, label: "Video call" },
   { icon: Mail, label: "Email" },
@@ -38,6 +39,9 @@ const actionButtons = [
   { icon: ListPlus, label: "Create task" },
   { icon: UserCog, label: "Request manager" },
 ] as const;
+
+// "Video call" stays hidden until calls run on One Homes' own server.
+const actionButtons = allActionButtons.filter((b) => VIDEO_CALLS_ENABLED || b.label !== "Video call");
 
 export function ProfileHeader({
   lead,
