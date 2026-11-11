@@ -1933,3 +1933,49 @@ model FinanceDepartmentAccess {
   @@index([userId])
   @@map("finance_department_access")
 }
+
+// Sphaera video calls (LiveKit). An agent starts a call from a lead and
+// sends the client a browser join link; an Admin can watch any live call
+// unseen and, if they choose, speak to the agent only (a separate
+// "coaching" room the client is never in). Lead/User are referenced by id
+// only, so this feature adds tables without touching existing ones.
+model VideoCall {
+  id             String    @id @default(cuid())
+  organizationId String?
+  // LiveKit room name; the coaching room is `${roomName}-coach`.
+  roomName       String    @unique
+  leadId         String?
+  agentUserId    String
+  // SHA-256 of the secret in the client's join link; the link itself is
+  // never stored.
+  guestKeyHash   String
+  status         String    @default("waiting") // waiting | ended
+  expiresAt      DateTime
+  endedAt        DateTime?
+  createdAt      DateTime  @default(now())
+  guests         VideoCallGuest[]
+
+  @@index([organizationId])
+  @@index([agentUserId])
+  @@index([status])
+  @@map("video_calls")
+}
+
+// One row per client who joined through the link, with their consent to
+// monitoring and recording (required to join) and where it came from.
+model VideoCallGuest {
+  id             String    @id @default(cuid())
+  organizationId String?
+  callId         String
+  call           VideoCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+  name           String
+  identity       String    @unique
+  consentedAt    DateTime
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId])
+  @@index([callId])
+  @@map("video_call_guests")
+}
