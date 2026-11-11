@@ -177,6 +177,24 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
+      // Sessions signed in before multi-tenancy (2026-10-23) carry a userId
+      // but no organizationId, and every route using the JWT-cached
+      // getAuthUser rejects them ("Session is missing a resolved
+      // organizationId"). That silently broke e.g. the welcome
+      // acknowledgement, looping those users through onboarding until they
+      // signed out. Fill it in from the database instead; only such stale
+      // sessions pay for the lookup.
+      if (token.userId && !token.organizationId) {
+        const dbUser = await prisma.user
+          .findUnique({ where: { id: token.userId as string }, select: { organizationId: true, role: true, teamId: true } })
+          .catch(() => null);
+        if (dbUser?.organizationId) {
+          token.organizationId = dbUser.organizationId;
+          token.role = dbUser.role as "AGENT" | "MANAGER" | "ADMIN";
+          token.teamId = dbUser.teamId;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
