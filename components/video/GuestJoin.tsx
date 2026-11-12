@@ -5,6 +5,7 @@ import { useState } from "react";
 import { LiveKitRoom, VideoConference } from "@livekit/components-react";
 import { Loader2, Video } from "lucide-react";
 import { SphaeraWordmark } from "@/components/brand/SphaeraWordmark";
+import { CallSplash } from "./CallSplash";
 
 // The client's side of a video call: opened from the link the agent sent,
 // in any browser, with no account. Joining requires accepting that the call
@@ -16,6 +17,7 @@ export function GuestJoin({ callId, joinKey, agentName, orgName }: { callId: str
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<{ url: string; call: string } | null>(null);
   const [left, setLeft] = useState(false);
+  const [connected, setConnected] = useState(false);
 
   async function join(e: React.FormEvent) {
     e.preventDefault();
@@ -48,18 +50,22 @@ export function GuestJoin({ callId, joinKey, agentName, orgName }: { callId: str
 
   if (session) {
     return (
-      <LiveKitRoom
-        serverUrl={session.url}
-        token={session.call}
-        connect
-        video
-        audio
-        data-lk-theme="default"
-        style={{ height: "100dvh" }}
-        onDisconnected={() => setLeft(true)}
-      >
-        <VideoConference />
-      </LiveKitRoom>
+      <div className="relative h-dvh">
+        <CallSplash visible={!connected} label={`Connecting you to ${agentName}…`} />
+        <LiveKitRoom
+          serverUrl={session.url}
+          token={session.call}
+          connect
+          video
+          audio
+          data-lk-theme="default"
+          style={{ height: "100%" }}
+          onConnected={() => setConnected(true)}
+          onDisconnected={() => setLeft(true)}
+        >
+          <VideoConference />
+        </LiveKitRoom>
+      </div>
     );
   }
 

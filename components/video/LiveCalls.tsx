@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { GridLayout, LiveKitRoom, ParticipantTile, RoomAudioRenderer, useTracks } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { Eye, Loader2, Mic, PhoneOff, Video, X } from "lucide-react";
+import { CallSplash } from "./CallSplash";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { confirmDialog } from "@/components/finance/dialogs";
 import { useCoachTalker } from "./coachChannel";
@@ -98,6 +99,8 @@ export function LiveCalls() {
 function MonitorView({ call, onClose }: { call: LiveCall; onClose: () => void }) {
   const [tokens, setTokens] = useState<{ url: string; call: string; coach: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [ending, setEnding] = useState(false);
   const coach = useCoachTalker(tokens?.url ?? null, tokens?.coach ?? null);
 
   useEffect(() => {
@@ -112,12 +115,14 @@ function MonitorView({ call, onClose }: { call: LiveCall; onClose: () => void })
 
   async function endForEveryone() {
     if (!(await confirmDialog("End this call for the agent and the client?", { title: "End call", confirmLabel: "End call", danger: true }))) return;
+    setEnding(true);
     await fetch(`/api/video/calls/${call.id}/end`, { method: "POST" }).catch(() => null);
     onClose();
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
+      <CallSplash visible={ending} label="Ending the call…" ending />
       <div className="flex flex-wrap items-center gap-3 border-b border-base-700 px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-ink-50">
@@ -158,19 +163,29 @@ function MonitorView({ call, onClose }: { call: LiveCall; onClose: () => void })
         </button>
       </div>
       {coach.error && <p className="px-4 pt-2 text-xs text-status-inactive">{coach.error}</p>}
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {error ? (
           <p className="p-6 text-sm text-status-inactive">{error}</p>
-        ) : !tokens ? (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-ink-500">
-            <Loader2 className="h-4 w-4 animate-spin" /> Joining unseen…
-          </div>
         ) : (
-          // Hidden and subscribe-only: no camera or microphone is ever published here.
-          <LiveKitRoom serverUrl={tokens.url} token={tokens.call} connect video={false} audio={false} data-lk-theme="default" style={{ height: "100%" }}>
-            <MonitorGrid />
-            <RoomAudioRenderer />
-          </LiveKitRoom>
+          <>
+            <CallSplash visible={!connected} label="Joining unseen…" />
+            {tokens && (
+              // Hidden and subscribe-only: no camera or microphone is ever published here.
+              <LiveKitRoom
+                serverUrl={tokens.url}
+                token={tokens.call}
+                connect
+                video={false}
+                audio={false}
+                data-lk-theme="default"
+                style={{ height: "100%" }}
+                onConnected={() => setConnected(true)}
+              >
+                <MonitorGrid />
+                <RoomAudioRenderer />
+              </LiveKitRoom>
+            )}
+          </>
         )}
       </div>
     </div>

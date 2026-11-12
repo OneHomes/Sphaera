@@ -4,9 +4,10 @@ import "@livekit/components-styles";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LiveKitRoom, VideoConference } from "@livekit/components-react";
-import { Check, Copy, Headphones, Link2, Loader2, PhoneOff } from "lucide-react";
+import { Check, Copy, Headphones, Link2, PhoneOff } from "lucide-react";
 import { confirmDialog } from "@/components/finance/dialogs";
 import { linkStorageKey } from "@/lib/video/clientLink";
+import { CallSplash } from "./CallSplash";
 import { useCoachListener } from "./coachChannel";
 
 // The agent's call screen. The client's link is kept in sessionStorage by
@@ -20,6 +21,7 @@ export function AgentCall({ callId, leadName }: { callId: string; leadName: stri
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [connected, setConnected] = useState(false);
   const { coachName } = useCoachListener(tokens?.url ?? null, tokens?.coach ?? null);
 
   useEffect(() => {
@@ -69,7 +71,9 @@ export function AgentCall({ callId, leadName }: { callId: string; leadName: stri
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
+      {/* Over the whole screen while ending, so nothing is clicked mid-hangup. */}
+      <CallSplash visible={ending} label="Ending the call…" ending />
       <div className="flex flex-wrap items-center gap-3 border-b border-base-700 px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-ink-50" title={leadName ?? undefined}>
@@ -116,17 +120,28 @@ export function AgentCall({ callId, leadName }: { callId: string; leadName: stri
         </button>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {error ? (
           <p className="p-6 text-sm text-status-inactive">{error}</p>
-        ) : !tokens ? (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-ink-500">
-            <Loader2 className="h-4 w-4 animate-spin" /> Opening the call…
-          </div>
         ) : (
-          <LiveKitRoom serverUrl={tokens.url} token={tokens.call} connect video audio data-lk-theme="default" style={{ height: "100%" }}>
-            <VideoConference />
-          </LiveKitRoom>
+          <>
+            <CallSplash visible={!connected} label="Connecting to your call…" />
+            {tokens && (
+              <LiveKitRoom
+                serverUrl={tokens.url}
+                token={tokens.call}
+                connect
+                video
+                audio
+                data-lk-theme="default"
+                style={{ height: "100%" }}
+                onConnected={() => setConnected(true)}
+                onError={(err) => setError(err.message || "Couldn't connect to the call")}
+              >
+                <VideoConference />
+              </LiveKitRoom>
+            )}
+          </>
         )}
       </div>
     </div>

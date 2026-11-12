@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowUp, Mic, PanelsTopLeft, X } from "lucide-react";
@@ -11,6 +11,40 @@ import { JanusOrb } from "./JanusOrb";
 // dictates a question and sends it when you stop talking. It uses the
 // same /api/janus/ask conversation as the Command Center, which it links
 // to for the full view. Hidden on /command, which already is that view.
+//
+// The pill can be tucked away: it is pulled up into a small tab on the top
+// edge (a genie going back into its lamp) and pours back down when the tab
+// is clicked. Tucked is remembered per browser, and video calls start
+// tucked so the pill never sits on the call controls.
+
+const TUCKED_KEY = "sphaera:janus-tucked";
+
+// Genie path from the pill's resting place to the tab: it first squeezes
+// sideways, then is drawn up while shrinking to a sliver. Played in reverse
+// to pour back out.
+function genieFrames(el: HTMLElement): Keyframe[] {
+  const r = el.getBoundingClientRect();
+  const dy = 14 - (r.top + r.height / 2);
+  return [
+    { transform: "translateY(0) scale(1, 1)", opacity: 1 },
+    { transform: `translateY(${dy * 0.06}px) scale(0.78, 1.1)`, opacity: 1, offset: 0.2 },
+    { transform: `translateY(${dy * 0.82}px) scale(0.24, 0.55)`, opacity: 0.9, offset: 0.78 },
+    { transform: `translateY(${dy}px) scale(0.08, 0.25)`, opacity: 0 },
+  ];
+}
+const reversed = (frames: Keyframe[]) =>
+  frames
+    .slice()
+    .reverse()
+    .map((f) => (typeof f.offset === "number" ? { ...f, offset: 1 - f.offset } : f));
+const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function rememberTucked(tucked: boolean) {
+  try {
+    localStorage.setItem(TUCKED_KEY, tucked ? "1" : "0");
+  } catch {
+    // storage blocked: it just won't be remembered
+  }
+}
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -45,12 +79,57 @@ export function JanusPill() {
   const [isListening, setIsListening] = useState(false);
   const [canDictate, setCanDictate] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tucked, setTucked] = useState(false);
+  // Set when the tab is clicked, so the pill pours out once it has mounted.
+  const [pourOut, setPourOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<Recognition | null>(null);
+  const tuckedRef = useRef(false);
+  tuckedRef.current = tucked;
 
   useEffect(() => setCanDictate(createRecognition() !== null), []);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(TUCKED_KEY) === "1") setTucked(true);
+    } catch {
+      // storage blocked: start untucked
+    }
+  }, []);
+
+  // The call screen has its own controls along the bottom.
+  useEffect(() => {
+    if (pathname?.startsWith("/video/")) setTucked(true);
+  }, [pathname]);
+
+  function tuck() {
+    setOpen(false);
+    rememberTucked(true);
+    const el = pillRef.current;
+    if (!el) return setTucked(true);
+    const anim = prefersReducedMotion()
+      ? el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: "ease", fill: "forwards" })
+      : el.animate(genieFrames(el), { duration: 460, easing: "cubic-bezier(0.77, 0, 0.175, 1)", fill: "forwards" });
+    anim.onfinish = () => setTucked(true);
+  }
+
+  function untuck() {
+    rememberTucked(false);
+    setPourOut(true);
+    setTucked(false);
+  }
+
+  useLayoutEffect(() => {
+    if (!pourOut || tucked) return;
+    setPourOut(false);
+    const el = pillRef.current;
+    if (!el) return;
+    if (prefersReducedMotion()) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: "ease" });
+    else el.animate(reversed(genieFrames(el)), { duration: 420, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  }, [pourOut, tucked]);
 
   const ask = useCallback(
     async (text: string) => {
@@ -80,12 +159,18 @@ export function JanusPill() {
     [conversationId, isAsking]
   );
 
-  // Ctrl/Cmd+J toggles; Esc closes.
+  // Ctrl/Cmd+J toggles (and brings a tucked pill back, instantly); Esc closes.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         setOpenedByKey(true);
+        if (tuckedRef.current) {
+          rememberTucked(false);
+          setTucked(false);
+          setOpen(true);
+          return;
+        }
         setOpen((v) => !v);
       } else if (e.key === "Escape") {
         setOpen(false);
@@ -144,6 +229,21 @@ export function JanusPill() {
   if (pathname === "/command" || pathname?.startsWith("/command/")) return null;
 
   const orbState = isListening ? "listening" : isAsking ? "working" : "breathing";
+
+  if (tucked) {
+    return (
+      <button
+        type="button"
+        onClick={untuck}
+        aria-label="Bring back Ask Janus"
+        title="Ask Janus (Ctrl+J)"
+        className="janus-tab janus-float fixed left-1/2 top-0 z-40 flex -translate-x-1/2 items-center gap-1.5 rounded-b-xl border border-t-0 border-white/10 bg-base-950 py-0.5 pl-1.5 pr-2.5 text-[11px] font-medium text-ink-300 shadow-lg hover:text-ink-50"
+      >
+        <JanusOrb state={orbState} />
+        Janus
+      </button>
+    );
+  }
 
   return (
     <div
@@ -223,7 +323,10 @@ export function JanusPill() {
         </div>
       )}
 
-      <div className="janus-float pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-base-950 p-1 shadow-xl">
+      <div
+        ref={pillRef}
+        className="janus-float pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-base-950 p-1 shadow-xl"
+      >
         <button
           type="button"
           onClick={() => {
@@ -260,6 +363,15 @@ export function JanusPill() {
         >
           <PanelsTopLeft className="h-4 w-4" />
         </Link>
+        <button
+          type="button"
+          onClick={tuck}
+          aria-label="Hide Ask Janus"
+          title="Hide (it waits at the top of the screen)"
+          className="flex h-9 w-7 items-center justify-center rounded-full text-ink-500 transition-colors hover:bg-base-800 hover:text-ink-50"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   );
