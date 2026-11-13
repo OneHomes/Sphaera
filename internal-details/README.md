@@ -17,3 +17,6 @@ Name each file `YYYY-MM-DD-topic.md` so the files sort by date. Add new results 
 ### Future plans
 - [Video calls: scaling plan](future-plans/video-calls-scaling.md)
 - [Costs tracking: internal costs page and Azure bill setup](future-plans/costs-tracking.md)
+
+### Research
+- [2026-11-13 Speech-to-text for mixed Urdu and English calls](research/2026-11-13-urdu-english-speech-to-text.md)
