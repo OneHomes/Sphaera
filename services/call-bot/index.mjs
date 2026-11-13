@@ -1,8 +1,9 @@
 // Sphaera call bot: runs on the video VM next to LiveKit.
 //
 // Every few seconds it looks at the live rooms. For each video call it
-//   - joins hidden (nobody sees it) and transcribes each speaker's audio
-//     separately with Azure Speech, so "who said what" is always right;
+//   - joins hidden (nobody sees it), mixes everyone's audio into one Azure
+//     Speech stream (billed once, not once per person) and labels each
+//     sentence with whoever was loudest while it was said;
 //   - starts the recording (480p MP4 to Azure Blob, via LiveKit Egress)
 //     once the agent and the client are both in;
 //   - tells Sphaera what happened (recording started/ended, transcript
@@ -135,7 +136,7 @@ function recognizerFor(onText) {
     try {
       language = sdk.AutoDetectSourceLanguageResult.fromResult(e.result).language || language;
     } catch {}
-    onText(e.result.text.trim(), language);
+    onText(e.result.text.trim(), language, e.result.offset ?? 0, e.result.duration ?? 0);
   };
   recognizer.canceled = (_s, e) => {
     if (e.reason === sdk.CancellationReason.Error) log("speech error:", e.errorCode, e.errorDetails);
@@ -165,14 +166,14 @@ function roleOf(identity, metadata) {
 const isCallRoom = (name) => name.startsWith("call-") && !name.endsWith("-coach");
 const isPerson = (p) => !p.permission?.hidden && (p.identity.startsWith("agent-") || p.identity.startsWith("client-"));
 
-/** roomName -> { room, speakers: Map, emptySince, recording, closing } */
+/** roomName -> { room, speakers, people, mix, emptySince, recording, closing, speechSeconds } */
 const calls = new Map();
 
 async function join(roomName) {
   const at = new AccessToken(API_KEY, API_SECRET, { identity: BOT_IDENTITY, name: "Sphaera notes", ttl: "12h" });
   at.addGrant({ room: roomName, roomJoin: true, hidden: true, canPublish: false, canSubscribe: true, canPublishData: true });
   const room = new Room();
-  const call = { room, speakers: new Map(), emptySince: null, recording: false, closing: false, speechSeconds: 0 };
+  const call = { room, speakers: new Map(), people: new Map(), mix: null, emptySince: null, recording: false, closing: false, speechSeconds: 0 };
   calls.set(roomName, call);
 
   room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
@@ -193,30 +194,127 @@ async function join(roomName) {
   }
 }
 
-function startSpeaker(roomName, call, track, participant) {
-  const key = track.sid;
-  if (call.speakers.has(key)) return;
-  const role = roleOf(participant.identity, participant.metadata);
-  const name = participant.name || participant.identity;
-  const speech = recognizerFor((text, language) => {
-    const segment = { identity: participant.identity, name, role, text, language, at: new Date().toISOString() };
+// ---------------------------------------------------------------- Mixing
+// Azure bills per audio stream, so each call's voices are mixed into ONE
+// stream: half the cost of a stream per person. Who said a sentence comes
+// from our own per-person audio, not Azure's guess: the person whose audio
+// was loudest while the sentence was spoken.
+const RATE = 16000;
+const BLOCK = RATE / 10; // mix in 100 ms blocks
+const TICKS_PER_BLOCK = 1_000_000; // Azure offsets are in 100 ns ticks
+const MAX_BUFFER = RATE * 2; // a person's audio more than 2 s behind is dropped
+const KEEP_BLOCKS = 6000; // remember 10 minutes of who-was-loud
+
+function startMix(roomName, call) {
+  if (call.mix) return;
+  const mix = { blocks: 0, due: 0, last: Date.now(), energy: new Map(), wall: new Map(), timer: null, speech: null };
+  mix.speech = recognizerFor((text, language, offset, duration) => {
+    const who = speakerAt(call, mix, offset, duration);
+    const startBlock = Math.floor(offset / TICKS_PER_BLOCK);
+    const at = new Date(mix.wall.get(startBlock) ?? Date.now()).toISOString();
+    const segment = { identity: who.identity, name: who.name, role: who.role, text, language, at };
     send({ type: "transcript", room: roomName, segments: [segment] });
     // Live captions for the Admin's monitor screen.
     call.room.localParticipant
       ?.publishData(new TextEncoder().encode(JSON.stringify(segment)), { reliable: true, topic: "transcript" })
       .catch(() => {});
   });
-  const stream = new AudioStream(track, { sampleRate: 16000, numChannels: 1 });
-  const speaker = { speech, stream, done: false };
+  // Driven by the clock, not by the streams: a muted or stalled person never
+  // holds up the others; their share of a block is just silence.
+  mix.timer = setInterval(() => {
+    const now = Date.now();
+    mix.due += (now - mix.last) / 100;
+    mix.last = now;
+    // Nobody with a microphone in the room: send nothing (nothing billed).
+    if (!call.speakers.size) {
+      mix.due = 0;
+      return;
+    }
+    while (mix.due >= 1) {
+      mixBlock(call, mix);
+      mix.due -= 1;
+    }
+    if (mix.due > 50) mix.due = 0; // the process stalled for >5 s: don't flood
+  }, 50);
+  call.mix = mix;
+}
+
+function mixBlock(call, mix) {
+  const sum = new Int32Array(BLOCK);
+  const energies = [];
+  for (const [key, sp] of call.speakers) {
+    const take = Math.min(sp.buffered, BLOCK);
+    let energy = 0;
+    for (let i = 0; i < take; ) {
+      const head = sp.queue[0];
+      const n = Math.min(head.length - sp.pos, take - i);
+      for (let j = 0; j < n; j++) {
+        const v = head[sp.pos + j];
+        sum[i + j] += v;
+        energy += v * v;
+      }
+      i += n;
+      sp.pos += n;
+      if (sp.pos >= head.length) {
+        sp.queue.shift();
+        sp.pos = 0;
+      }
+    }
+    sp.buffered -= take;
+    if (energy) energies.push([key, energy]);
+  }
+  const pcm = new Int16Array(BLOCK);
+  for (let i = 0; i < BLOCK; i++) pcm[i] = Math.max(-32768, Math.min(32767, sum[i]));
+  mix.speech.write(pcm);
+  if (energies.length) mix.energy.set(mix.blocks, energies);
+  mix.wall.set(mix.blocks, Date.now());
+  mix.energy.delete(mix.blocks - KEEP_BLOCKS);
+  mix.wall.delete(mix.blocks - KEEP_BLOCKS);
+  mix.blocks++;
+  // Azure bills by audio sent; reported with call_finished.
+  call.speechSeconds += 0.1;
+}
+
+function speakerAt(call, mix, offset, duration) {
+  const from = Math.floor(offset / TICKS_PER_BLOCK);
+  const to = Math.ceil((offset + duration) / TICKS_PER_BLOCK);
+  const totals = new Map();
+  for (let b = from; b <= to; b++) for (const [k, e] of mix.energy.get(b) ?? []) totals.set(k, (totals.get(k) ?? 0) + e);
+  let best = null;
+  for (const [k, e] of totals) if (!best || e > best[1]) best = [k, e];
+  return (best && call.people.get(best[0])) ?? { identity: "unknown", name: "Unknown speaker", role: "other" };
+}
+
+function closeMix(call) {
+  if (!call.mix) return;
+  clearInterval(call.mix.timer);
+  try {
+    call.mix.speech.close();
+  } catch {}
+  call.mix = null;
+}
+
+function startSpeaker(roomName, call, track, participant) {
+  const key = track.sid;
+  if (call.speakers.has(key)) return;
+  const role = roleOf(participant.identity, participant.metadata);
+  const name = participant.name || participant.identity;
+  call.people.set(key, { identity: participant.identity, name, role });
+  const stream = new AudioStream(track, { sampleRate: RATE, numChannels: 1 });
+  const speaker = { stream, queue: [], pos: 0, buffered: 0, done: false };
   call.speakers.set(key, speaker);
+  startMix(roomName, call);
   log("transcribing", name, `(${role})`, "in", roomName);
   (async () => {
     try {
       for await (const frame of stream) {
         if (speaker.done) break;
-        speech.write(frame.data);
-        // Azure bills by audio sent; reported with call_finished.
-        call.speechSeconds += frame.samplesPerChannel / frame.sampleRate;
+        speaker.queue.push(frame.data);
+        speaker.buffered += frame.data.length;
+        while (speaker.buffered > MAX_BUFFER && speaker.queue.length > 1) {
+          speaker.buffered -= speaker.queue.shift().length - speaker.pos;
+          speaker.pos = 0;
+        }
       }
     } catch (err) {
       log("audio stream ended with error:", err.message);
@@ -231,9 +329,6 @@ function stopSpeaker(call, key) {
   if (!speaker || speaker.done) return;
   speaker.done = true;
   call.speakers.delete(key);
-  try {
-    speaker.speech.close();
-  } catch {}
   speaker.stream.cancel().catch(() => {});
 }
 
@@ -279,6 +374,7 @@ async function finish(roomName, why) {
   call.closing = true;
   log("call finished", roomName, why);
   for (const key of [...call.speakers.keys()]) stopSpeaker(call, key);
+  closeMix(call);
   await call.room.disconnect().catch(() => {});
   calls.delete(roomName);
   send({ type: "call_finished", room: roomName, speechSeconds: Math.round(call.speechSeconds) });
@@ -380,6 +476,7 @@ async function shutdown() {
   for (const call of calls.values()) {
     call.closing = true;
     for (const key of [...call.speakers.keys()]) stopSpeaker(call, key);
+    closeMix(call);
     await call.room.disconnect().catch(() => {});
   }
   await flush().catch(() => {});

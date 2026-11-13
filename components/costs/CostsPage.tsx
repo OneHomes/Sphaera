@@ -320,7 +320,7 @@ export function CostsPage({ data }: { data: CostsData }) {
           })}
         </Table>
         <p className="mt-3 text-[11px] text-ink-300">
-          Transcription is billed on the audio of every speaker, so a 10-minute call with two people is 20 minutes of audio. The video server (VM) is a fixed monthly cost and appears in the Azure bill above.
+          Since 13 Nov 2026 each call's voices are mixed into one stream, so a 10-minute call is billed as 10 minutes of audio (earlier calls: one stream per person). The video server (VM) is a fixed monthly cost and appears in the Azure bill above.
         </p>
       </WidgetCard>
 
