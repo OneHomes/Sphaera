@@ -34,6 +34,20 @@ export function llmCost(model: string | null, input: number, cached: number, out
 export const SPEECH_PER_HOUR = 1.0;
 export const speechCost = (seconds: number) => (seconds / 3600) * SPEECH_PER_HOUR;
 
+// gpt-4o-mini-transcribe (and kin), per 1M tokens: audio in, text in, out.
+const TRANSCRIBE_PER_MILLION: Record<string, [number, number, number]> = {
+  "gpt-4o-mini-transcribe": [3, 1.25, 5],
+  "gpt-4o-transcribe": [6, 2.5, 10],
+};
+export function transcribeCost(model: string, t: { audio: number; text: number; output: number }): number | null {
+  // Deployment names vary ("gpt-4o-mini-transcribe", "sphaera-gpt-4o-mini-transcribe"…): match the longest model name inside.
+  const key = Object.keys(TRANSCRIBE_PER_MILLION)
+    .filter((k) => model.toLowerCase().includes(k))
+    .sort((a, b) => b.length - a.length)[0];
+  const p = key ? TRANSCRIBE_PER_MILLION[key] : undefined;
+  return p ? (t.audio * p[0] + t.text * p[1] + t.output * p[2]) / 1_000_000 : null;
+}
+
 // Blob storage per GB-month (GRS). Recordings sit in Hot for 30 days, then
 // Cold, then Archive after 180 days (lifecycle rule "recordings-tiering").
 export const STORAGE_PER_GB_MONTH = { hot: 0.046, cold: 0.0082, archive: 0.0036 };

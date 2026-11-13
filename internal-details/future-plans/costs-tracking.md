@@ -40,3 +40,10 @@ The page shows these steps itself until both are done.
   - **Price:** 1 hour of call ≈ $1 transcription (was ≈ $2). Nothing is sent while nobody with a microphone is in the room.
   - **Speaker names:** each sentence is labelled with whoever was loudest while it was said, using the bot's own per-person audio. In the self-test, English went to the agent and Urdu to the client, both correctly.
   - **Known limit:** when two people talk over each other, the whole sentence goes to the louder one.
+- **13 Nov 2026: second transcriber added for a trial, gpt-4o-mini-transcribe (Azure AI Foundry).**
+  - **What changes:** in this mode each person's audio is cut into sentences by a voice detector, and only the speech is sent. Silence is never billed, and names are always right.
+  - **Live captions:** still work, arriving a few seconds after each sentence.
+  - **Expected cost:** ~$0.10–0.20 per call hour, vs ~$1 for Azure Speech live.
+  - **Model version:** 2025-12-15. Azure retires it on 15 Jun 2027.
+  - **Switch on the VM** (from `~/livekit`): `./switch-transcriber.sh openai` or `./switch-transcriber.sh azure`. Check with `./switch-transcriber.sh status`. Keys are stored with `set-keys` from `/tmp/transcribe.env`.
+  - **Mock test:** in a test against a mock endpoint, a 150 ms click was dropped, and only 9.1 s of 17.8 s of fed audio was sent.

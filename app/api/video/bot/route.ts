@@ -27,7 +27,13 @@ type BotEvent =
       error: string | null;
     }
   | { type: "transcript"; room: string; segments: Segment[] }
-  | { type: "call_finished"; room: string; speechSeconds?: number };
+  | {
+      type: "call_finished";
+      room: string;
+      transcriber?: string;
+      speechSeconds?: number;
+      tokens?: { audio: number; text: number; output: number };
+    };
 
 async function verified(request: Request): Promise<BotEvent | null> {
   const cfg = liveKitConfig();
@@ -121,7 +127,14 @@ export async function POST(request: Request) {
 
       case "call_finished":
         if (typeof event.speechSeconds === "number" && event.speechSeconds > 0) {
-          await recordSpeechUsage(usageFor(call, "call_transcription"), Math.min(event.speechSeconds, 24 * 3600));
+          const t = event.tokens;
+          const tokens = t ? { audio: Number(t.audio) || 0, text: Number(t.text) || 0, output: Number(t.output) || 0 } : undefined;
+          await recordSpeechUsage(
+            usageFor(call, "call_transcription"),
+            Math.min(event.speechSeconds, 24 * 3600),
+            String(event.transcriber ?? "azure-speech-realtime").slice(0, 60),
+            tokens
+          );
         }
         await generateCallNotes(call.id);
         break;

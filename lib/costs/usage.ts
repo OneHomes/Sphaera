@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { llmCost, speechCost, storageCostPerMonth } from "@/lib/costs/pricing";
+import { llmCost, speechCost, storageCostPerMonth, transcribeCost } from "@/lib/costs/pricing";
 
 // Who/what a paid request was for, so the costs page can break it down.
 export type UsageContext = {
@@ -37,14 +37,23 @@ export function recordLlmUsage(
   });
 }
 
-export function recordSpeechUsage(ctx: UsageContext, seconds: number) {
+// model: "azure-speech-realtime" (billed per audio hour) or a transcribe
+// model such as gpt-4o-mini-transcribe (billed per token).
+export function recordSpeechUsage(
+  ctx: UsageContext,
+  seconds: number,
+  model = "azure-speech-realtime",
+  tokens?: { audio: number; text: number; output: number }
+) {
   return save({
     service: "speech",
     feature: ctx.feature,
-    model: "azure-speech-realtime",
+    model,
     quantity: seconds,
     unit: "audio_seconds",
-    costUsd: speechCost(seconds),
+    inputTokens: tokens ? tokens.audio + tokens.text : null,
+    outputTokens: tokens?.output ?? null,
+    costUsd: tokens ? transcribeCost(model, tokens) : speechCost(seconds),
     userId: ctx.userId ?? null,
     leadId: ctx.leadId ?? null,
     callId: ctx.callId ?? null,

@@ -44,6 +44,18 @@ const SPEECH_REGION = env("AZURE_SPEECH_REGION", "centralindia");
 // ur-IN: Azure speech-to-text has no ur-PK; it is the same language and script.
 const LANGUAGES = env("SPEECH_LANGUAGES", "en-GB,ur-IN").split(",").map((s) => s.trim()).filter(Boolean);
 const RECORD = env("RECORDING_ENABLED", "true") === "true";
+// Which speech-to-text: "azure" (Azure Speech, live, one mixed stream per
+// call) or "openai" (gpt-4o-mini-transcribe on Azure, per utterance).
+// Switch with deploy/switch-transcriber.sh; the other path stays intact.
+const TRANSCRIBER = env("TRANSCRIBER", "azure");
+if (!["azure", "openai"].includes(TRANSCRIBER)) throw new Error(`TRANSCRIBER must be azure or openai, not ${TRANSCRIBER}`);
+const TRANSCRIBE_DEPLOYMENT = process.env.TRANSCRIBE_DEPLOYMENT || "gpt-4o-mini-transcribe";
+const TRANSCRIBE_KEY = TRANSCRIBER === "openai" ? env("TRANSCRIBE_KEY") : "";
+const TRANSCRIBE_URL = (() => {
+  if (TRANSCRIBER !== "openai") return "";
+  const base = env("TRANSCRIBE_ENDPOINT").replace(/\/+$/, "");
+  return base.includes("/audio/transcriptions") ? base : `${base}/openai/v1/audio/transcriptions`;
+})();
 const BOT_IDENTITY = "sphaera-bot";
 const TICK_MS = 4000;
 // Leave once nobody (agent or client) has been in the room this long.
@@ -173,7 +185,7 @@ async function join(roomName) {
   const at = new AccessToken(API_KEY, API_SECRET, { identity: BOT_IDENTITY, name: "Sphaera notes", ttl: "12h" });
   at.addGrant({ room: roomName, roomJoin: true, hidden: true, canPublish: false, canSubscribe: true, canPublishData: true });
   const room = new Room();
-  const call = { room, speakers: new Map(), people: new Map(), mix: null, emptySince: null, recording: false, closing: false, speechSeconds: 0 };
+  const call = { room, speakers: new Map(), people: new Map(), mix: null, pending: new Set(), tokens: { audio: 0, text: 0, output: 0 }, lastText: "", emptySince: null, recording: false, closing: false, speechSeconds: 0 };
   calls.set(roomName, call);
 
   room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
@@ -294,6 +306,141 @@ function closeMix(call) {
   call.mix = null;
 }
 
+// ---------------------------------------------------------------- OpenAI (gpt-4o-mini-transcribe)
+// TRANSCRIBER=openai: each person's audio is cut into utterances (a simple
+// voice-activity detector: speech, then 0.8 s of quiet), and only those are
+// sent to the transcribe model on Azure. Silence is never sent, and each
+// utterance belongs to one person, so the names are always right. Text
+// arrives a few seconds after each sentence, so live captions still work.
+const VAD_END_MS = 800; // this much quiet ends an utterance
+const VAD_MAX_MS = 25_000; // never send more than this in one go
+const VAD_MIN_SPEECH_MS = 300; // shorter blips (coughs, clicks) are dropped
+const VAD_PREROLL_MS = 300; // keep the start of the first word
+const MAX_IN_FLIGHT = 6;
+
+let inFlight = 0;
+const waiting = [];
+const slot = () => (inFlight < MAX_IN_FLIGHT ? (inFlight++, Promise.resolve()) : new Promise((r) => waiting.push(r)));
+const release = () => (waiting.length ? waiting.shift()() : inFlight--);
+
+function wav(pcm) {
+  const data = Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write("WAVEfmt ", 8);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(RATE, 24);
+  h.writeUInt32LE(RATE * 2, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(data.length, 40);
+  return Buffer.concat([h, data]);
+}
+
+const TRANSCRIBE_PROMPT =
+  "A video call between a real-estate agent and a client. They speak English and Urdu, often mixed. " +
+  "Write Urdu in Urdu script and English in English. Property terms: flat, apartment, villa, plot, bedroom, budget, dirham, payment plan.";
+
+async function transcribeClip(pcm, previousText) {
+  const form = new FormData();
+  form.append("model", TRANSCRIBE_DEPLOYMENT);
+  form.append("file", new Blob([wav(pcm)], { type: "audio/wav" }), "clip.wav");
+  form.append("response_format", "json");
+  form.append("prompt", previousText ? `${TRANSCRIBE_PROMPT}\nEarlier: ${previousText.slice(-300)}` : TRANSCRIBE_PROMPT);
+  for (let attempt = 0; ; attempt++) {
+    await slot();
+    let res;
+    try {
+      res = await fetch(TRANSCRIBE_URL, { method: "POST", headers: { "api-key": TRANSCRIBE_KEY }, body: form, signal: AbortSignal.timeout(30_000) });
+    } catch (err) {
+      res = { ok: false, status: 0, headers: new Headers(), text: async () => err.message };
+    } finally {
+      release();
+    }
+    if (res.ok) return res.json();
+    const retryable = res.status === 429 || res.status >= 500 || res.status === 0;
+    if (!retryable || attempt >= 3) throw new Error(`transcribe ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const wait = Number(res.headers.get("retry-after")) || 2 ** attempt;
+    await new Promise((r) => setTimeout(r, wait * 1000));
+  }
+}
+
+function utteranceCutter(roomName, call, key) {
+  let floor = 200; // running noise floor (RMS)
+  let active = null; // { chunks, samples, speechMs, quietMs, startedAt }
+  const preroll = [];
+  let prerollSamples = 0;
+
+  function sendUtterance(u) {
+    if (u.speechMs < VAD_MIN_SPEECH_MS) return;
+    const pcm = new Int16Array(u.samples);
+    let o = 0;
+    for (const c of u.chunks) {
+      pcm.set(c, o);
+      o += c.length;
+    }
+    const seconds = u.samples / RATE;
+    const who = call.people.get(key);
+    const job = transcribeClip(pcm, call.lastText)
+      .then((r) => {
+        call.speechSeconds += seconds;
+        if (r.usage) {
+          call.tokens.audio += r.usage.input_token_details?.audio_tokens ?? r.usage.input_tokens ?? 0;
+          call.tokens.text += r.usage.input_token_details?.text_tokens ?? 0;
+          call.tokens.output += r.usage.output_tokens ?? 0;
+        }
+        const text = (r.text ?? "").trim();
+        if (!text) return;
+        call.lastText = text;
+        const language = /[؀-ۿ]/.test(text) ? "ur" : "en";
+        const segment = { identity: who.identity, name: who.name, role: who.role, text, language, at: new Date(u.startedAt).toISOString() };
+        send({ type: "transcript", room: roomName, segments: [segment] });
+        call.room.localParticipant
+          ?.publishData(new TextEncoder().encode(JSON.stringify(segment)), { reliable: true, topic: "transcript" })
+          .catch(() => {});
+      })
+      .catch((err) => log("transcribe failed", roomName, err.message))
+      .finally(() => call.pending.delete(job));
+    call.pending.add(job);
+  }
+
+  return {
+    push(frame) {
+      const ms = (frame.length / RATE) * 1000;
+      let sq = 0;
+      for (let i = 0; i < frame.length; i++) sq += frame[i] * frame[i];
+      const rms = Math.sqrt(sq / frame.length);
+      const loud = rms > Math.max(350, floor * 3);
+      if (!active) {
+        if (!loud) floor = floor * 0.98 + rms * 0.02;
+        preroll.push(frame);
+        prerollSamples += frame.length;
+        while (prerollSamples > (RATE * VAD_PREROLL_MS) / 1000 && preroll.length > 1) prerollSamples -= preroll.shift().length;
+        if (!loud) return;
+        active = { chunks: [...preroll], samples: prerollSamples, speechMs: ms, quietMs: 0, startedAt: Date.now() - (prerollSamples / RATE) * 1000 };
+        preroll.length = 0;
+        prerollSamples = 0;
+        return;
+      }
+      active.chunks.push(frame);
+      active.samples += frame.length;
+      if (loud) {
+        active.speechMs += ms;
+        active.quietMs = 0;
+      } else active.quietMs += ms;
+      if (active.quietMs >= VAD_END_MS || (active.samples / RATE) * 1000 >= VAD_MAX_MS) this.flush();
+    },
+    flush() {
+      if (active) sendUtterance(active);
+      active = null;
+    },
+  };
+}
+
 function startSpeaker(roomName, call, track, participant) {
   const key = track.sid;
   if (call.speakers.has(key)) return;
@@ -301,14 +448,19 @@ function startSpeaker(roomName, call, track, participant) {
   const name = participant.name || participant.identity;
   call.people.set(key, { identity: participant.identity, name, role });
   const stream = new AudioStream(track, { sampleRate: RATE, numChannels: 1 });
-  const speaker = { stream, queue: [], pos: 0, buffered: 0, done: false };
+  const speaker = { stream, queue: [], pos: 0, buffered: 0, done: false, cutter: null };
   call.speakers.set(key, speaker);
-  startMix(roomName, call);
+  if (TRANSCRIBER === "openai") speaker.cutter = utteranceCutter(roomName, call, key);
+  else startMix(roomName, call);
   log("transcribing", name, `(${role})`, "in", roomName);
   (async () => {
     try {
       for await (const frame of stream) {
         if (speaker.done) break;
+        if (speaker.cutter) {
+          speaker.cutter.push(frame.data);
+          continue;
+        }
         speaker.queue.push(frame.data);
         speaker.buffered += frame.data.length;
         while (speaker.buffered > MAX_BUFFER && speaker.queue.length > 1) {
@@ -329,6 +481,7 @@ function stopSpeaker(call, key) {
   if (!speaker || speaker.done) return;
   speaker.done = true;
   call.speakers.delete(key);
+  speaker.cutter?.flush();
   speaker.stream.cancel().catch(() => {});
 }
 
@@ -377,7 +530,15 @@ async function finish(roomName, why) {
   closeMix(call);
   await call.room.disconnect().catch(() => {});
   calls.delete(roomName);
-  send({ type: "call_finished", room: roomName, speechSeconds: Math.round(call.speechSeconds) });
+  // Let the last sentences finish transcribing so the notes include them.
+  if (call.pending.size) await Promise.race([Promise.allSettled([...call.pending]), new Promise((r) => setTimeout(r, 60_000))]);
+  send({
+    type: "call_finished",
+    room: roomName,
+    transcriber: TRANSCRIBER === "openai" ? TRANSCRIBE_DEPLOYMENT : "azure-speech-realtime",
+    speechSeconds: Math.round(call.speechSeconds),
+    tokens: TRANSCRIBER === "openai" ? call.tokens : undefined,
+  });
 
   // Stop the recording (it would otherwise run until the room closes),
   // then wait for the upload to finish and report the file.
@@ -451,7 +612,7 @@ async function tick() {
   for (const name of calls.keys()) if (!liveNames.has(name)) finish(name, "room closed");
 }
 
-log(`call bot up: ${LIVEKIT_URL}, languages ${LANGUAGES.join("/")}, recording ${RECORD ? "on" : "off"}`);
+log(`call bot up: ${LIVEKIT_URL}, transcriber ${TRANSCRIBER === "openai" ? TRANSCRIBE_DEPLOYMENT : `azure (${LANGUAGES.join("/")})`}, recording ${RECORD ? "on" : "off"}`);
 // One tick at a time. Overlapping ticks raced: an older tick, holding a
 // room list from before a new room opened, saw the bot in that room and
 // ended the call as "room closed" (found by the 10-call load test).

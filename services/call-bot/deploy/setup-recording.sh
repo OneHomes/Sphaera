@@ -16,6 +16,9 @@ LK_KEY=$(echo "$line" | sed -E 's/^[[:space:]]*([^:]+):.*/\1/')
 LK_SECRET=$(echo "$line" | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]]*$//')
 [ -n "$LK_KEY" ] && [ -n "$LK_SECRET" ] || { echo "LiveKit key not found in livekit.yaml"; exit 1; }
 
+# Keep the transcriber choice and its keys (switch-transcriber.sh) across re-runs.
+KEEP=$(grep -E "^TRANSCRIBE" call-bot.env 2>/dev/null || true)
+
 umask 077
 cat > egress.yaml <<YAML
 log_level: info
@@ -44,6 +47,7 @@ SPHAERA_BOT_URL=https://apex.sphaera.tech/api/video/bot
 SPEECH_LANGUAGES=en-GB,ur-IN
 RECORDING_ENABLED=true
 ENV
+[ -n "$KEEP" ] && echo "$KEEP" >> call-bot.env
 shred -u /tmp/recording.env 2>/dev/null || rm -f /tmp/recording.env
 
 # Egress reads its config as its own (non-root) user.
