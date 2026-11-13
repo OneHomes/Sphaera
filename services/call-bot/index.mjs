@@ -344,7 +344,9 @@ async function tick() {
       continue;
     }
     const roles = new Set(people.map((p) => roleOf(p.identity, p.metadata)));
-    if (RECORD && !call.recording && roles.has("agent") && roles.has("client")) await startRecording(r.name, call);
+    // Not awaited: Egress can take many seconds to answer (or time out when
+    // the server is full), and that must not hold up every other room.
+    if (RECORD && !call.recording && roles.has("agent") && roles.has("client")) startRecording(r.name, call);
   }
 
   // Rooms that closed (call ended for everyone from Sphaera).
@@ -352,7 +354,21 @@ async function tick() {
 }
 
 log(`call bot up: ${LIVEKIT_URL}, languages ${LANGUAGES.join("/")}, recording ${RECORD ? "on" : "off"}`);
-setInterval(() => tick().catch((err) => log("tick failed:", err.message)), TICK_MS);
+// One tick at a time. Overlapping ticks raced: an older tick, holding a
+// room list from before a new room opened, saw the bot in that room and
+// ended the call as "room closed" (found by the 10-call load test).
+let ticking = false;
+setInterval(async () => {
+  if (ticking) return;
+  ticking = true;
+  try {
+    await tick();
+  } catch (err) {
+    log("tick failed:", err.message);
+  } finally {
+    ticking = false;
+  }
+}, TICK_MS);
 setInterval(() => flush().catch(() => {}), 2000);
 
 // A restart must not end anyone's call: leave the rooms but keep the
