@@ -1,5 +1,7 @@
 # Recording + transcription, next to LiveKit on the video VM (~/livekit).
 # Run: docker compose -f docker-compose.recording.yaml up -d --build
+name: sphaera-recording
+
 services:
   egress:
     image: ${EGRESS_IMAGE}

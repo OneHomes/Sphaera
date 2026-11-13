@@ -39,8 +39,9 @@ const API_SECRET = env("LIVEKIT_API_SECRET");
 const SPHAERA_URL = env("SPHAERA_BOT_URL", "https://apex.sphaera.tech/api/video/bot");
 const SPEECH_KEY = env("AZURE_SPEECH_KEY");
 const SPEECH_REGION = env("AZURE_SPEECH_REGION", "centralindia");
-// Azure picks the language per sentence from this list (max 10).
-const LANGUAGES = env("SPEECH_LANGUAGES", "en-GB,ur-PK").split(",").map((s) => s.trim()).filter(Boolean);
+// Azure picks the language per sentence from this list (max 10). Urdu is
+// ur-IN: Azure speech-to-text has no ur-PK; it is the same language and script.
+const LANGUAGES = env("SPEECH_LANGUAGES", "en-GB,ur-IN").split(",").map((s) => s.trim()).filter(Boolean);
 const RECORD = env("RECORDING_ENABLED", "true") === "true";
 const BOT_IDENTITY = "sphaera-bot";
 const TICK_MS = 4000;
@@ -114,7 +115,11 @@ async function flush() {
 // ---------------------------------------------------------------- Speech
 
 function recognizerFor(onText) {
-  const speechConfig = sdk.SpeechConfig.fromSubscription(SPEECH_KEY, SPEECH_REGION);
+  // Switching language mid-call (continuous language ID) needs the v2 endpoint.
+  const speechConfig =
+    LANGUAGES.length > 1
+      ? sdk.SpeechConfig.fromEndpoint(new URL(`wss://${SPEECH_REGION}.stt.speech.microsoft.com/speech/universal/v2`), SPEECH_KEY)
+      : sdk.SpeechConfig.fromSubscription(SPEECH_KEY, SPEECH_REGION);
   speechConfig.setProperty(sdk.PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous");
   speechConfig.outputFormat = sdk.OutputFormat.Simple;
   const push = sdk.AudioInputStream.createPushStream(sdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1));

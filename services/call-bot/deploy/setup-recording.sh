@@ -25,10 +25,11 @@ ws_url: ws://localhost:7880
 insecure: true
 redis:
   address: localhost:6379
-azure:
-  account_name: $RECORDINGS_STORAGE_ACCOUNT
-  account_key: $RECORDINGS_STORAGE_KEY
-  container_name: ${RECORDINGS_CONTAINER:-recordings}
+storage:
+  azure:
+    account_name: $RECORDINGS_STORAGE_ACCOUNT
+    account_key: $RECORDINGS_STORAGE_KEY
+    container_name: ${RECORDINGS_CONTAINER:-recordings}
 cpu_cost:
   room_composite_cpu_cost: 2.0
 YAML
@@ -40,14 +41,14 @@ LIVEKIT_API_SECRET=$LK_SECRET
 AZURE_SPEECH_KEY=$AZURE_SPEECH_KEY
 AZURE_SPEECH_REGION=$AZURE_SPEECH_REGION
 SPHAERA_BOT_URL=https://apex.sphaera.tech/api/video/bot
-SPEECH_LANGUAGES=en-GB,ur-PK
+SPEECH_LANGUAGES=en-GB,ur-IN
 RECORDING_ENABLED=true
 ENV
 shred -u /tmp/recording.env 2>/dev/null || rm -f /tmp/recording.env
 
 # Egress reads its config as its own (non-root) user.
-EGRESS_UID=$(docker run --rm --entrypoint id "$EGRESS_IMAGE" -u 2>/dev/null || echo 0)
+EGRESS_UID=$(sudo docker run --rm --entrypoint id "$EGRESS_IMAGE" -u 2>/dev/null || echo 0)
 if [ "$EGRESS_UID" != "0" ] && [ "$EGRESS_UID" != "$(id -u)" ]; then sudo chown "$EGRESS_UID" egress.yaml; fi
 
-EGRESS_IMAGE="$EGRESS_IMAGE" docker compose -f docker-compose.recording.yaml up -d --build
-docker compose -f docker-compose.recording.yaml ps
+sudo EGRESS_IMAGE="$EGRESS_IMAGE" docker compose -f docker-compose.recording.yaml up -d --build
+sudo EGRESS_IMAGE="$EGRESS_IMAGE" docker compose -f docker-compose.recording.yaml ps
