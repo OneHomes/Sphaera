@@ -32,3 +32,11 @@ The page shows these steps itself until both are done.
 
 - Monthly budget per feature with an alert when Janus spend jumps.
 - Cost per lead / per agent trend over months.
+
+## Change log
+
+- **13 Nov 2026: transcription cost halved.**
+  - **Change:** the call bot now mixes each call's voices into one Azure Speech stream instead of one stream per person.
+  - **Price:** 1 hour of call ≈ $1 transcription (was ≈ $2). Nothing is sent while nobody with a microphone is in the room.
+  - **Speaker names:** each sentence is labelled with whoever was loudest while it was said, using the bot's own per-person audio. In the self-test, English went to the agent and Urdu to the client, both correctly.
+  - **Known limit:** when two people talk over each other, the whole sentence goes to the louder one.
