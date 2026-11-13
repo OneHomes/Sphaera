@@ -85,6 +85,8 @@ const TENANT_SCOPED_MODELS = new Set<Prisma.ModelName>([
   "JanusMessage",
   "VideoCall",
   "VideoCallGuest",
+  "VideoCallRecording",
+  "VideoCallTranscriptSegment",
   // Sphaera Finance module (2026-10-26) — see prisma/schema.prisma's
   // Finance section comment for the full porting rationale.
   "FinanceTransaction",

@@ -423,6 +423,23 @@ html.glass .janus-float {
   }
 }
 
+/* Live captions on the monitor (components/video/LiveCaptions.tsx): each
+   new sentence settles in; frequent, so short and subtle. */
+.live-caption {
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+@starting-style {
+  .live-caption {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-caption {
+    transition: none;
+  }
+}
+
 /* Video call splash (components/video/CallSplash.tsx). Two staggered rings
    ripple out while connecting; the splash fades away once connected. */
 .call-splash {

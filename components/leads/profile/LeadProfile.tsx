@@ -18,6 +18,7 @@ export function LeadProfile({
   nextBestAction,
   opportunity,
   relatedDocuments,
+  videoCalls,
 }: {
   lead: Lead;
   notes: Note[];
@@ -26,6 +27,7 @@ export function LeadProfile({
   nextBestAction: NextBestAction;
   opportunity: RealOpportunity | null;
   relatedDocuments: RelatedDocument[];
+  videoCalls: boolean;
 }) {
   // Qualification (budget/bedrooms/move-in/financing) has no real Lead
   // field to source it from yet — kept as an explicitly-labelled
@@ -36,7 +38,7 @@ export function LeadProfile({
 
   return (
     <div className="flex h-full flex-col">
-      <ProfileHeader lead={lead} currentUserId={currentUserId} />
+      <ProfileHeader lead={lead} currentUserId={currentUserId} videoCalls={videoCalls} />
 
       <div className="flex-1 overflow-auto p-6">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

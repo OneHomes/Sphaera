@@ -1,0 +1,12 @@
+{
+  "name": "sphaera-call-bot",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": { "start": "node index.mjs" },
+  "dependencies": {
+    "@livekit/rtc-node": "1.2.1",
+    "livekit-server-sdk": "2.19.2",
+    "microsoft-cognitiveservices-speech-sdk": "1.53.0"
+  }
+}

@@ -296,6 +296,8 @@ model LeadTimelineEvent {
   // every Sphaera-native event (notes, calls logged in-app, stage
   // changes, etc.), which already land here through their own routes.
   hubspotEngagementId String?
+  // In-app page the event opens, e.g. /video/<id> for a recorded video call.
+  href                String?
 
   @@index([organizationId])
   @@index([leadId])
@@ -1953,12 +1955,61 @@ model VideoCall {
   expiresAt      DateTime
   endedAt        DateTime?
   createdAt      DateTime  @default(now())
+  // Meeting notes Janus writes from the transcript once the call ends:
+  // null (not yet) | generating | ready | empty (nothing was said) | failed.
+  notesStatus    String?
+  notes          String?   @db.NVarChar(Max) // JSON, see lib/video/notes.ts
+  notesAt        DateTime?
   guests         VideoCallGuest[]
+  recordings     VideoCallRecording[]
+  transcript     VideoCallTranscriptSegment[]
 
   @@index([organizationId])
   @@index([agentUserId])
   @@index([status])
   @@map("video_calls")
+}
+
+// A recording of a call, made on the video server (LiveKit Egress) and
+// stored in Azure Blob (RECORDINGS_STORAGE_ACCOUNT). Usually one per call;
+// more if the recording had to restart. Never deleted: Azure moves old
+// files to the Cold and then Archive tiers on its own.
+model VideoCallRecording {
+  id             String    @id @default(cuid())
+  organizationId String?
+  callId         String
+  call           VideoCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+  egressId       String    @unique
+  blobPath       String?
+  status         String    @default("recording") // recording | ready | failed
+  durationSec    Int?
+  sizeBytes      Float?
+  error          String?   @db.NVarChar(1000)
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+
+  @@index([organizationId])
+  @@index([callId])
+  @@map("video_call_recordings")
+}
+
+// One spoken sentence, transcribed live per speaker by the call bot.
+model VideoCallTranscriptSegment {
+  id              String    @id @default(cuid())
+  organizationId  String?
+  callId          String
+  call            VideoCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+  speakerIdentity String
+  speakerName     String
+  speakerRole     String // agent | client | other
+  text            String    @db.NVarChar(Max)
+  language        String?
+  spokenAt        DateTime
+  createdAt       DateTime  @default(now())
+
+  @@index([organizationId])
+  @@index([callId, spokenAt])
+  @@map("video_call_transcript_segments")
 }
 
 // One row per client who joined through the link, with their consent to

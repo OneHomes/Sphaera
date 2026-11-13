@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
+import { VIDEO_CALLS_ENABLED, videoCallsFor } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
 import { agentTokens } from "@/lib/video/livekit";
@@ -11,6 +11,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     return await withTenant(async (authUser, session) => {
+      if (!videoCallsFor(session.user?.email)) return NextResponse.json({ error: "Not found" }, { status: 404 });
       const call = await prisma.videoCall.findFirst({ where: { id: params.id } });
       if (!call || call.agentUserId !== authUser.id) {
         return NextResponse.json({ error: "Call not found" }, { status: 404 });

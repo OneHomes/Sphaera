@@ -17,7 +17,6 @@ import {
   Video,
 } from "lucide-react";
 import { linkStorageKey } from "@/lib/video/clientLink";
-import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { alertDialog } from "@/components/finance/dialogs";
 import type { Lead, LeadStage } from "@/lib/leadData";
 import { leadStages } from "@/lib/leadData";
@@ -40,16 +39,17 @@ const allActionButtons = [
   { icon: UserCog, label: "Request manager" },
 ] as const;
 
-// "Video call" stays hidden until calls run on One Homes' own server.
-const actionButtons = allActionButtons.filter((b) => VIDEO_CALLS_ENABLED || b.label !== "Video call");
-
 export function ProfileHeader({
   lead,
   currentUserId,
+  videoCalls,
 }: {
   lead: Lead;
   currentUserId: string;
+  videoCalls: boolean;
 }) {
+  // "Video call" shows only for people videoCallsFor() lets in.
+  const actionButtons = allActionButtons.filter((b) => videoCalls || b.label !== "Video call");
   const router = useRouter();
   const [isUpdatingStage, setIsUpdatingStage] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
@@ -60,7 +60,7 @@ export function ProfileHeader({
   const [showProposal, setShowProposal] = useState(false);
   const [pendingStage, setPendingStage] = useState<LeadStage | null>(null);
 
-  function handleAction(label: (typeof actionButtons)[number]["label"]) {
+  function handleAction(label: (typeof allActionButtons)[number]["label"]) {
     // PRD AE11 — "Call" now launches the real Call Workspace (timer,
     // real-time Sphaera/Manager assistance, auto-logged on end) rather
     // than just quick-logging a call that already happened. To log a

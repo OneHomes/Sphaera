@@ -18,7 +18,9 @@ import {
   ClipboardList,
   Megaphone,
   UserPlus,
+  Video,
 } from "lucide-react";
+import Link from "next/link";
 import type { TimelineEvent, TimelineEventType } from "@/lib/leadProfileData";
 
 // Matches the interaction pattern of HubSpot's own activity timeline
@@ -32,6 +34,7 @@ import type { TimelineEvent, TimelineEventType } from "@/lib/leadProfileData";
 
 const iconMap: Record<TimelineEventType, typeof Phone> = {
   call: Phone,
+  video_call: Video,
   email: Mail,
   meeting: CalendarClock,
   note: StickyNote,
@@ -50,6 +53,7 @@ const iconMap: Record<TimelineEventType, typeof Phone> = {
 
 const colorMap: Record<TimelineEventType, string> = {
   call: "text-sky-400 bg-sky-500/15",
+  video_call: "text-teal-400 bg-teal-500/15",
   email: "text-violet-400 bg-violet-500/15",
   meeting: "text-status-active bg-status-active/15",
   note: "text-ink-300 bg-base-700",
@@ -68,6 +72,7 @@ const colorMap: Record<TimelineEventType, string> = {
 
 const typeLabels: Record<TimelineEventType, string> = {
   call: "Calls",
+  video_call: "Video calls",
   email: "Emails",
   meeting: "Meetings",
   note: "Notes",
@@ -89,7 +94,7 @@ const typeLabels: Record<TimelineEventType, string> = {
 // its UI but not through the API. "Sphaera" covers our own native event
 // types that HubSpot has no equivalent for.
 const FILTER_GROUPS: { label: string; types: TimelineEventType[] }[] = [
-  { label: "Communication", types: ["call", "email", "whatsapp", "linkedin", "sms", "communication"] },
+  { label: "Communication", types: ["call", "video_call", "email", "whatsapp", "linkedin", "sms", "communication"] },
   { label: "Contact activity", types: ["page_view", "form_submission", "marketing_email", "created"] },
   { label: "Team activity", types: ["meeting", "note", "task"] },
   { label: "Sphaera", types: ["stage_change", "handover"] },
@@ -301,6 +306,11 @@ export function ActivityTimeline({ events }: { events: TimelineEvent[] }) {
                               {event.summary}
                             </p>
                             <p className="mt-1 text-[11px] text-ink-500">{absoluteLabel(event.occurredAt)}</p>
+                            {event.href && (
+                              <Link href={event.href} className="mt-1.5 inline-block text-xs text-ink-300 underline-offset-2 hover:text-ink-50 hover:underline">
+                                Open recording and transcript
+                              </Link>
+                            )}
                           </div>
                         )}
                       </li>

@@ -38,6 +38,8 @@ export type NavItem = {
   // Sphaera Finance module — gated on the Admin-grantable canAccessFinance
   // flag (lib/authz.ts), independent of role, same pattern as canExportData.
   financeAccess?: boolean;
+  // Video calls: hidden from anyone videoCallsFor() (lib/video/flag.ts) leaves out.
+  videoCalls?: boolean;
 };
 
 // Order and icon set follow the reference walkthrough's persistent left rail.
@@ -66,7 +68,7 @@ export const navItems: NavItem[] = [
   { href: "/profile", label: "Profile", icon: User },
   { href: "/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/finance", label: "Finance", icon: Landmark, financeAccess: true },
-  ...(VIDEO_CALLS_ENABLED ? [{ href: "/video/live", label: "Live calls", icon: MonitorPlay, adminOnly: true }] : []),
+  ...(VIDEO_CALLS_ENABLED ? [{ href: "/video/live", label: "Live calls", icon: MonitorPlay, adminOnly: true, videoCalls: true }] : []),
   { href: "/admin/users", label: "Admin", icon: ShieldCheck, adminOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

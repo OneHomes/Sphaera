@@ -36,15 +36,15 @@ export function SignInForm() {
 
   return (
     <div className="flex w-full flex-col justify-center px-8 py-12 sm:px-16 md:w-1/2 lg:px-24">
-      <div className="mb-10 text-ink-50">
+      <div className="mb-10 flex justify-center text-ink-50">
         <SphaeraWordmark tagline className="h-10" />
       </div>
 
-      <h1 className="font-display text-3xl font-semibold text-ink-50">
+      <h1 className="text-center font-display text-3xl font-semibold text-ink-50">
         Sign in
       </h1>
-      <p className="mt-2 text-sm text-ink-300">
-        Sign in with your One Homes Microsoft account to continue.
+      <p className="mt-2 text-center text-sm text-ink-300">
+        Sign in with your Microsoft work account to continue.
       </p>
 
       {errorCode && (

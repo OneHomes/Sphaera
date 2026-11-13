@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (!callId || !key) return NextResponse.json({ error: "This link isn't valid" }, { status: 400 });
   if (!name) return NextResponse.json({ error: "Please enter your name" }, { status: 400 });
   if (body.consent !== true) {
-    return NextResponse.json({ error: "Please confirm you understand the call may be monitored and recorded" }, { status: 400 });
+    return NextResponse.json({ error: "Please confirm you understand the call will be recorded and transcribed" }, { status: 400 });
   }
 
   // findUnique by id: not tenant-filtered, since a client has no session.

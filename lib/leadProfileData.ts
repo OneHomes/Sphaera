@@ -7,6 +7,7 @@ import { leadStageRank } from "@/lib/leadData";
 
 export type TimelineEventType =
   | "call"
+  | "video_call"
   | "email"
   | "meeting"
   | "note"
@@ -28,6 +29,7 @@ export type TimelineEvent = {
   timestamp: string;
   occurredAt: string; // ISO — the HubSpot-style timeline groups by month and needs a real date, not just the relative "timestamp" string
   summary: string;
+  href?: string; // in-app page the event opens, e.g. a video call's record
 };
 
 export type Qualification = {

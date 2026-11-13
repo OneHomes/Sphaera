@@ -1,0 +1,19 @@
+# Recording + transcription, next to LiveKit on the video VM (~/livekit).
+# Run: docker compose -f docker-compose.recording.yaml up -d --build
+services:
+  egress:
+    image: ${EGRESS_IMAGE}
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - SYS_ADMIN # Chrome's sandbox, which renders the 480p recording
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+
+  call-bot:
+    build: ../call-bot
+    restart: unless-stopped
+    network_mode: host
+    env_file: ./call-bot.env

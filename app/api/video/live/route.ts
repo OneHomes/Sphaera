@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
+import { VIDEO_CALLS_ENABLED, videoCallsFor } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
 import { withTenant, UnauthenticatedError } from "@/lib/withTenant";
@@ -10,7 +10,8 @@ import { liveKitConfig, roomService } from "@/lib/video/livekit";
 export async function GET() {
   if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
-    return await withTenant(async (authUser) => {
+    return await withTenant(async (authUser, session) => {
+      if (!videoCallsFor(session.user?.email)) return NextResponse.json({ error: "Not found" }, { status: 404 });
       if (!hasRole(authUser, ["ADMIN"])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       if (!liveKitConfig()) return NextResponse.json({ error: "Video calls aren't set up yet" }, { status: 503 });
 

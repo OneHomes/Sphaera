@@ -9,7 +9,8 @@ import { CallSplash } from "./CallSplash";
 
 // The client's side of a video call: opened from the link the agent sent,
 // in any browser, with no account. Joining requires accepting that the call
-// may be monitored and recorded; the server refuses a join without it.
+// is recorded and transcribed and may be monitored; the server refuses a
+// join without it.
 export function GuestJoin({ callId, joinKey, agentName, orgName }: { callId: string; joinKey: string; agentName: string; orgName: string }) {
   const [name, setName] = useState("");
   const [consent, setConsent] = useState(false);
@@ -97,7 +98,8 @@ export function GuestJoin({ callId, joinKey, agentName, orgName }: { callId: str
             onChange={(e) => setConsent(e.target.checked)}
             className="mt-0.5 h-4 w-4 shrink-0 accent-[rgb(var(--status-active))]"
           />
-          I understand this call may be monitored and recorded for quality and training purposes.
+          I understand this call will be recorded and transcribed, and may be monitored, for quality, training and
+          to keep notes of what we discuss.
         </label>
         {error && <p className="text-xs text-status-inactive">{error}</p>}
         <button

@@ -120,5 +120,6 @@ export function toUiTimelineEvent(row: PrismaTimelineEvent): TimelineEvent {
     timestamp: formatRelativeTime(row.occurredAt),
     occurredAt: row.occurredAt.toISOString(),
     summary: cleanSummaryForDisplay(row.summary),
+    ...(row.href ? { href: row.href } : {}),
   };
 }

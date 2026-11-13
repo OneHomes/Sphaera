@@ -6,6 +6,7 @@ import { GridLayout, LiveKitRoom, ParticipantTile, RoomAudioRenderer, useTracks 
 import { Track } from "livekit-client";
 import { Eye, Loader2, Mic, PhoneOff, Video, X } from "lucide-react";
 import { CallSplash } from "./CallSplash";
+import { LiveCaptions } from "./LiveCaptions";
 import { WidgetCard } from "@/components/dashboard/WidgetCard";
 import { confirmDialog } from "@/components/finance/dialogs";
 import { useCoachTalker } from "./coachChannel";
@@ -182,6 +183,7 @@ function MonitorView({ call, onClose }: { call: LiveCall; onClose: () => void })
                 onConnected={() => setConnected(true)}
               >
                 <MonitorGrid />
+                <LiveCaptions />
                 <RoomAudioRenderer />
               </LiveKitRoom>
             )}

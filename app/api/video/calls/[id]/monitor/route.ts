@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
+import { VIDEO_CALLS_ENABLED, videoCallsFor } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { hasRole } from "@/lib/authz";
 import { logAudit } from "@/lib/auditLog";
@@ -14,6 +14,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
   if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     return await withTenant(async (authUser, session) => {
+      if (!videoCallsFor(session.user?.email)) return NextResponse.json({ error: "Not found" }, { status: 404 });
       if (!hasRole(authUser, ["ADMIN"])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       const call = await prisma.videoCall.findFirst({ where: { id: params.id } });
       if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });

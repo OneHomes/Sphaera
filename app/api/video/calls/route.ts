@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
-import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
+import { VIDEO_CALLS_ENABLED, videoCallsFor } from "@/lib/video/flag";
 import { prisma } from "@/lib/prisma";
 import { canAccessRecord } from "@/lib/authz";
 import { logAudit } from "@/lib/auditLog";
@@ -15,6 +15,7 @@ export async function POST(request: Request) {
   if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     return await withTenant(async (authUser, session) => {
+      if (!videoCallsFor(session.user?.email)) return NextResponse.json({ error: "Not found" }, { status: 404 });
       if (!liveKitConfig()) {
         return NextResponse.json({ error: "Video calls aren't set up yet" }, { status: 503 });
       }

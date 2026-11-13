@@ -11,9 +11,11 @@ type Role = "AGENT" | "MANAGER" | "ADMIN";
 export function LeftRail({
   role,
   canAccessFinance,
+  videoCalls,
 }: {
   role?: Role;
   canAccessFinance?: boolean;
+  videoCalls?: boolean;
 }) {
   const pathname = usePathname();
   // Hover label is position:fixed beside the hovered icon so the dock
@@ -27,6 +29,7 @@ export function LeftRail({
     if (item.adminOnly && role !== "ADMIN") return false;
     if (item.managerAndAbove && role === "AGENT") return false;
     if (item.financeAccess && !canAccessFinance) return false;
+    if (item.videoCalls && !videoCalls) return false;
     return true;
   });
 

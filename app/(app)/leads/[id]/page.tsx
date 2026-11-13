@@ -8,6 +8,7 @@ import { withTenantPage } from "@/lib/withTenant";
 import { getNextBestAction } from "@/lib/nextBestAction";
 import { originalSourceLabel } from "@/lib/leadOriginalSource";
 import { LeadProfile } from "@/components/leads/profile/LeadProfile";
+import { videoCallsFor } from "@/lib/video/flag";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,7 @@ export default async function LeadProfilePage({
         notes={notes}
         timeline={timeline}
         currentUserId={authUser.id}
+        videoCalls={videoCallsFor(session.user?.email)}
         nextBestAction={nextBestAction}
         opportunity={
           opportunity

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
+import { VIDEO_CALLS_ENABLED, videoCallsFor } from "@/lib/video/flag";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -14,6 +14,7 @@ export default async function LiveCallsPage() {
   if (!VIDEO_CALLS_ENABLED) notFound();
   const session = await getServerSession(authOptions);
   if (!session) redirect("/sign-in");
+  if (!videoCallsFor(session.user?.email)) notFound();
 
   return withTenantPage(session, async (authUser) => {
     if (!hasRole(authUser, ["ADMIN"])) redirect("/dashboard");
