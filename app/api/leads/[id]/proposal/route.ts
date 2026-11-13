@@ -120,7 +120,7 @@ export async function GET(
         const raw = await askJanus([
           { role: "system", content: PROPOSAL_SYSTEM_PROMPT },
           { role: "user", content: grounding.context },
-        ]);
+        ], { usage: { feature: "lead_proposal", userId: authUser.id, leadId: params.id } });
 
         let title = `Proposal — ${grounding.lead.name}`;
         let body = `<p>${grounding.lead.name}, thank you for your interest in ${grounding.lead.projectInterest}.</p>`;

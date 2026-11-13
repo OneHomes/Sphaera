@@ -172,7 +172,7 @@ async function join(roomName) {
   const at = new AccessToken(API_KEY, API_SECRET, { identity: BOT_IDENTITY, name: "Sphaera notes", ttl: "12h" });
   at.addGrant({ room: roomName, roomJoin: true, hidden: true, canPublish: false, canSubscribe: true, canPublishData: true });
   const room = new Room();
-  const call = { room, speakers: new Map(), emptySince: null, recording: false, closing: false };
+  const call = { room, speakers: new Map(), emptySince: null, recording: false, closing: false, speechSeconds: 0 };
   calls.set(roomName, call);
 
   room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
@@ -215,6 +215,8 @@ function startSpeaker(roomName, call, track, participant) {
       for await (const frame of stream) {
         if (speaker.done) break;
         speech.write(frame.data);
+        // Azure bills by audio sent; reported with call_finished.
+        call.speechSeconds += frame.samplesPerChannel / frame.sampleRate;
       }
     } catch (err) {
       log("audio stream ended with error:", err.message);
@@ -279,7 +281,7 @@ async function finish(roomName, why) {
   for (const key of [...call.speakers.keys()]) stopSpeaker(call, key);
   await call.room.disconnect().catch(() => {});
   calls.delete(roomName);
-  send({ type: "call_finished", room: roomName });
+  send({ type: "call_finished", room: roomName, speechSeconds: Math.round(call.speechSeconds) });
 
   // Stop the recording (it would otherwise run until the room closes),
   // then wait for the upload to finish and report the file.

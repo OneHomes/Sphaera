@@ -1,3 +1,5 @@
+import { recordLlmUsage, type UsageContext } from "@/lib/costs/usage";
+
 // A message's content is plain text, or a list of parts when files go with
 // it: the Responses API reads PDFs (input_file) and images (input_image)
 // directly, so scanned PDFs and screenshots work too.
@@ -17,7 +19,7 @@ export type JanusMessage = {
 // come from AZURE_AI_FOUNDRY_* env vars, never hardcoded.
 export async function askJanus(
   messages: JanusMessage[],
-  opts: { signal?: AbortSignal } = {}
+  opts: { signal?: AbortSignal; usage?: UsageContext } = {}
 ): Promise<string> {
   const endpoint = process.env.AZURE_AI_FOUNDRY_RESPONSES_ENDPOINT;
   const apiKey = process.env.AZURE_AI_FOUNDRY_API_KEY;
@@ -29,6 +31,7 @@ export async function askJanus(
     );
   }
 
+  const started = Date.now();
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -50,6 +53,16 @@ export async function askJanus(
   }
 
   const data = await res.json();
+
+  // What this request cost, for the internal costs page.
+  const u = data.usage ?? {};
+  await recordLlmUsage(opts.usage, {
+    model: typeof data.model === "string" ? data.model : deployment,
+    inputTokens: u.input_tokens ?? 0,
+    cachedTokens: u.input_tokens_details?.cached_tokens ?? 0,
+    outputTokens: u.output_tokens ?? 0,
+    durationMs: Date.now() - started,
+  });
 
   if (typeof data.output_text === "string") {
     return data.output_text;
@@ -91,7 +104,7 @@ export async function transcribeWithJanus(
         },
         { role: "user", content: [{ type: "input_text", text: `Transcribe ${filename}.` }, filePart] },
       ],
-      { signal: AbortSignal.timeout(30_000) }
+      { signal: AbortSignal.timeout(30_000), usage: { feature: "document_reading" } }
     );
     return text.trim() || null;
   } catch (err) {

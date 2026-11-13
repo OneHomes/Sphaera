@@ -46,7 +46,7 @@ export async function POST(request: Request) {
         const raw = await askJanus([
           { role: "system", content: FOCUS_PARSE_PROMPT },
           { role: "user", content: body.instruction },
-        ]);
+        ], { usage: { feature: "focus_proposal", userId: authUser.id } });
 
         // Defensive: strip markdown fences if the model adds them despite
         // instructions not to.

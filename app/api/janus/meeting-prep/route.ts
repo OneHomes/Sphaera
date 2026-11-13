@@ -91,7 +91,7 @@ ${matchedLead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n")
           { role: "system", content: MEETING_PREP_SYSTEM_PROMPT },
           { role: "system", content: groundingContext },
           { role: "user", content: "Prepare me for this meeting." },
-        ]);
+        ], { usage: { feature: "meeting_prep", userId: authUser.id } });
 
         return NextResponse.json({
           brief: answer,

@@ -365,24 +365,24 @@ model Team {
 }
 
 model User {
-  id             String   @id @default(cuid())
-  organizationId String?
-  entraId        String?  @unique
-  name           String
-  email          String
+  id                      String   @id @default(cuid())
+  organizationId          String?
+  entraId                 String?  @unique
+  name                    String
+  email                   String
   // Set only for email+password accounts (new, non-Entra orgs) — hashed
   // with bcrypt, see lib/auth.ts's Credentials provider. Null for every
   // Entra ID sign-in (One Homes today), which never uses a password.
-  passwordHash   String?
-  role           String   @default("AGENT")
-  teamId         String?
-  team           Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
-  managedTeams   Team[]   @relation("TeamManager")
+  passwordHash            String?
+  role                    String   @default("AGENT")
+  teamId                  String?
+  team                    Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  managedTeams            Team[]   @relation("TeamManager")
   // Phase 1 Sales Scope Foundations — "No data can be exported unless you
   // [have] specific rights": an explicit, Admin-grantable permission,
   // deliberately separate from role. Being an Admin does not imply this —
   // it must be turned on per user, including for Admins themselves.
-  canExportData  Boolean  @default(false)
+  canExportData           Boolean  @default(false)
   // Sphaera Finance module access — same Admin-grantable, role-independent
   // pattern as canExportData above. canAccessFinancePayroll is a separate,
   // stricter flag gating People Costs, salary-category entries, and
@@ -390,8 +390,8 @@ model User {
   // Entra app-roles, OneHomesDashboard.Access / ...Payroll).
   canAccessFinance        Boolean  @default(false)
   canAccessFinancePayroll Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   // PRD AE01 (Sign In and Welcome Sequence) — Agents (not Admins) see a
   // daily "Welcome back" target-review screen before the rest of the
@@ -1110,13 +1110,13 @@ model IndexSeries {
 // ===========================================================================
 
 model FinanceTransaction {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String?
   fingerprint    String
-  occurrence     Int      @default(1)
+  occurrence     Int       @default(1)
   month          String // 'YYYY-MM'
   paymentDate    DateTime?
-  description    String   @db.NVarChar(Max)
+  description    String    @db.NVarChar(Max)
   originalCentre String?
   originalHead   String?
   country        String?
@@ -1124,18 +1124,18 @@ model FinanceTransaction {
   sourceSheet    String?
   sourceRow      Int?
   sourceFile     String?
-  reviewGroup    String   @default("Routine")
-  importedAt     DateTime @default(now())
+  reviewGroup    String    @default("Routine")
+  importedAt     DateTime  @default(now())
 
-  allocation             FinanceAllocation?
-  disputedCharge         FinanceDisputedCharge?
-  paymentTrace           FinancePaymentTrace?
-  paymentCostSplit       FinancePaymentCostSplit?
-  overheadOverride       FinanceOverheadPaymentOverride?
-  merchantReview         FinanceMerchantReview?
-  personCostAllocations  FinancePersonCostAllocation[]
-  merchantInvoiceLinks   FinanceMerchantInvoiceLink[]
-  erpStagingMatches      FinanceErpSyncStaging[]
+  allocation            FinanceAllocation?
+  disputedCharge        FinanceDisputedCharge?
+  paymentTrace          FinancePaymentTrace?
+  paymentCostSplit      FinancePaymentCostSplit?
+  overheadOverride      FinanceOverheadPaymentOverride?
+  merchantReview        FinanceMerchantReview?
+  personCostAllocations FinancePersonCostAllocation[]
+  merchantInvoiceLinks  FinanceMerchantInvoiceLink[]
+  erpStagingMatches     FinanceErpSyncStaging[]
 
   @@unique([organizationId, fingerprint, occurrence])
   @@index([organizationId, month])
@@ -1196,7 +1196,7 @@ model FinanceManagementCostHead {
 }
 
 model FinanceCostHead {
-  id             String @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String?
   head           String
   centre         String
@@ -1345,25 +1345,25 @@ model FinanceSubscriptionUser {
 }
 
 model FinancePaymentTrace {
-  id               String               @id @default(cuid())
+  id               String                @id @default(cuid())
   organizationId   String?
-  transactionId    String               @unique
-  transaction      FinanceTransaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transactionId    String                @unique
+  transaction      FinanceTransaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   paymentReference String?
   erpPaymentId     String?
   erpInvoiceId     String?
   erpSourceId      String?
   supplier         String?
-  purpose          String?              @db.NVarChar(Max)
+  purpose          String?               @db.NVarChar(Max)
   paymentMethod    String?
   paymentSourceId  String?
   paymentSource    FinancePaymentSource? @relation(fields: [paymentSourceId], references: [id], onDelete: SetNull)
   subscriptionId   String?
-  subscription     FinanceSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  subscription     FinanceSubscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   sourceCurrency   String?
   sourceAmount     Float?
-  reviewed         Boolean              @default(false)
-  updatedAt        DateTime             @updatedAt
+  reviewed         Boolean               @default(false)
+  updatedAt        DateTime              @updatedAt
 
   @@index([organizationId])
   @@map("finance_payment_trace")
@@ -1451,19 +1451,19 @@ model FinancePerson {
 
 // HR payroll master imports (People Costs skill). Reference records only, never ledger expenses.
 model FinancePayrollRun {
-  id              String    @id @default(cuid())
-  organizationId  String?
-  sourceName      String
-  payPeriod       String? // YYYY-MM once Finance confirms it; the source CSV does not supply one
-  fxPkrPerUsd     Float
-  employeeCount   Int
-  status          String    @default("Draft") // Draft | Approved
-  sourceTotalsJson String   @db.NVarChar(Max)
-  exceptionsJson  String    @db.NVarChar(Max)
-  createdBy       String
-  createdAt       DateTime  @default(now())
-  approvedBy      String?
-  approvedAt      DateTime?
+  id               String    @id @default(cuid())
+  organizationId   String?
+  sourceName       String
+  payPeriod        String? // YYYY-MM once Finance confirms it; the source CSV does not supply one
+  fxPkrPerUsd      Float
+  employeeCount    Int
+  status           String    @default("Draft") // Draft | Approved
+  sourceTotalsJson String    @db.NVarChar(Max)
+  exceptionsJson   String    @db.NVarChar(Max)
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  approvedBy       String?
+  approvedAt       DateTime?
 
   lines FinancePayrollLine[]
 
@@ -1511,7 +1511,7 @@ model FinancePersonCostAllocation {
   costType           String // Salary | Commission | Bonus | Employer taxes | Benefits | Other personnel
   amountUsd          Float
   departmentSnapshot String? // point-in-time, never re-derived — see lib/finance/peopleOverheadsData.ts
-  jobTitleSnapshot   String  @default("") // v41: job title at allocation time, same point-in-time rule
+  jobTitleSnapshot   String             @default("") // v41: job title at allocation time, same point-in-time rule
   reference          String?
   note               String?            @db.NVarChar(Max)
   updatedAt          DateTime           @updatedAt
@@ -1522,13 +1522,13 @@ model FinancePersonCostAllocation {
 }
 
 model FinancePlan {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String?
   fyStart        Int // fiscal year start (November), e.g. 2026
-  version        Int      @default(1)
+  version        Int       @default(1)
   name           String?
-  status         String   @default("Draft") // Draft | Approved
-  createdAt      DateTime @default(now())
+  status         String    @default("Draft") // Draft | Approved
+  createdAt      DateTime  @default(now())
   approvedAt     DateTime?
 
   lines   FinancePlanLine[]
@@ -1806,12 +1806,12 @@ model FinanceCreditCardCharge {
 }
 
 model FinanceCreditBankLink {
-  id              String              @id @default(cuid())
+  id              String               @id @default(cuid())
   organizationId  String?
-  paymentSourceId String              @unique
+  paymentSourceId String               @unique
   paymentSource   FinancePaymentSource @relation(fields: [paymentSourceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   bankAccountId   String?
-  bankAccount     FinanceBankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bankAccount     FinanceBankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   openingBalance  Float?
   openingAsOf     DateTime?
 
@@ -1942,23 +1942,23 @@ model FinanceDepartmentAccess {
 // "coaching" room the client is never in). Lead/User are referenced by id
 // only, so this feature adds tables without touching existing ones.
 model VideoCall {
-  id             String    @id @default(cuid())
+  id             String                       @id @default(cuid())
   organizationId String?
   // LiveKit room name; the coaching room is `${roomName}-coach`.
-  roomName       String    @unique
+  roomName       String                       @unique
   leadId         String?
   agentUserId    String
   // SHA-256 of the secret in the client's join link; the link itself is
   // never stored.
   guestKeyHash   String
-  status         String    @default("waiting") // waiting | ended
+  status         String                       @default("waiting") // waiting | ended
   expiresAt      DateTime
   endedAt        DateTime?
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime                     @default(now())
   // Meeting notes Janus writes from the transcript once the call ends:
   // null (not yet) | generating | ready | empty (nothing was said) | failed.
   notesStatus    String?
-  notes          String?   @db.NVarChar(Max) // JSON, see lib/video/notes.ts
+  notes          String?                      @db.NVarChar(Max) // JSON, see lib/video/notes.ts
   notesAt        DateTime?
   guests         VideoCallGuest[]
   recordings     VideoCallRecording[]
@@ -2029,4 +2029,32 @@ model VideoCallGuest {
   @@index([organizationId])
   @@index([callId])
   @@map("video_call_guests")
+}
+
+// What each piece of paid usage cost: one row per Janus (LLM) request, per
+// call's speech-to-text minutes and per call recording. Prices are worked
+// out when the row is written (lib/costs/pricing.ts), so a price change
+// later doesn't rewrite history. Feeds the internal costs page.
+model UsageEvent {
+  id             String   @id @default(cuid())
+  organizationId String?
+  createdAt      DateTime @default(now())
+  service        String // llm | speech | recording
+  feature        String // e.g. janus_ask, call_notes, call_transcription
+  model          String?
+  inputTokens    Int?
+  cachedTokens   Int?
+  outputTokens   Int?
+  quantity       Float? // speech: audio seconds; recording: bytes
+  unit           String?
+  costUsd        Float?
+  userId         String?
+  leadId         String?
+  callId         String?
+  durationMs     Int?
+
+  @@index([organizationId])
+  @@index([createdAt])
+  @@index([callId])
+  @@map("usage_events")
 }

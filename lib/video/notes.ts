@@ -104,7 +104,7 @@ export async function generateCallNotes(callId: string, opts: { force?: boolean 
         },
         { role: "user", content: `Transcript${lead ? ` (client: ${lead.name})` : ""}:\n\n${transcript}` },
       ],
-      { signal: AbortSignal.timeout(35_000) }
+      { signal: AbortSignal.timeout(35_000), usage: { feature: "call_notes", userId: call.agentUserId, leadId: call.leadId, callId: call.id } }
     );
     notes = parseNotes(raw);
   } catch (err) {

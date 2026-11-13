@@ -62,7 +62,7 @@ ${lead.timelineEvents.map((e) => `- [${e.type}] ${e.summary}`).join("\n") || "- 
           { role: "system", content: COMPOSER_SYSTEM_PROMPT },
           { role: "system", content: groundingContext },
           { role: "user", content: "Draft the message." },
-        ]);
+        ], { usage: { feature: "compose_message", userId: authUser.id, leadId } });
 
         return NextResponse.json({ draft });
       } catch (err) {

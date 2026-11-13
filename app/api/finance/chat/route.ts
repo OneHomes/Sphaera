@@ -44,7 +44,7 @@ export async function POST(request: Request) {
           { role: "system", content: summary },
           ...history,
           { role: "user", content: question },
-        ]);
+        ], { usage: { feature: "finance_chat", userId: authUser.id } });
         return NextResponse.json({ answer });
       } catch (err) {
         console.error("Finance chat failed:", err);

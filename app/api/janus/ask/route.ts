@@ -295,7 +295,7 @@ ${formatDocumentGroundingContext(docMatches)}`;
             role: "user",
             content: fileParts.length ? [{ type: "input_text", text: question }, ...fileParts] : question,
           },
-        ]);
+        ], { usage: { feature: "janus_ask", userId: authUser.id, leadId: scope === "leadId" ? leadId : null } });
 
         // Phase 1 Sales Scope — "escalate to hierarchy when Janus can't
         // answer": a deterministic marker in the model's own output (same

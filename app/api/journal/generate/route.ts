@@ -36,7 +36,7 @@ export async function POST(request: Request) {
         const raw = await askJanus([
           { role: "system", content: GENERATION_SYSTEM_PROMPT },
           { role: "user", content: prompt },
-        ]);
+        ], { usage: { feature: "journal", userId: authUser.id } });
 
         let title = "Untitled note";
         let html = `<p>${prompt}</p>`;

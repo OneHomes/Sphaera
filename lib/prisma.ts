@@ -49,6 +49,7 @@ async function resolveOrganizationId(): Promise<string> {
 // market-intelligence models (IntelligenceDataset/MarketObservation/
 // IndexSeries — shared reference data, not customer data).
 const TENANT_SCOPED_MODELS = new Set<Prisma.ModelName>([
+  "UsageEvent",
   "Lead",
   "LeadNote",
   "LeadTag",

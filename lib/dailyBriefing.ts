@@ -104,7 +104,7 @@ Weakest Productivity Index dimension: ${weakestDimension[0]} (score ${weakestDim
       role: "user",
       content: period === "week" ? "Give me my weekly rollup." : "Give me my briefing for today.",
     },
-  ]);
+  ], { usage: { feature: "daily_briefing", userId } });
 
   return {
     briefing,

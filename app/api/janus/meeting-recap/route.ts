@@ -178,7 +178,7 @@ ${transcriptVtt}
           { role: "system", content: MEETING_RECAP_SYSTEM_PROMPT },
           { role: "system", content: groundingContext },
           { role: "user", content: "Summarize this meeting." },
-        ]);
+        ], { usage: { feature: "meeting_recap", userId: authUser.id } });
       } catch (err) {
         console.error("Meeting recap generation failed:", err);
         return NextResponse.json(

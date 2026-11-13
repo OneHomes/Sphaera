@@ -4,6 +4,7 @@ import { TokenVerifier } from "livekit-server-sdk";
 import { prisma, tenantContext } from "@/lib/prisma";
 import { VIDEO_CALLS_ENABLED } from "@/lib/video/flag";
 import { liveKitConfig } from "@/lib/video/livekit";
+import { recordRecordingUsage, recordSpeechUsage } from "@/lib/costs/usage";
 import { generateCallNotes } from "@/lib/video/notes";
 
 // Called only by the Sphaera call bot on the video server
@@ -26,7 +27,7 @@ type BotEvent =
       error: string | null;
     }
   | { type: "transcript"; room: string; segments: Segment[] }
-  | { type: "call_finished"; room: string };
+  | { type: "call_finished"; room: string; speechSeconds?: number };
 
 async function verified(request: Request): Promise<BotEvent | null> {
   const cfg = liveKitConfig();
@@ -43,6 +44,13 @@ async function verified(request: Request): Promise<BotEvent | null> {
     return null;
   }
 }
+
+const usageFor = (call: { id: string; agentUserId: string; leadId: string | null }, feature: string) => ({
+  feature,
+  userId: call.agentUserId,
+  leadId: call.leadId,
+  callId: call.id,
+});
 
 export async function POST(request: Request) {
   if (!VIDEO_CALLS_ENABLED) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -64,7 +72,9 @@ export async function POST(request: Request) {
         });
         break;
 
-      case "recording_ended":
+      case "recording_ended": {
+        // Count the file's storage once, even if the bot reports it twice.
+        const before = await prisma.videoCallRecording.findFirst({ where: { egressId: event.egressId }, select: { status: true } });
         await prisma.videoCallRecording.upsert({
           where: { egressId: event.egressId },
           create: {
@@ -86,7 +96,11 @@ export async function POST(request: Request) {
             endedAt: new Date(),
           },
         });
+        if (event.status === "ready" && event.sizeBytes && before?.status !== "ready") {
+          await recordRecordingUsage(usageFor(call, "call_recording"), event.sizeBytes);
+        }
         break;
+      }
 
       case "transcript": {
         const rows = (event.segments ?? [])
@@ -106,6 +120,9 @@ export async function POST(request: Request) {
       }
 
       case "call_finished":
+        if (typeof event.speechSeconds === "number" && event.speechSeconds > 0) {
+          await recordSpeechUsage(usageFor(call, "call_transcription"), Math.min(event.speechSeconds, 24 * 3600));
+        }
         await generateCallNotes(call.id);
         break;
     }
